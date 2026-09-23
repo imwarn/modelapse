@@ -1,0 +1,31 @@
+{
+  "apiVersion": "modelapse.dev/v1alpha1",
+  "kind": "TestPack",
+  "metadata": {
+    "id": "racer",
+    "version": "1.0.0",
+    "name": "Racer Test",
+    "description": "One-shot interactive browser game benchmark.",
+    "origin": { "type": "modelapse", "license": null },
+    "tags": ["game", "html", "interactive"]
+  },
+  "spec": {
+    "artifactType": "html",
+    "runtimePolicy": "browser-scripted-no-network",
+    "cases": [
+      {
+        "id": "icon-80s-racer",
+        "type": "icon",
+        "visibility": "public",
+        "status": "active",
+        "prompt": "Build a complete playable 1980s-style arcade racing game in a single self-contained HTML file.\n\nRequirements:\n- No external libraries, images, fonts, or network requests.\n- The player can steer left/right, accelerate, and brake.\n- Include traffic or obstacles.\n- Collisions must have a visible gameplay consequence.\n- Show score, distance, or progress.\n- Include a restart mechanism.\n- The game must be playable immediately after the page loads.\n- Return only the complete HTML."
+      }
+    ],
+    "evaluator": {
+      "id": "racer-runtime",
+      "version": "1.0.0",
+      "kind": "hybrid"
+    },
+    "renderer": { "id": "browser-capture", "version": "1.0.0" }
+  }
+}

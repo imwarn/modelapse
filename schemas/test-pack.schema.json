@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://modelapse.com/schemas/test-pack.v1alpha1.json",
+  "title": "Modelapse TestPack",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "modelapse.dev/v1alpha1" },
+    "kind": { "const": "TestPack" },
+    "metadata": {
+      "type": "object",
+      "required": ["id", "version", "name", "origin"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "version": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "origin": {
+          "type": "object",
+          "required": ["type"],
+          "properties": {
+            "type": { "enum": ["modelapse", "external", "hybrid"] },
+            "author": { "type": "string" },
+            "sourceUrl": { "type": "string", "format": "uri" },
+            "license": { "type": ["string", "null"] }
+          }
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" }
+        }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "required": ["artifactType", "runtimePolicy", "cases", "evaluator"],
+      "properties": {
+        "artifactType": {
+          "enum": ["text", "svg", "html", "web_bundle", "image", "video", "repo", "agent_trace"]
+        },
+        "runtimePolicy": { "type": "string" },
+        "cases": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["id", "type", "visibility"],
+            "properties": {
+              "id": { "type": "string" },
+              "type": { "enum": ["icon", "public", "shadow", "fixture", "calibration"] },
+              "visibility": { "enum": ["public", "private"] },
+              "status": { "enum": ["active", "retired"] },
+              "prompt": { "type": "string" },
+              "promptRef": { "type": "string" },
+              "fixtureBundleRef": { "type": "string" },
+              "activeFrom": { "type": "string", "format": "date-time" },
+              "activeTo": { "type": "string", "format": "date-time" }
+            },
+            "anyOf": [
+              { "required": ["prompt"] },
+              { "required": ["promptRef"] }
+            ]
+          }
+        },
+        "evaluator": {
+          "type": "object",
+          "required": ["id", "version", "kind"],
+          "properties": {
+            "id": { "type": "string" },
+            "version": { "type": "string" },
+            "kind": { "enum": ["deterministic", "structural", "visual", "judge", "hybrid"] }
+          }
+        },
+        "renderer": {
+          "type": "object",
+          "required": ["id", "version"],
+          "properties": {
+            "id": { "type": "string" },
+            "version": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

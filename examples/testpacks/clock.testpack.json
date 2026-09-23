@@ -1,0 +1,38 @@
+{
+  "apiVersion": "modelapse.dev/v1alpha1",
+  "kind": "TestPack",
+  "metadata": {
+    "id": "clock",
+    "version": "1.0.0",
+    "name": "Clock Test",
+    "description": "SVG geometry and time interpretation benchmark.",
+    "origin": { "type": "modelapse", "license": null },
+    "tags": ["svg", "geometry", "visual"]
+  },
+  "spec": {
+    "artifactType": "svg",
+    "runtimePolicy": "svg-static",
+    "cases": [
+      {
+        "id": "icon-8-47",
+        "type": "icon",
+        "visibility": "public",
+        "status": "active",
+        "prompt": "Create a standalone SVG analog clock showing exactly 8:47.\n\nRequirements:\n- Show all twelve hour markers.\n- Include an hour hand, a minute hand, and a clearly visible center pin.\n- The hands must be positioned accurately for 8:47.\n- Do not include any external assets or scripts.\n- Return only the SVG."
+      },
+      {
+        "id": "shadow-active",
+        "type": "shadow",
+        "visibility": "private",
+        "status": "active",
+        "promptRef": "private://clock/shadow-generator@1"
+      }
+    ],
+    "evaluator": {
+      "id": "clock-geometry",
+      "version": "1.0.0",
+      "kind": "hybrid"
+    },
+    "renderer": { "id": "svg", "version": "1.0.0" }
+  }
+}

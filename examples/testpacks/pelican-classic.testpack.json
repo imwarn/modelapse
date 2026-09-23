@@ -1,0 +1,36 @@
+{
+  "apiVersion": "modelapse.dev/v1alpha1",
+  "kind": "TestPack",
+  "metadata": {
+    "id": "pelican-classic",
+    "version": "1.0.0",
+    "name": "Pelican Classic",
+    "description": "Historical SVG artifact test retained verbatim for longitudinal comparison.",
+    "origin": {
+      "type": "external",
+      "author": "Simon Willison / community classic",
+      "sourceUrl": "https://simonwillison.net/2024/Oct/25/pelicans-on-a-bicycle/",
+      "license": null
+    },
+    "tags": ["svg", "classic", "spatial"]
+  },
+  "spec": {
+    "artifactType": "svg",
+    "runtimePolicy": "svg-static",
+    "cases": [
+      {
+        "id": "legacy-verbatim",
+        "type": "icon",
+        "visibility": "public",
+        "status": "active",
+        "prompt": "Generate an SVG of a pelican riding a bicycle"
+      }
+    ],
+    "evaluator": {
+      "id": "pelican-visual",
+      "version": "1.0.0",
+      "kind": "hybrid"
+    },
+    "renderer": { "id": "svg", "version": "1.0.0" }
+  }
+}
