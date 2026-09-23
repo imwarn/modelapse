@@ -57,5 +57,11 @@ jobs:
       - name: Persistence integration tests
         run: npm run test:integration -w @modelapse/persistence
 
+      - name: OpenAI direct runner integration tests
+        run: npm run test:integration -w @modelapse/runner-app
+
       - name: Build API container
         run: docker build -f docker/api.Dockerfile -t modelapse-api:ci .
+
+      - name: Build runner container
+        run: docker build -f docker/runner.Dockerfile -t modelapse-runner:ci .

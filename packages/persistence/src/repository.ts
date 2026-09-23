@@ -3,6 +3,7 @@ import type { RunStatus } from "@modelapse/domain";
 import { Pool, type PoolClient } from "pg";
 import type {
   CreatePlannedRunInput,
+  DirectExecutionTarget,
   RunRepository,
   RunView,
   SealRunInput,
@@ -78,6 +79,78 @@ export class PgRunRepository implements RunRepository {
 
   async ping(): Promise<void> {
     await this.pool.query("SELECT 1");
+  }
+
+  async resolveDirectExecutionTarget(input: {
+    readonly testCaseId: string;
+    readonly providerSlug: string;
+    readonly endpointHostname: string;
+  }): Promise<DirectExecutionTarget> {
+    const result = await this.pool.query<{
+      test_case_id: string;
+      provider_id: string;
+      provider_slug: string;
+      endpoint_base_url: string;
+      endpoint_hostname: string;
+      prompt_sha256: string;
+      prompt_size_bytes: string;
+      prompt_mime_type: string;
+      prompt_object_key: string;
+      prompt_visibility: "public" | "private";
+    }>(
+      `SELECT
+         tc.id AS test_case_id,
+         p.id AS provider_id,
+         p.slug AS provider_slug,
+         pe.base_url AS endpoint_base_url,
+         pe.hostname AS endpoint_hostname,
+         b.sha256 AS prompt_sha256,
+         b.size_bytes AS prompt_size_bytes,
+         b.mime_type AS prompt_mime_type,
+         b.object_key AS prompt_object_key,
+         b.visibility AS prompt_visibility
+       FROM modelapse.test_cases tc
+       JOIN modelapse.test_versions tv ON tv.id = tc.test_version_id
+       JOIN modelapse.blobs b ON b.sha256 = tc.prompt_blob_sha256
+       JOIN modelapse.providers p ON p.slug = $2
+       JOIN modelapse.provider_endpoints pe
+         ON pe.provider_id = p.id
+        AND pe.path = 'first_party_direct'
+        AND pe.hostname = $3
+        AND pe.source_id IS NOT NULL
+        AND (pe.valid_from IS NULL OR pe.valid_from <= now())
+        AND (pe.valid_to IS NULL OR pe.valid_to > now())
+       WHERE tc.id = $1
+         AND tc.status = 'active'
+         AND tv.status = 'published'
+         AND (tc.active_from IS NULL OR tc.active_from <= now())
+         AND (tc.active_to IS NULL OR tc.active_to > now())
+       ORDER BY pe.valid_from DESC NULLS LAST
+       LIMIT 1`,
+      [input.testCaseId, input.providerSlug, input.endpointHostname],
+    );
+
+    const row = result.rows[0];
+    if (!row) {
+      throw new Error(
+        "No active published Test Case and verified first-party endpoint match the direct execution request",
+      );
+    }
+
+    return {
+      testCaseId: row.test_case_id,
+      providerId: row.provider_id,
+      providerSlug: row.provider_slug,
+      endpointBaseUrl: row.endpoint_base_url,
+      endpointHostname: row.endpoint_hostname,
+      promptBlob: {
+        sha256: row.prompt_sha256,
+        sizeBytes: Number(row.prompt_size_bytes),
+        mimeType: row.prompt_mime_type,
+        objectKey: row.prompt_object_key,
+        visibility: row.prompt_visibility,
+      },
+    };
   }
 
   async createPlannedRun(input: CreatePlannedRunInput): Promise<RunView> {
