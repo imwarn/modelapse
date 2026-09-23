@@ -101,7 +101,7 @@ export class NodeEvidenceTransport implements EvidenceTransport {
     const response = await this.#fetch(url, {
       method: input.request.method,
       headers,
-      body: input.request.body,
+      ...(input.request.body !== undefined ? { body: input.request.body } : {}),
       redirect: "manual",
       signal: AbortSignal.timeout(this.#timeoutMs),
     });
