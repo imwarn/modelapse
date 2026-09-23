@@ -10,17 +10,50 @@ const run = {
 } as RunView;
 
 describe("Run API", () => {
-  it("returns a run projection without exposing blob bytes", async () => {
+  it("returns a run projection without exposing blob storage internals", async () => {
+    const storedRun = {
+      ...run,
+      requestBlob: {
+        sha256: "a".repeat(64),
+        sizeBytes: 123,
+        mimeType: "application/json",
+        objectKey: "sha256/aa/aa/" + "a".repeat(64),
+        visibility: "private",
+      },
+      responseBlob: {
+        sha256: "b".repeat(64),
+        sizeBytes: 456,
+        mimeType: "application/json",
+        objectKey: "sha256/bb/bb/" + "b".repeat(64),
+        visibility: "private",
+      },
+    } as RunView;
+
     const app = createApp({
       runs: {
         ping: async () => undefined,
-        getRun: async () => run,
+        getRun: async () => storedRun,
       },
     });
 
     const response = await app.request("/v1/runs/" + RUN_ID);
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ run });
+    await expect(response.json()).resolves.toEqual({
+      run: {
+        id: RUN_ID,
+        status: "completed",
+        requestBlob: {
+          sha256: "a".repeat(64),
+          sizeBytes: 123,
+          mimeType: "application/json",
+        },
+        responseBlob: {
+          sha256: "b".repeat(64),
+          sizeBytes: 456,
+          mimeType: "application/json",
+        },
+      },
+    });
   });
 
   it("rejects malformed run ids before repository access", async () => {
