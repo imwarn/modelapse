@@ -56,7 +56,7 @@ export async function executePersistedProviderRun(
     ...input.run,
     executionPath: input.adapter.descriptor.executionPath,
     requestedModel: input.request.model,
-    config: input.request.config,
+    ...(input.request.config ? { config: input.request.config } : {}),
   });
 
   const sealed = await executeProviderRun({
