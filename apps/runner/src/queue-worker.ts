@@ -46,6 +46,7 @@ export async function processOneQueuedRunJob(
   });
   if (!job) return null;
 
+  let runId: string;
   try {
     const request = parseDirectOpenAIRunRequest(job.payload);
     const result = await runDirectOpenAI(request, {
@@ -57,12 +58,7 @@ export async function processOneQueuedRunJob(
       runnerBuild: deps.runnerBuild,
       ...(deps.collector ? { collector: deps.collector } : {}),
     });
-
-    return await deps.queue.succeed({
-      jobId: job.id,
-      workerId: deps.workerId,
-      runId: result.run.id,
-    });
+    runId = result.run.id;
   } catch (error) {
     return deps.queue.fail({
       jobId: job.id,
@@ -70,4 +66,10 @@ export async function processOneQueuedRunJob(
       error: safeError(error),
     });
   }
+
+  return deps.queue.succeed({
+    jobId: job.id,
+    workerId: deps.workerId,
+    runId,
+  });
 }
