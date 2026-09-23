@@ -1,18 +1,16 @@
 {
-  "name": "@modelapse/api",
+  "name": "@modelapse/blob-store",
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./dist/src/index.js"
+  },
+  "types": "./dist/src/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
-    "start": "node dist/src/index.js"
-  },
-  "dependencies": {
-    "@hono/node-server": "2.1.1",
-    "@modelapse/persistence": "*",
-    "hono": "4.13.8"
+    "test": "vitest run"
   },
   "devDependencies": {
     "vitest": "3.0.8"

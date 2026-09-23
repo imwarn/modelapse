@@ -1,0 +1,28 @@
+{
+  "name": "@modelapse/persistence",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./dist/src/index.js"
+  },
+  "types": "./dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run test/record-provider-run.test.ts",
+    "test:integration": "vitest run test/integration.test.ts"
+  },
+  "dependencies": {
+    "@modelapse/attestation": "*",
+    "@modelapse/blob-store": "*",
+    "@modelapse/domain": "*",
+    "@modelapse/provider-adapter": "*",
+    "@modelapse/runner": "*",
+    "pg": "8.23.0"
+  },
+  "devDependencies": {
+    "@types/pg": "8.23.1",
+    "vitest": "3.0.8"
+  }
+}

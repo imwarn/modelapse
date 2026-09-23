@@ -4,7 +4,7 @@ import {
   signRunAttestation,
   type SignedRunAttestation,
 } from "@modelapse/attestation";
-import type { RunStatus } from "@modelapse/domain";
+import type { ExecutionPath, RunStatus } from "@modelapse/domain";
 import {
   assertPreparedRequestAllowed,
   type CanonicalModelRequest,
@@ -12,6 +12,7 @@ import {
   type EvidenceTransport,
   type HttpExchangeCapture,
   type NormalizedProviderResponse,
+  type PreparedHttpRequest,
   type ProviderAdapter,
 } from "@modelapse/provider-adapter";
 import { assertRunTransition } from "./state.js";
@@ -34,6 +35,8 @@ export interface ProviderRunPlan {
 
 export interface SealedProviderRun {
   readonly runId: string;
+  readonly provider: string;
+  readonly executionPath: ExecutionPath;
   readonly status: Extract<
     RunStatus,
     "completed" | "failed_request" | "invalid_output"
@@ -76,6 +79,13 @@ function isTimeout(error: unknown): boolean {
   );
 }
 
+export class RunPreparationError extends Error {
+  constructor(readonly causeValue: unknown) {
+    super("Provider request could not be prepared safely");
+    this.name = "RunPreparationError";
+  }
+}
+
 export class RunTransportError extends Error {
   constructor(
     readonly status: Extract<RunStatus, "timeout" | "failed_request">,
@@ -103,8 +113,14 @@ export async function executeProviderRun(
   const state: { current: RunStatus } = { current: "planned" };
   await transition(plan, state, "executing");
 
-  const prepared = await plan.adapter.prepare(plan.request);
-  assertPreparedRequestAllowed(plan.adapter.descriptor, prepared);
+  let prepared: PreparedHttpRequest;
+  try {
+    prepared = await plan.adapter.prepare(plan.request);
+    assertPreparedRequestAllowed(plan.adapter.descriptor, prepared);
+  } catch (error) {
+    await transition(plan, state, "blocked");
+    throw new RunPreparationError(error);
+  }
 
   let exchange: HttpExchangeCapture;
   try {
@@ -173,6 +189,8 @@ export async function executeProviderRun(
 
   return {
     runId: plan.runId,
+    provider: plan.adapter.descriptor.providerSlug,
+    executionPath: plan.adapter.descriptor.executionPath,
     status,
     exchange,
     ...(normalized ? { normalized } : {}),

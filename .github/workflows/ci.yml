@@ -25,6 +25,7 @@ jobs:
 
     env:
       PGPASSWORD: modelapse
+      DATABASE_URL: postgres://modelapse:modelapse@127.0.0.1:5432/modelapse
 
     steps:
       - uses: actions/checkout@v4
@@ -45,11 +46,16 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Validate PostgreSQL schema
+      - name: Validate PostgreSQL migrations
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-client
-          psql -h 127.0.0.1 -U modelapse -d modelapse -v ON_ERROR_STOP=1             -f packages/database/migrations/0001_core.sql
+          for migration in packages/database/migrations/*.sql; do
+            psql -h 127.0.0.1 -U modelapse -d modelapse -v ON_ERROR_STOP=1 -f "$migration"
+          done
+
+      - name: Persistence integration tests
+        run: npm run test:integration -w @modelapse/persistence
 
       - name: Build API container
         run: docker build -f docker/api.Dockerfile -t modelapse-api:ci .
