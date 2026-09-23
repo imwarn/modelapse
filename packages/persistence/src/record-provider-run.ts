@@ -56,9 +56,25 @@ export interface PersistSealedProviderRunInput {
 export async function persistSealedProviderRun(
   input: PersistSealedProviderRunInput,
 ): Promise<RunView> {
-  const path = executionPath(input.sealed.attestation.payload.executionPath);
+  const attestedPath = executionPath(
+    input.sealed.attestation.payload.executionPath,
+  );
+  const path = input.sealed.executionPath;
+
+  if (attestedPath !== path) {
+    throw new Error("Sealed Run execution path does not match attestation");
+  }
+  if (input.sealed.attestation.payload.provider !== input.sealed.provider) {
+    throw new Error("Sealed Run provider does not match attestation");
+  }
+
   const level =
-    input.evidenceLevel ?? (path === "first_party_direct" ? "E4" : "E2");
+    input.evidenceLevel ??
+    (path === "first_party_direct"
+      ? "E4"
+      : path === "routed_provider" || path === "cloud_hosted"
+        ? "E3"
+        : "E2");
 
   if (!isEvidenceCompatible(path, level)) {
     throw new Error("Evidence level " + level + " is incompatible with " + path);
