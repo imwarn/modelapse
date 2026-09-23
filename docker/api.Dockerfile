@@ -3,6 +3,7 @@ WORKDIR /app
 
 COPY package.json tsconfig.base.json ./
 COPY apps/api/package.json apps/api/package.json
+COPY apps/runner/package.json apps/runner/package.json
 COPY packages/domain/package.json packages/domain/package.json
 COPY packages/provider-adapter/package.json packages/provider-adapter/package.json
 COPY packages/evidence-transport/package.json packages/evidence-transport/package.json
