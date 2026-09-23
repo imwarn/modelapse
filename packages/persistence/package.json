@@ -16,6 +16,7 @@
     "@modelapse/attestation": "*",
     "@modelapse/blob-store": "*",
     "@modelapse/domain": "*",
+    "@modelapse/provider-adapter": "*",
     "@modelapse/runner": "*",
     "pg": "8.23.0"
   },
