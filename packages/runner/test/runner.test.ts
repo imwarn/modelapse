@@ -27,7 +27,9 @@ const adapter: ProviderAdapter = {
   parse: (capture, request) => ({
     requestedModel: request.model,
     returnedModel: "fake-snapshot",
-    providerRequestId: capture.responseHeaders["request-id"],
+    ...(capture.responseHeaders["request-id"]
+      ? { providerRequestId: capture.responseHeaders["request-id"] }
+      : {}),
     providerResponseId: "resp_1",
     content: [{ type: "text", text: "hello" }],
   }),
