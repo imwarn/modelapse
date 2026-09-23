@@ -207,7 +207,7 @@ export class PgRunJobQueue {
 
       const result = await client.query<RunJobRow>(
         `WITH candidate AS (
-           SELECT id
+           SELECT id AS candidate_id
              FROM modelapse.run_jobs
             WHERE attempts < max_attempts
               AND (
@@ -232,7 +232,7 @@ export class PgRunJobQueue {
                 END,
                 updated_at = now()
            FROM candidate
-          WHERE j.id = candidate.id
+          WHERE j.id = candidate.candidate_id
           RETURNING ${SELECT_COLUMNS}`,
         [input.workerId, input.leaseSeconds],
       );
