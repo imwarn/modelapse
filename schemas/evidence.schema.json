@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://modelapse.com/schemas/evidence.v1.json",
+  "title": "Modelapse Evidence Record",
+  "type": "object",
+  "required": ["runId", "level", "executionPath", "collector", "createdAt"],
+  "properties": {
+    "runId": { "type": "string" },
+    "level": { "enum": ["E0", "E1", "E2", "E3", "E4", "E5"] },
+    "executionPath": {
+      "enum": ["first_party_direct", "first_party_product", "routed_provider", "cloud_hosted", "community_claimed"]
+    },
+    "collector": { "type": "string" },
+    "sourceUrl": { "type": ["string", "null"], "format": "uri" },
+    "attestationRef": { "type": ["string", "null"] },
+    "createdAt": { "type": "string", "format": "date-time" }
+  }
+}

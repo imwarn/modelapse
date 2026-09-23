@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://modelapse.com/schemas/run-manifest.v1.json",
+  "title": "Modelapse Run Manifest",
+  "type": "object",
+  "required": ["schemaVersion", "runId", "test", "execution", "hashes", "versions"],
+  "properties": {
+    "schemaVersion": { "const": "1" },
+    "runId": { "type": "string" },
+    "test": {
+      "type": "object",
+      "required": ["id", "version", "caseId"],
+      "properties": {
+        "id": { "type": "string" },
+        "version": { "type": "string" },
+        "caseId": { "type": "string" }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "required": ["provider", "path", "requestedModel"],
+      "properties": {
+        "provider": { "type": "string" },
+        "path": {
+          "enum": ["first_party_direct", "first_party_product", "routed_provider", "cloud_hosted", "community_claimed"]
+        },
+        "requestedModel": { "type": "string" },
+        "returnedModel": { "type": ["string", "null"] },
+        "requestId": { "type": ["string", "null"] },
+        "responseId": { "type": ["string", "null"] }
+      }
+    },
+    "hashes": {
+      "type": "object",
+      "required": ["request", "response"],
+      "properties": {
+        "request": { "type": "string" },
+        "response": { "type": "string" },
+        "artifact": { "type": ["string", "null"] }
+      }
+    },
+    "versions": {
+      "type": "object",
+      "required": ["runner", "providerAdapter"],
+      "properties": {
+        "runner": { "type": "string" },
+        "providerAdapter": { "type": "string" },
+        "renderer": { "type": ["string", "null"] },
+        "harness": { "type": ["string", "null"] }
+      }
+    }
+  }
+}
