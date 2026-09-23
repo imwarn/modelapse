@@ -279,4 +279,52 @@ describe("OpenAI first-party direct control path", () => {
       await queue.close();
     }
   });
+
+  it("links a transport-failed queue job to its failed Run", async () => {
+    const queue = PgRunJobQueue.connect(DATABASE_URL, { max: 2 });
+    const blobStore = new FileSystemContentAddressedBlobStore(root);
+    const { privateKey } = generateKeyPairSync("ed25519");
+
+    try {
+      const enqueued = await queue.enqueue({
+        payload: {
+          provider: "openai",
+          testCaseId,
+          model: "gpt-transport-failure",
+        },
+        idempotencyKey: "failure-" + randomUUID(),
+      });
+
+      const failed = await processOneQueuedRunJob({
+        queue,
+        repository,
+        blobStore,
+        transport: new NodeEvidenceTransport({
+          fetch: async () => {
+            throw new Error("synthetic transport failure");
+          },
+        }),
+        credentials: new EnvironmentCredentialResolver({
+          OPENAI_API_KEY: "sk-failure-secret",
+        }),
+        signer: {
+          keyId: "queue-failure-key",
+          privateKey,
+        },
+        runnerBuild: "queue-failure-build",
+        workerId: "failure-worker",
+        leaseSeconds: 180,
+      });
+
+      expect(failed?.id).toBe(enqueued.id);
+      expect(failed?.status).toBe("failed");
+      expect(failed?.runId).toBeTruthy();
+
+      const run = await repository.getRun(failed!.runId!);
+      expect(run?.status).toBe("failed_request");
+      expect(run?.sealedAt).toBeNull();
+    } finally {
+      await queue.close();
+    }
+  });
 });
