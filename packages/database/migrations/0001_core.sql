@@ -468,21 +468,77 @@ BEFORE UPDATE OR DELETE ON run_attestations
 FOR EACH ROW EXECUTE FUNCTION prevent_append_only_mutation();
 
 CREATE OR REPLACE FUNCTION protect_published_test_version()
-RETURNS trigger LANGUAGE plpgsql AS $$
+RETURNS trigger LANGUAGE plpgsql AS $
 BEGIN
-  IF OLD.status <> 'draft' THEN
-    RAISE EXCEPTION 'published or retired test versions are immutable';
+  IF TG_OP = 'DELETE' THEN
+    IF OLD.status <> 'draft' THEN
+      RAISE EXCEPTION 'published or retired test versions cannot be deleted';
+    END IF;
+    RETURN OLD;
   END IF;
+
+  IF OLD.status = 'draft' THEN
+    IF NEW.status NOT IN ('draft', 'published') THEN
+      RAISE EXCEPTION 'draft test version may only remain draft or become published';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF NEW.variant_id IS DISTINCT FROM OLD.variant_id
+     OR NEW.version IS DISTINCT FROM OLD.version
+     OR NEW.definition_sha256 IS DISTINCT FROM OLD.definition_sha256
+     OR NEW.license IS DISTINCT FROM OLD.license
+     OR NEW.published_at IS DISTINCT FROM OLD.published_at
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'published test version definition is immutable';
+  END IF;
+
+  IF OLD.status = 'published' AND NEW.status NOT IN ('published', 'retired') THEN
+    RAISE EXCEPTION 'published test version may only become retired';
+  END IF;
+
+  IF OLD.status = 'retired' AND NEW.status <> 'retired' THEN
+    RAISE EXCEPTION 'retired test version cannot be reactivated';
+  END IF;
+
+  RETURN NEW;
+END;
+$;
+
+CREATE TRIGGER test_versions_immutable_after_publish
+BEFORE UPDATE OR DELETE ON test_versions
+FOR EACH ROW EXECUTE FUNCTION protect_published_test_version();
+
+CREATE OR REPLACE FUNCTION protect_test_case_definition()
+RETURNS trigger LANGUAGE plpgsql AS $
+DECLARE
+  parent_status test_version_status;
+  version_id uuid;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    version_id := OLD.test_version_id;
+  ELSE
+    version_id := NEW.test_version_id;
+  END IF;
+
+  SELECT status INTO parent_status
+  FROM test_versions
+  WHERE id = version_id;
+
+  IF parent_status <> 'draft' THEN
+    RAISE EXCEPTION 'cases belonging to published or retired test versions are immutable';
+  END IF;
+
   IF TG_OP = 'DELETE' THEN
     RETURN OLD;
   END IF;
   RETURN NEW;
 END;
-$$;
+$;
 
-CREATE TRIGGER test_versions_immutable_after_publish
-BEFORE UPDATE OR DELETE ON test_versions
-FOR EACH ROW EXECUTE FUNCTION protect_published_test_version();
+CREATE TRIGGER test_cases_immutable_after_publish
+BEFORE INSERT OR UPDATE OR DELETE ON test_cases
+FOR EACH ROW EXECUTE FUNCTION protect_test_case_definition();
 
 CREATE OR REPLACE FUNCTION protect_sealed_run()
 RETURNS trigger LANGUAGE plpgsql AS $$
