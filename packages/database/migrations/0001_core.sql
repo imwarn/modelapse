@@ -32,7 +32,7 @@ CREATE TYPE run_status AS ENUM (
   'planned',
   'executing',
   'response_captured',
-  'sealed',
+  'completed',
   'failed_request',
   'blocked',
   'timeout',
@@ -256,8 +256,7 @@ CREATE TABLE runs (
   sealed_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   CHECK (completed_at IS NULL OR started_at IS NULL OR completed_at >= started_at),
-  CHECK (sealed_at IS NULL OR completed_at IS NULL OR sealed_at >= completed_at),
-  CHECK ((status = 'sealed' AND sealed_at IS NOT NULL) OR status <> 'sealed')
+  CHECK (sealed_at IS NULL OR completed_at IS NULL OR sealed_at >= completed_at)
 );
 
 CREATE TABLE run_configs (
