@@ -25,8 +25,10 @@ RUN npm run build
 
 FROM node:22-alpine AS runtime
 WORKDIR /app
+ARG MODELAPSE_BUILD=dev
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV MODELAPSE_BUILD=$MODELAPSE_BUILD
 
 COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules ./node_modules
