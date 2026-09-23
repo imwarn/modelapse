@@ -3,13 +3,16 @@
   "version": "0.0.0",
   "private": true,
   "description": "AI Model Test & Evolution Archive foundation",
+  "engines": {
+    "node": ">=22"
+  },
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present"
+    "build": "npm run build -w @modelapse/domain && npm run build -w @modelapse/provider-adapter && npm run build -w @modelapse/testpack-sdk",
+    "typecheck": "npm run build -w @modelapse/domain && npm run typecheck -w @modelapse/domain && npm run typecheck -w @modelapse/provider-adapter && npm run typecheck -w @modelapse/testpack-sdk",
+    "test": "npm run build -w @modelapse/domain && npm run test -w @modelapse/domain && npm run test -w @modelapse/provider-adapter && npm run test -w @modelapse/testpack-sdk"
   },
   "devDependencies": {
     "@types/node": "22.13.10",
