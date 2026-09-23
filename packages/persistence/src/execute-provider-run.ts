@@ -41,6 +41,22 @@ export interface ExecutePersistedProviderRunResult {
   readonly run: RunView;
 }
 
+export class PersistedRunExecutionError extends Error {
+  readonly runId: string;
+  readonly originalCause: unknown;
+
+  constructor(runId: string, cause: unknown) {
+    super(
+      cause instanceof Error
+        ? cause.message
+        : "Persisted provider Run execution failed",
+    );
+    this.name = "PersistedRunExecutionError";
+    this.runId = runId;
+    this.originalCause = cause;
+  }
+}
+
 /**
  * Creates the catalog Run first, persists every state transition, then archives
  * exact captured bytes and seals the Run.
@@ -59,35 +75,39 @@ export async function executePersistedProviderRun(
     ...(input.request.config ? { config: input.request.config } : {}),
   });
 
-  const sealed = await executeProviderRun({
-    runId: planned.id,
-    runnerBuild: input.run.runnerBuild,
-    adapter: input.adapter,
-    request: input.request,
-    transport: input.transport,
-    credentials: input.credentials,
-    signer: input.signer,
-    onTransition: async (_from, to) => {
-      await input.repository.markStatus(planned.id, to);
-    },
-  });
+  try {
+    const sealed = await executeProviderRun({
+      runId: planned.id,
+      runnerBuild: input.run.runnerBuild,
+      adapter: input.adapter,
+      request: input.request,
+      transport: input.transport,
+      credentials: input.credentials,
+      signer: input.signer,
+      onTransition: async (_from, to) => {
+        await input.repository.markStatus(planned.id, to);
+      },
+    });
 
-  const run = await persistSealedProviderRun({
-    repository: input.repository,
-    blobStore: input.blobStore,
-    sealed,
-    attestationKey: {
-      publicKeyPem: input.attestationPublicKeyPem,
-      validFrom: sealed.exchange.startedAt,
-    },
-    collector: input.collector,
-    ...(input.evidenceLevel
-      ? { evidenceLevel: input.evidenceLevel }
-      : {}),
-    ...(input.evidenceNotes
-      ? { evidenceNotes: input.evidenceNotes }
-      : {}),
-  });
+    const run = await persistSealedProviderRun({
+      repository: input.repository,
+      blobStore: input.blobStore,
+      sealed,
+      attestationKey: {
+        publicKeyPem: input.attestationPublicKeyPem,
+        validFrom: sealed.exchange.startedAt,
+      },
+      collector: input.collector,
+      ...(input.evidenceLevel
+        ? { evidenceLevel: input.evidenceLevel }
+        : {}),
+      ...(input.evidenceNotes
+        ? { evidenceNotes: input.evidenceNotes }
+        : {}),
+    });
 
-  return { sealed, run };
+    return { sealed, run };
+  } catch (error) {
+    throw new PersistedRunExecutionError(planned.id, error);
+  }
 }
