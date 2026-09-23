@@ -14,7 +14,7 @@ export const runStatuses = [
   "planned",
   "executing",
   "response_captured",
-  "sealed",
+  "completed",
   "failed_request",
   "blocked",
   "timeout",
