@@ -12,11 +12,9 @@
   "dependencies": {
     "@hono/node-server": "2.1.1",
     "@modelapse/persistence": "*",
-    "hono": "4.13.8",
-    "pg": "8.23.0"
+    "hono": "4.13.8"
   },
   "devDependencies": {
-    "@types/pg": "8.23.1",
     "vitest": "3.0.8"
   }
 }
