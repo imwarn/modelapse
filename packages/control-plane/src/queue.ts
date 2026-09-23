@@ -277,6 +277,7 @@ export class PgRunJobQueue {
     readonly jobId: string;
     readonly workerId: string;
     readonly error: string;
+    readonly runId?: string;
   }): Promise<RunJob> {
     const error = input.error.trim().slice(0, 2000) || "Run job failed";
     const result = await this.pool.query<RunJobRow>(
@@ -285,6 +286,7 @@ export class PgRunJobQueue {
               worker_id = NULL,
               lease_expires_at = NULL,
               completed_at = now(),
+              run_id = COALESCE($4, run_id),
               last_error = $3,
               updated_at = now()
         WHERE id = $1
@@ -292,7 +294,7 @@ export class PgRunJobQueue {
           AND worker_id = $2
           AND lease_expires_at > now()
         RETURNING ${SELECT_COLUMNS}`,
-      [input.jobId, input.workerId, error],
+      [input.jobId, input.workerId, error, input.runId ?? null],
     );
     const row = result.rows[0];
     if (!row) throw new JobLeaseError(input.jobId);
