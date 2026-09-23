@@ -25,7 +25,9 @@ RUN npm run build
 
 FROM node:22-alpine AS runtime
 WORKDIR /app
+ARG MODELAPSE_BUILD=dev
 ENV NODE_ENV=production
+ENV MODELAPSE_BUILD=$MODELAPSE_BUILD
 ENV MODELAPSE_BLOB_ROOT=/var/lib/modelapse/blobs
 ENV MODELAPSE_RUNNER_MODE=queue
 
