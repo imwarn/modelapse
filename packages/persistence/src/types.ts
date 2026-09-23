@@ -89,3 +89,20 @@ export interface RunRepository {
   sealRun(input: SealRunInput): Promise<RunView>;
   getRun(runId: string): Promise<RunView | null>;
 }
+
+export interface DirectExecutionTarget {
+  readonly testCaseId: string;
+  readonly providerId: string;
+  readonly providerSlug: string;
+  readonly endpointBaseUrl: string;
+  readonly endpointHostname: string;
+  readonly promptBlob: BlobDescriptor;
+}
+
+export interface ExecutionCatalogRepository {
+  resolveDirectExecutionTarget(input: {
+    readonly testCaseId: string;
+    readonly providerSlug: string;
+    readonly endpointHostname: string;
+  }): Promise<DirectExecutionTarget>;
+}
