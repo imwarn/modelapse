@@ -467,7 +467,7 @@ BEFORE UPDATE OR DELETE ON run_attestations
 FOR EACH ROW EXECUTE FUNCTION prevent_append_only_mutation();
 
 CREATE OR REPLACE FUNCTION protect_published_test_version()
-RETURNS trigger LANGUAGE plpgsql AS $
+RETURNS trigger LANGUAGE plpgsql AS $published_version$
 BEGIN
   IF TG_OP = 'DELETE' THEN
     IF OLD.status <> 'draft' THEN
@@ -502,14 +502,14 @@ BEGIN
 
   RETURN NEW;
 END;
-$;
+$published_version$;
 
 CREATE TRIGGER test_versions_immutable_after_publish
 BEFORE UPDATE OR DELETE ON test_versions
 FOR EACH ROW EXECUTE FUNCTION protect_published_test_version();
 
 CREATE OR REPLACE FUNCTION protect_test_case_definition()
-RETURNS trigger LANGUAGE plpgsql AS $
+RETURNS trigger LANGUAGE plpgsql AS $test_case_definition$
 DECLARE
   parent_status test_version_status;
   version_id uuid;
@@ -533,7 +533,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$;
+$test_case_definition$;
 
 CREATE TRIGGER test_cases_immutable_after_publish
 BEFORE INSERT OR UPDATE OR DELETE ON test_cases
