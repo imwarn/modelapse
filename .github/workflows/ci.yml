@@ -54,5 +54,8 @@ jobs:
             psql -h 127.0.0.1 -U modelapse -d modelapse -v ON_ERROR_STOP=1 -f "$migration"
           done
 
+      - name: Persistence integration tests
+        run: npm run test:integration -w @modelapse/persistence
+
       - name: Build API container
         run: docker build -f docker/api.Dockerfile -t modelapse-api:ci .
