@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { Pool } from "pg";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   IdempotencyConflictError,
@@ -11,12 +10,10 @@ const DATABASE_URL =
   "postgres://modelapse:modelapse@127.0.0.1:5432/modelapse";
 
 describe("PostgreSQL Run job queue", () => {
-  const pool = new Pool({ connectionString: DATABASE_URL });
   const queue = PgRunJobQueue.connect(DATABASE_URL, { max: 2 });
 
   afterAll(async () => {
     await queue.close();
-    await pool.end();
   });
 
   it("deduplicates submissions and enforces an active worker lease", async () => {
@@ -54,22 +51,13 @@ describe("PostgreSQL Run job queue", () => {
     expect(noSecondClaim).toBeNull();
 
     await expect(
-      queue.succeed({
+      queue.fail({
         jobId: first.id,
         workerId: "worker-b",
-        runId: randomUUID(),
+        error: "wrong worker",
       }),
     ).rejects.toThrow(/lease/);
 
-    const runId = randomUUID();
-    await pool.query(
-      `INSERT INTO modelapse.providers (id, slug, name)
-       VALUES ($1, $2, 'Queue fixture')`,
-      [runId, "queue-fixture-" + randomUUID().slice(0, 8)],
-    ).catch(() => undefined);
-
-    // succeed() requires a real Run FK. Verify terminal failure here and success
-    // is covered by the runner queue integration where a real Run exists.
     const failed = await queue.fail({
       jobId: first.id,
       workerId: "worker-a",
