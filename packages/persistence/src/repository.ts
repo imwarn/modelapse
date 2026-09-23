@@ -60,6 +60,22 @@ async function registerBlob(
 export class PgRunRepository implements RunRepository {
   constructor(private readonly pool: Pool) {}
 
+  static connect(
+    connectionString: string,
+    options: { readonly max?: number } = {},
+  ): PgRunRepository {
+    return new PgRunRepository(
+      new Pool({
+        connectionString,
+        max: options.max ?? 10,
+      }),
+    );
+  }
+
+  async close(): Promise<void> {
+    await this.pool.end();
+  }
+
   async ping(): Promise<void> {
     await this.pool.query("SELECT 1");
   }
