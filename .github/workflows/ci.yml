@@ -57,7 +57,10 @@ jobs:
       - name: Persistence integration tests
         run: npm run test:integration -w @modelapse/persistence
 
-      - name: OpenAI direct runner integration tests
+      - name: Durable queue integration tests
+        run: npm run test:integration -w @modelapse/control-plane
+
+      - name: OpenAI direct and queue worker integration tests
         run: npm run test:integration -w @modelapse/runner-app
 
       - name: Build API container
