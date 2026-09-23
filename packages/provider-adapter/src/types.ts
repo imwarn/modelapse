@@ -20,20 +20,24 @@ export interface CanonicalModelRequest {
   readonly metadata?: Readonly<Record<string, string>>;
 }
 
+/**
+ * Adapters name credentials but never receive credential values.
+ * The controlled transport resolves/injects secrets immediately before I/O.
+ */
 export type ProviderAuthSpec =
   | {
       readonly kind: "bearer";
-      readonly credential: string;
+      readonly credentialName: string;
     }
   | {
       readonly kind: "header";
       readonly header: string;
-      readonly credential: string;
+      readonly credentialName: string;
     }
   | {
       readonly kind: "query";
       readonly parameter: string;
-      readonly credential: string;
+      readonly credentialName: string;
     };
 
 export interface PreparedHttpRequest {
@@ -51,6 +55,10 @@ export interface HttpExchangeCapture {
   readonly url: string;
   readonly method: string;
   readonly status: number;
+  /**
+   * Request headers are already redacted by EvidenceTransport.
+   * Credential values must never be present here.
+   */
   readonly requestHeaders: Readonly<Record<string, string>>;
   readonly responseHeaders: Readonly<Record<string, string>>;
   readonly requestBody: string;
@@ -83,7 +91,7 @@ export interface ProviderAdapterDescriptor {
   readonly id: string;
   readonly providerSlug: string;
   readonly executionPath: ExecutionPath;
-  /** Hostnames the controlled transport is allowed to contact for this adapter. */
+  /** Exact hostnames the controlled transport may contact for this adapter. */
   readonly allowedHosts: readonly string[];
   readonly apiVersion?: string;
 }
