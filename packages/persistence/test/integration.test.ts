@@ -113,7 +113,9 @@ describe("PostgreSQL Run persistence", () => {
       parse: (capture, request) => ({
         requestedModel: request.model,
         returnedModel: "fake-snapshot-1",
-        providerRequestId: capture.responseHeaders["request-id"],
+        ...(capture.responseHeaders["request-id"]
+          ? { providerRequestId: capture.responseHeaders["request-id"] }
+          : {}),
         providerResponseId: "response_1",
         upstreamId: "upstream_1",
         routedProviderName: "Fake Upstream",
