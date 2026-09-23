@@ -117,6 +117,7 @@ export class PgRunRepository implements RunRepository {
          ON pe.provider_id = p.id
         AND pe.path = 'first_party_direct'
         AND pe.hostname = $3
+        AND pe.source_id IS NOT NULL
         AND (pe.valid_from IS NULL OR pe.valid_from <= now())
         AND (pe.valid_to IS NULL OR pe.valid_to > now())
        WHERE tc.id = $1
