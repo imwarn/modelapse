@@ -135,12 +135,18 @@ export function createApp(deps: AppDependencies) {
       );
     }
 
+    const idempotencyKey = c.req.header("idempotency-key");
+    if (
+      idempotencyKey !== undefined &&
+      (!idempotencyKey.trim() || idempotencyKey.length > 128)
+    ) {
+      return c.json({ error: "invalid_idempotency_key" }, 400);
+    }
+
     try {
       const job = await deps.jobs.enqueue({
         payload,
-        ...(c.req.header("idempotency-key")
-          ? { idempotencyKey: c.req.header("idempotency-key")! }
-          : {}),
+        ...(idempotencyKey ? { idempotencyKey } : {}),
       });
       return c.json({ job: controlJob(job) }, 202);
     } catch (error) {
