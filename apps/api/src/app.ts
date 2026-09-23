@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { RunRepository } from "@modelapse/persistence";
+import type { RunRepository, RunView } from "@modelapse/persistence";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -8,6 +8,23 @@ type RunApiRepository = Pick<RunRepository, "ping" | "getRun">;
 
 export interface AppDependencies {
   readonly runs: RunApiRepository;
+}
+
+function publicBlob(blob: RunView["requestBlob"]) {
+  if (!blob) return blob;
+  return {
+    sha256: blob.sha256,
+    sizeBytes: blob.sizeBytes,
+    mimeType: blob.mimeType,
+  };
+}
+
+function publicRun(run: RunView) {
+  return {
+    ...run,
+    requestBlob: publicBlob(run.requestBlob),
+    responseBlob: publicBlob(run.responseBlob),
+  };
 }
 
 export function createApp(deps: AppDependencies) {
@@ -55,7 +72,7 @@ export function createApp(deps: AppDependencies) {
       return c.json({ error: "run_not_found" }, 404);
     }
 
-    return c.json({ run });
+    return c.json({ run: publicRun(run) });
   });
 
   return app;
