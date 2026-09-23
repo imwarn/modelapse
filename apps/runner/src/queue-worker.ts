@@ -8,9 +8,10 @@ import type {
   CredentialResolver,
   EvidenceTransport,
 } from "@modelapse/provider-adapter";
-import type {
-  ExecutionCatalogRepository,
-  RunRepository,
+import {
+  PersistedRunExecutionError,
+  type ExecutionCatalogRepository,
+  type RunRepository,
 } from "@modelapse/persistence";
 import { runDirectOpenAI } from "./direct-openai.js";
 
@@ -64,6 +65,9 @@ export async function processOneQueuedRunJob(
       jobId: job.id,
       workerId: deps.workerId,
       error: safeError(error),
+      ...(error instanceof PersistedRunExecutionError
+        ? { runId: error.runId }
+        : {}),
     });
   }
 
