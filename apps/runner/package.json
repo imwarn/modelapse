@@ -19,6 +19,8 @@
     "@modelapse/provider-openai": "*"
   },
   "devDependencies": {
+    "@types/pg": "8.23.1",
+    "pg": "8.23.0",
     "vitest": "3.0.8"
   }
 }
