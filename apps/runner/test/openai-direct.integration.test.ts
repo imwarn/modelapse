@@ -5,12 +5,14 @@ import { join } from "node:path";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FileSystemContentAddressedBlobStore } from "@modelapse/blob-store";
+import { PgRunJobQueue } from "@modelapse/control-plane";
 import {
   EnvironmentCredentialResolver,
   NodeEvidenceTransport,
 } from "@modelapse/evidence-transport";
 import { PgRunRepository } from "@modelapse/persistence";
 import { runDirectOpenAI } from "../src/direct-openai.js";
+import { processOneQueuedRunJob } from "../src/queue-worker.js";
 
 const DATABASE_URL =
   process.env.DATABASE_URL ??
@@ -204,5 +206,125 @@ describe("OpenAI first-party direct control path", () => {
     expect(requestEvidence).not.toContain(secret);
     expect(requestEvidence).toContain("[REDACTED]");
     expect(requestEvidence).toContain("Return exactly the word modelapse.");
+  });
+
+  it("claims a durable job and links the successful E4 Run back to the job", async () => {
+    const queue = PgRunJobQueue.connect(DATABASE_URL, { max: 2 });
+    const blobStore = new FileSystemContentAddressedBlobStore(root);
+    const { privateKey } = generateKeyPairSync("ed25519");
+
+    const transport = new NodeEvidenceTransport({
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            id: "resp_queue",
+            status: "completed",
+            model: "gpt-queue-snapshot",
+            output_text: "modelapse",
+            usage: {
+              input_tokens: 8,
+              output_tokens: 1,
+              total_tokens: 9,
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              "x-request-id": "req_queue",
+            },
+          },
+        ),
+    });
+
+    try {
+      const enqueued = await queue.enqueue({
+        payload: {
+          provider: "openai",
+          testCaseId,
+          model: "gpt-queue",
+        },
+        idempotencyKey: "queue-" + randomUUID(),
+      });
+
+      const completed = await processOneQueuedRunJob({
+        queue,
+        repository,
+        blobStore,
+        transport,
+        credentials: new EnvironmentCredentialResolver({
+          OPENAI_API_KEY: "sk-queue-secret",
+        }),
+        signer: {
+          keyId: "queue-integration-key",
+          privateKey,
+        },
+        runnerBuild: "queue-integration-build",
+        workerId: "integration-worker",
+        leaseSeconds: 180,
+      });
+
+      expect(completed?.id).toBe(enqueued.id);
+      expect(completed?.status).toBe("succeeded");
+      expect(completed?.runId).toBeTruthy();
+
+      const run = await repository.getRun(completed!.runId!);
+      expect(run?.status).toBe("completed");
+      expect(run?.executionPath).toBe("first_party_direct");
+      expect(run?.evidence[0]).toMatchObject({
+        level: "E4",
+        executionPath: "first_party_direct",
+      });
+    } finally {
+      await queue.close();
+    }
+  });
+
+  it("links a transport-failed queue job to its failed Run", async () => {
+    const queue = PgRunJobQueue.connect(DATABASE_URL, { max: 2 });
+    const blobStore = new FileSystemContentAddressedBlobStore(root);
+    const { privateKey } = generateKeyPairSync("ed25519");
+
+    try {
+      const enqueued = await queue.enqueue({
+        payload: {
+          provider: "openai",
+          testCaseId,
+          model: "gpt-transport-failure",
+        },
+        idempotencyKey: "failure-" + randomUUID(),
+      });
+
+      const failed = await processOneQueuedRunJob({
+        queue,
+        repository,
+        blobStore,
+        transport: new NodeEvidenceTransport({
+          fetch: async () => {
+            throw new Error("synthetic transport failure");
+          },
+        }),
+        credentials: new EnvironmentCredentialResolver({
+          OPENAI_API_KEY: "sk-failure-secret",
+        }),
+        signer: {
+          keyId: "queue-failure-key",
+          privateKey,
+        },
+        runnerBuild: "queue-failure-build",
+        workerId: "failure-worker",
+        leaseSeconds: 180,
+      });
+
+      expect(failed?.id).toBe(enqueued.id);
+      expect(failed?.status).toBe("failed");
+      expect(failed?.runId).toBeTruthy();
+
+      const run = await repository.getRun(failed!.runId!);
+      expect(run?.status).toBe("failed_request");
+      expect(run?.sealedAt).toBeNull();
+    } finally {
+      await queue.close();
+    }
   });
 });

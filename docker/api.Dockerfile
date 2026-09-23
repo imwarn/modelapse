@@ -13,6 +13,7 @@ COPY packages/attestation/package.json packages/attestation/package.json
 COPY packages/blob-store/package.json packages/blob-store/package.json
 COPY packages/runner/package.json packages/runner/package.json
 COPY packages/persistence/package.json packages/persistence/package.json
+COPY packages/control-plane/package.json packages/control-plane/package.json
 COPY packages/testpack-sdk/package.json packages/testpack-sdk/package.json
 
 RUN npm install
@@ -43,6 +44,8 @@ COPY --from=build /app/packages/runner/package.json ./packages/runner/package.js
 COPY --from=build /app/packages/runner/dist ./packages/runner/dist
 COPY --from=build /app/packages/persistence/package.json ./packages/persistence/package.json
 COPY --from=build /app/packages/persistence/dist ./packages/persistence/dist
+COPY --from=build /app/packages/control-plane/package.json ./packages/control-plane/package.json
+COPY --from=build /app/packages/control-plane/dist ./packages/control-plane/dist
 
 USER node
 EXPOSE 3000

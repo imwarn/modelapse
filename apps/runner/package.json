@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@modelapse/blob-store": "*",
+    "@modelapse/control-plane": "*",
     "@modelapse/domain": "*",
     "@modelapse/evidence-transport": "*",
     "@modelapse/persistence": "*",
