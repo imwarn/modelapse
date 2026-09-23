@@ -5,6 +5,7 @@ import type {
   RunConfig,
   RunStatus,
 } from "@modelapse/domain";
+import type { NormalizedUsage } from "@modelapse/provider-adapter";
 
 export interface CreatePlannedRunInput {
   readonly testCaseId: string;
@@ -23,7 +24,7 @@ export interface ProviderMetadataInput {
   readonly modelVersion?: string;
   readonly upstreamId?: string;
   readonly routedProviderName?: string;
-  readonly usage?: Readonly<Record<string, unknown>>;
+  readonly usage?: NormalizedUsage;
   readonly timing?: Readonly<Record<string, unknown>>;
   readonly metadata?: Readonly<Record<string, unknown>>;
 }
