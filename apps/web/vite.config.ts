@@ -7,11 +7,5 @@ export default defineConfig({
   server: {
     port: 3001,
   },
-  plugins: [
-    tanstackStart({
-      srcDirectory: "src",
-    }),
-    nitro(),
-    viteReact(),
-  ],
+  plugins: [tanstackStart(), nitro(), viteReact()],
 });
