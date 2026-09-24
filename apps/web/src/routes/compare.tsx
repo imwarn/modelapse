@@ -2,9 +2,11 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import {
   compareArchive,
+  compareArchiveHistory,
   getArchiveCatalog,
   type ArchiveComparison,
   type ArchiveRun,
+  type ArchiveTemporalComparison,
 } from "../modelapse";
 
 export const Route = createFileRoute("/compare")({
@@ -37,6 +39,7 @@ function ArchiveComparePage() {
   const [modelIds, setModelIds] = useState<readonly string[]>(defaultModelIds);
   const [testCaseId, setTestCaseId] = useState(catalog.tests[0]?.testCaseId ?? "");
   const [comparison, setComparison] = useState<ArchiveComparison | null>(null);
+  const [temporal, setTemporal] = useState<ArchiveTemporalComparison | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,6 +50,7 @@ function ArchiveComparePage() {
 
   function toggleModel(modelId: string): void {
     setComparison(null);
+    setTemporal(null);
     setError(null);
     setModelIds((current) => {
       if (current.includes(modelId)) {
@@ -63,18 +67,28 @@ function ArchiveComparePage() {
     setBusy(true);
     setError(null);
     try {
-      const result = await compareArchive({
-        data: {
-          modelIds,
-          testCaseId,
-        },
-      });
+      const [result, history] = await Promise.all([
+        compareArchive({
+          data: {
+            modelIds,
+            testCaseId,
+          },
+        }),
+        compareArchiveHistory({
+          data: {
+            modelIds,
+            testCaseId,
+          },
+        }),
+      ]);
       setComparison(result);
-      if (!result) {
+      setTemporal(history);
+      if (!result || !history) {
         setError("No public Archive comparison exists for this selection.");
       }
     } catch (caught) {
       setComparison(null);
+      setTemporal(null);
       setError(caught instanceof Error ? caught.message : "Comparison failed");
     } finally {
       setBusy(false);
@@ -106,11 +120,11 @@ function ArchiveComparePage() {
 
         <div className="run-title-row">
           <div>
-            <p className="eyebrow">COMPARISON FOUNDATION</p>
-            <h1>Same Test. Latest sealed Run.</h1>
+            <p className="eyebrow">TEMPORAL COMPARISON</p>
+            <h1>Same Test. Latest view + history.</h1>
             <p className="run-subtitle">
-              Compare 2–4 canonical models against one public Test Case without
-              turning the Archive into a ranking table.
+              Compare 2–4 canonical models against one public Test Case, then inspect
+              each model’s sealed Run history without turning the Archive into a ranking table.
             </p>
           </div>
         </div>
@@ -125,6 +139,7 @@ function ArchiveComparePage() {
               onChange={(event) => {
                 setTestCaseId(event.target.value);
                 setComparison(null);
+                setTemporal(null);
                 setError(null);
               }}
             >
@@ -135,7 +150,7 @@ function ArchiveComparePage() {
               ))}
             </select>
             <small>
-              Comparison uses the latest sealed public Run for this exact Test Case.
+              Latest comparison and temporal lanes use this exact public Test Case.
             </small>
           </label>
 
@@ -177,7 +192,7 @@ function ArchiveComparePage() {
             disabled={busy || modelIds.length < 2 || !testCaseId}
             onClick={() => void handleCompare()}
           >
-            {busy ? "Comparing…" : "Compare latest sealed Runs"}
+            {busy ? "Comparing…" : "Compare latest + history"}
           </button>
         </div>
 
@@ -275,6 +290,81 @@ function ArchiveComparePage() {
             <p>
               Comparison intentionally uses raw Archive records. It does not infer
               an overall model winner from heterogeneous Tests.
+            </p>
+          </div>
+        )}
+      </section>
+
+      <section className="section entity-section temporal-compare-section">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">SAME-TEST HISTORY</p>
+            <h2>
+              {temporal
+                ? `${temporal.test.caseSlug} across capture time`
+                : "Temporal lanes appear after comparison"}
+            </h2>
+          </div>
+          <p className="section-note">
+            Every lane is ordered by capture time. Result changes are displayed as observations,
+            not as an inferred trend, winner, or cause.
+          </p>
+        </div>
+
+        {temporal ? (
+          <div className="temporal-lanes">
+            {temporal.rows.map((row) => (
+              <article className="temporal-lane" key={row.model.id}>
+                <header>
+                  <div>
+                    <span>{row.model.provider.slug}</span>
+                    <a href={`/models/${row.model.id}`}>{row.model.marketingName}</a>
+                    <small>{row.model.canonicalSlug}</small>
+                  </div>
+                  <a
+                    className="text-link"
+                    href={`/history/${row.model.id}/${temporal.test.testCaseId}`}
+                  >
+                    Full history →
+                  </a>
+                </header>
+
+                <div className="temporal-track">
+                  {row.runs.map((run, index) => (
+                    <a
+                      className="temporal-point"
+                      href={`/runs/${run.id}`}
+                      key={run.id}
+                    >
+                      <span className="temporal-point-index">
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+                      <strong>{formatTimestamp(run.completedAt ?? run.sealedAt)}</strong>
+                      <span className={evaluationClass(run)}>{evaluationLabel(run)}</span>
+                      <small>
+                        {run.evidenceLevel ?? "—"} · {run.returnedModel ?? run.requestedModel}
+                      </small>
+                    </a>
+                  ))}
+                  {row.runs.length === 0 ? (
+                    <div className="temporal-empty">
+                      No sealed public Run for this model × Test Case pair.
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="temporal-lane-foot">
+                  <span>{row.runs.length} Run(s)</span>
+                  <span>{row.relations.length} explicit relation(s)</span>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="comparison-placeholder">
+            <p>
+              Select one Test and 2–4 models to inspect both the latest sealed record
+              and the sequence of earlier sealed Runs for the same exact Test.
             </p>
           </div>
         )}
