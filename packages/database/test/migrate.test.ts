@@ -4,13 +4,13 @@ import { extractMigrationBody } from "../src/migrate.js";
 describe("migration envelope", () => {
   it("extracts the body from the required outer transaction", () => {
     expect(
-      extractMigrationBody(\`
+      extractMigrationBody(`
         BEGIN;
 
         CREATE TABLE example (id integer);
 
         COMMIT;
-      \`),
+      `),
     ).toContain("CREATE TABLE example");
   });
 
