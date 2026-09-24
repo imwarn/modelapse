@@ -14,7 +14,7 @@ export interface MigrationRunResult {
 }
 
 const OUTER_TRANSACTION =
-  /^\\s*BEGIN;\\s*([\\s\\S]*?)\\s*COMMIT;\\s*$/i;
+  /^\s*BEGIN;\s*([\s\S]*?)\s*COMMIT;\s*$/i;
 
 export function extractMigrationBody(sql: string): string {
   const match = OUTER_TRANSACTION.exec(sql);
@@ -33,7 +33,7 @@ function sha256(value: string): string {
 async function migrationFiles(directory: string): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true });
   return entries
-    .filter((entry) => entry.isFile() && /^\\d{4}_.+\\.sql$/.test(entry.name))
+    .filter((entry) => entry.isFile() && /^\d{4}_.+\.sql$/.test(entry.name))
     .map((entry) => entry.name)
     .sort((a, b) => a.localeCompare(b));
 }
