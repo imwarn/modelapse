@@ -101,6 +101,20 @@ export interface ArchiveRunEvidenceView {
   } | null;
 }
 
+export interface ArchiveRunRelationEdgeView {
+  readonly fromRunId: string;
+  readonly toRunId: string;
+  readonly relationType: string;
+  readonly createdAt: string;
+}
+
+export interface ArchiveRunRelationView {
+  readonly direction: "outgoing" | "incoming";
+  readonly relationType: string;
+  readonly relatedRunId: string;
+  readonly createdAt: string;
+}
+
 export interface ArchiveRunDetailView extends ArchiveRunView {
   readonly config: Readonly<Record<string, unknown>> | null;
   readonly requestBlob: ArchiveBlobView | null;
@@ -109,6 +123,7 @@ export interface ArchiveRunDetailView extends ArchiveRunView {
   readonly usage: Readonly<Record<string, unknown>> | null;
   readonly timing: Readonly<Record<string, unknown>> | null;
   readonly evidence: readonly ArchiveRunEvidenceView[];
+  readonly relations: readonly ArchiveRunRelationView[];
 }
 
 export interface ArchiveModelSnapshotView {
@@ -220,6 +235,14 @@ export interface ArchiveComparisonView {
     readonly latestRun: ArchiveRunView | null;
   }[];
 }
+
+export interface ArchiveRunHistoryView {
+  readonly model: ArchiveModelView;
+  readonly test: ArchiveTestView;
+  readonly runs: readonly ArchiveRunView[];
+  readonly relations: readonly ArchiveRunRelationEdgeView[];
+}
+
 
 interface ArchiveRunRow {
   id: string;
@@ -525,6 +548,67 @@ export class PgArchiveRepository {
     );
 
     return result.rows.map(runView);
+  }
+
+  async getRunHistory(input: {
+    readonly modelId: string;
+    readonly testCaseId: string;
+    readonly limit?: number;
+  }): Promise<ArchiveRunHistoryView | null> {
+    const limit = input.limit ?? 50;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      throw new Error("Archive history limit must be an integer between 1 and 100");
+    }
+
+    const [models, tests, newestRuns] = await Promise.all([
+      this.listModels(),
+      this.listTests(),
+      this.listRuns({
+        modelId: input.modelId,
+        testCaseId: input.testCaseId,
+        limit,
+      }),
+    ]);
+
+    const model = models.find((candidate) => candidate.id === input.modelId);
+    const test = tests.find(
+      (candidate) => candidate.testCaseId === input.testCaseId,
+    );
+    if (!model || !test) return null;
+
+    const runs = [...newestRuns].reverse();
+    const runIds = runs.map((run) => run.id);
+
+    let relations: ArchiveRunRelationEdgeView[] = [];
+    if (runIds.length > 1) {
+      const relationResult = await this.pool.query<{
+        from_run_id: string;
+        to_run_id: string;
+        relation_type: string;
+        created_at: Date;
+      }>(
+        `SELECT from_run_id, to_run_id, relation_type, created_at
+           FROM modelapse.run_relations
+          WHERE from_run_id = ANY($1::uuid[])
+            AND to_run_id = ANY($1::uuid[])
+          ORDER BY created_at ASC, from_run_id, to_run_id, relation_type`,
+        [runIds],
+      );
+
+      relations = relationResult.rows.map((relation) => ({
+        fromRunId: relation.from_run_id,
+        toRunId: relation.to_run_id,
+        relationType: relation.relation_type,
+        createdAt: relation.created_at.toISOString(),
+      }));
+    }
+
+    return {
+      model,
+      test,
+      runs,
+      relations,
+    };
   }
 
   async getModel(modelId: string): Promise<ArchiveModelDetailView | null> {
@@ -1068,6 +1152,37 @@ export class PgArchiveRepository {
     const summaryRow = summaryResult.rows[0];
     if (!summaryRow) return null;
 
+    const relationResult = await this.pool.query<{
+      direction: "outgoing" | "incoming";
+      relation_type: string;
+      related_run_id: string;
+      created_at: Date;
+    }>(
+      `SELECT
+         CASE
+           WHEN rr.from_run_id = $1 THEN 'outgoing'
+           ELSE 'incoming'
+         END AS direction,
+         rr.relation_type,
+         CASE
+           WHEN rr.from_run_id = $1 THEN rr.to_run_id
+           ELSE rr.from_run_id
+         END AS related_run_id,
+         rr.created_at
+       FROM modelapse.run_relations rr
+       JOIN modelapse.runs related
+         ON related.id = CASE
+           WHEN rr.from_run_id = $1 THEN rr.to_run_id
+           ELSE rr.from_run_id
+         END
+       JOIN modelapse.test_cases related_tc ON related_tc.id = related.test_case_id
+       WHERE (rr.from_run_id = $1 OR rr.to_run_id = $1)
+         AND related.sealed_at IS NOT NULL
+         AND related_tc.visibility = 'public'
+       ORDER BY rr.created_at ASC, rr.relation_type`,
+      [runId],
+    );
+
     const detailResult = await this.pool.query<{
       config: Readonly<Record<string, unknown>> | null;
       request_sha256: string | null;
@@ -1191,6 +1306,12 @@ export class PgArchiveRepository {
       usage: detail.usage,
       timing: detail.timing,
       evidence: detail.evidence,
+      relations: relationResult.rows.map((relation) => ({
+        direction: relation.direction,
+        relationType: relation.relation_type,
+        relatedRunId: relation.related_run_id,
+        createdAt: relation.created_at.toISOString(),
+      })),
     };
   }
 }
