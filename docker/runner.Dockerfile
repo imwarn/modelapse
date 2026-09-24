@@ -16,6 +16,7 @@ COPY packages/runner/package.json packages/runner/package.json
 COPY packages/persistence/package.json packages/persistence/package.json
 COPY packages/control-plane/package.json packages/control-plane/package.json
 COPY packages/testpack-sdk/package.json packages/testpack-sdk/package.json
+COPY packages/catalog-admin/package.json packages/catalog-admin/package.json
 
 RUN npm install
 
@@ -54,6 +55,10 @@ COPY --from=build /app/packages/persistence/package.json ./packages/persistence/
 COPY --from=build /app/packages/persistence/dist ./packages/persistence/dist
 COPY --from=build /app/packages/control-plane/package.json ./packages/control-plane/package.json
 COPY --from=build /app/packages/control-plane/dist ./packages/control-plane/dist
+COPY --from=build /app/packages/testpack-sdk/package.json ./packages/testpack-sdk/package.json
+COPY --from=build /app/packages/testpack-sdk/dist ./packages/testpack-sdk/dist
+COPY --from=build /app/packages/catalog-admin/package.json ./packages/catalog-admin/package.json
+COPY --from=build /app/packages/catalog-admin/dist ./packages/catalog-admin/dist
 
 RUN mkdir -p /var/lib/modelapse/blobs && chown -R node:node /var/lib/modelapse
 

@@ -57,6 +57,9 @@ jobs:
       - name: Durable queue integration tests
         run: npm run test:integration -w @modelapse/control-plane
 
+      - name: Catalog bootstrap integration tests
+        run: npm run test:integration -w @modelapse/catalog-admin
+
       - name: OpenAI direct and queue worker integration tests
         run: npm run test:integration -w @modelapse/runner-app
 
