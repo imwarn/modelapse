@@ -56,6 +56,27 @@ describe("production catalog bootstrap", () => {
     if (root) await rm(root, { recursive: true, force: true });
   });
 
+  it("bootstraps DeepSeek idempotently and resolves its sourced direct target", async () => {
+    const first = await catalog!.bootstrapDeepSeekSmoke({
+      runnerBuild: "deepseek-build-a",
+    });
+    const second = await catalog!.bootstrapDeepSeekSmoke({
+      runnerBuild: "deepseek-build-b",
+    });
+
+    expect(second).toEqual(first);
+
+    const target = await runs!.resolveDirectExecutionTarget({
+      testCaseId: first.testCaseId,
+      providerSlug: "deepseek",
+      endpointHostname: "api.deepseek.com",
+    });
+
+    expect(target.providerId).toBe(first.providerId);
+    expect(target.endpointBaseUrl).toBe("https://api.deepseek.com");
+    expect(target.promptBlob.sha256).toBe(first.promptSha256);
+  });
+
   it("is idempotent and produces an executable sourced direct target", async () => {
     const first = await catalog!.bootstrapOpenAISmoke({
       runnerBuild: "build-a",
