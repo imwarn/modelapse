@@ -454,7 +454,7 @@ export class PgArchiveRepository {
              'maxOutputTokens', rc.max_output_tokens,
              'reasoningMode', rc.reasoning_mode,
              'reasoningEffort', rc.reasoning_effort,
-             'seed', rc.seed,
+             'seed', rc.seed::text,
              'serviceTier', rc.service_tier
            )
          ) END AS config,
