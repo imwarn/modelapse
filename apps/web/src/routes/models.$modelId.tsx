@@ -174,13 +174,13 @@ function ArchiveModelPage() {
 
         <div className="coverage-grid">
           {model.testCoverage.map((coverage) => (
-            <a
-              className="coverage-card"
-              href={`/tests/${coverage.testCaseId}`}
-              key={coverage.testCaseId}
-            >
+            <article className="coverage-card" key={coverage.testCaseId}>
               <span>{coverage.familyName}</span>
-              <strong>{coverage.caseSlug}</strong>
+              <strong>
+                <a className="archive-entity-link" href={`/tests/${coverage.testCaseId}`}>
+                  {coverage.caseSlug}
+                </a>
+              </strong>
               <small>v{coverage.version}</small>
               <dl>
                 <div>
@@ -192,7 +192,18 @@ function ArchiveModelPage() {
                   <dd>{formatTimestamp(coverage.latestRunAt)}</dd>
                 </div>
               </dl>
-            </a>
+              <div className="coverage-actions">
+                <a className="text-link" href={`/tests/${coverage.testCaseId}`}>
+                  Test detail →
+                </a>
+                <a
+                  className="text-link"
+                  href={`/history/${model.id}/${coverage.testCaseId}`}
+                >
+                  Run history →
+                </a>
+              </div>
+            </article>
           ))}
           {model.testCoverage.length === 0 ? (
             <div className="empty-state">No sealed public Test Runs for this model yet.</div>
@@ -238,6 +249,47 @@ function ArchiveModelPage() {
             ))}
             {model.relations.length === 0 ? <p>No model relations archived.</p> : null}
           </div>
+        </div>
+
+        <div className="relation-map">
+          <div className="relation-map-head">
+            <span className="eyebrow">DIRECT RELATION GRAPH</span>
+            <small>Stored edge direction is preserved exactly as archived.</small>
+          </div>
+          {model.relations.map((relation) => {
+            const currentNode = (
+              <div className="relation-node relation-node-current">
+                <strong>{model.marketingName}</strong>
+                <small>{model.canonicalSlug}</small>
+              </div>
+            );
+            const relatedNode = (
+              <a
+                className="relation-node"
+                href={`/models/${relation.relatedModel.id}`}
+              >
+                <strong>{relation.relatedModel.marketingName}</strong>
+                <small>
+                  {relation.relatedModel.providerSlug} · {relation.relatedModel.canonicalSlug}
+                </small>
+              </a>
+            );
+
+            return (
+              <div className="relation-map-row" key={`graph:${relation.id}`}>
+                {relation.direction === "incoming" ? relatedNode : currentNode}
+                <div className="relation-edge">
+                  <span className="relation-line" aria-hidden="true">→</span>
+                  <span className="badge">{relation.relationType.replaceAll("_", " ")}</span>
+                  <small>confidence {relation.confidence}</small>
+                </div>
+                {relation.direction === "incoming" ? currentNode : relatedNode}
+              </div>
+            );
+          })}
+          {model.relations.length === 0 ? (
+            <div className="empty-state">No direct model relation edges are archived.</div>
+          ) : null}
         </div>
       </section>
 
