@@ -377,6 +377,9 @@ function ModelapseHome() {
                   {activeRun.model.marketingName ?? activeRun.requestedModel}
                 </span>
                 <span>{activeRun.test.caseSlug}</span>
+                <a className="text-link" href={`/runs/${activeRun.id}`}>
+                  View Run →
+                </a>
               </div>
             ) : null}
           </div>
@@ -430,7 +433,9 @@ function ModelapseHome() {
           {filteredRuns.map((run) => (
             <article className="archive-row" role="row" key={run.id}>
               <span>
-                <strong>{run.id.slice(0, 8)}</strong>
+                <a className="archive-run-link" href={`/runs/${run.id}`}>
+                  {run.id.slice(0, 8)} →
+                </a>
                 <small>{run.provider.slug}</small>
               </span>
               <span>
