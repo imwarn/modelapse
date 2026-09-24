@@ -300,6 +300,60 @@ function ArchiveRunPage() {
       <section className="section run-detail-section">
         <div className="section-heading">
           <div>
+            <p className="eyebrow">RUN LINEAGE</p>
+            <h2>Repeat, retry and reproduction links</h2>
+          </div>
+          {run.model.id ? (
+            <a
+              className="text-link"
+              href={`/history/${run.model.id}/${run.test.testCaseId}`}
+            >
+              Same-Test history →
+            </a>
+          ) : null}
+        </div>
+
+        <div className="run-relation-list">
+          {run.relations.map((relation) => (
+            <article
+              className="run-relation-row"
+              key={`${relation.direction}:${relation.relatedRunId}:${relation.relationType}`}
+            >
+              {relation.direction === "incoming" ? (
+                <>
+                  <a href={`/runs/${relation.relatedRunId}`}>
+                    {relation.relatedRunId.slice(0, 8)}
+                  </a>
+                  <span className="relation-arrow">→</span>
+                  <span className="badge">{relation.relationType.replaceAll("_", " ")}</span>
+                  <span className="relation-arrow">→</span>
+                  <strong>{run.id.slice(0, 8)}</strong>
+                </>
+              ) : (
+                <>
+                  <strong>{run.id.slice(0, 8)}</strong>
+                  <span className="relation-arrow">→</span>
+                  <span className="badge">{relation.relationType.replaceAll("_", " ")}</span>
+                  <span className="relation-arrow">→</span>
+                  <a href={`/runs/${relation.relatedRunId}`}>
+                    {relation.relatedRunId.slice(0, 8)}
+                  </a>
+                </>
+              )}
+              <small>{formatTimestamp(relation.createdAt)}</small>
+            </article>
+          ))}
+          {run.relations.length === 0 ? (
+            <div className="empty-state">
+              No explicit Run relation is attached to this sealed public record.
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="section run-detail-section">
+        <div className="section-heading">
+          <div>
             <p className="eyebrow">EVIDENCE</p>
             <h2>Attested provenance</h2>
           </div>
