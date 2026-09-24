@@ -4,7 +4,7 @@ import { hostname } from "node:os";
 import { setTimeout as sleep } from "node:timers/promises";
 import { FileSystemContentAddressedBlobStore } from "@modelapse/blob-store";
 import {
-  parseDirectOpenAIRunRequest,
+  parseDirectProviderRunRequest,
   PgRunJobQueue,
 } from "@modelapse/control-plane";
 import {
@@ -12,6 +12,7 @@ import {
   NodeEvidenceTransport,
 } from "@modelapse/evidence-transport";
 import { PgRunRepository } from "@modelapse/persistence";
+import { runDirectDeepSeek } from "./direct-deepseek.js";
 import { runDirectOpenAI } from "./direct-openai.js";
 import { processOneQueuedRunJob } from "./queue-worker.js";
 
@@ -79,21 +80,24 @@ const repository = PgRunRepository.connect(databaseUrl, { max: 2 });
 const blobStore = new FileSystemContentAddressedBlobStore(blobRoot);
 const credentials = new EnvironmentCredentialResolver();
 const transport = new NodeEvidenceTransport({ timeoutMs: providerTimeoutMs });
-const collector =
-  process.env.MODELAPSE_EVIDENCE_COLLECTOR ??
-  "modelapse-runner/openai-direct";
+const collector = process.env.MODELAPSE_EVIDENCE_COLLECTOR;
 
 async function runStdinMode(): Promise<void> {
-  const request = parseDirectOpenAIRunRequest(JSON.parse(await stdinText()));
-  const result = await runDirectOpenAI(request, {
+  const request = parseDirectProviderRunRequest(JSON.parse(await stdinText()));
+  const deps = {
     repository,
     blobStore,
     transport,
     credentials,
     signer: { keyId, privateKey },
     runnerBuild,
-    collector,
-  });
+    ...(collector ? { collector } : {}),
+  };
+
+  const result =
+    request.provider === "openai"
+      ? await runDirectOpenAI(request, deps)
+      : await runDirectDeepSeek(request, deps);
 
   process.stdout.write(JSON.stringify(summary(result), null, 2) + "\n");
 }
@@ -133,7 +137,7 @@ async function runQueueMode(): Promise<void> {
         runnerBuild,
         workerId,
         leaseSeconds,
-        collector,
+        ...(collector ? { collector } : {}),
       });
 
       if (job) {
