@@ -11,6 +11,7 @@ COPY packages/evidence-transport/package.json packages/evidence-transport/packag
 COPY packages/provider-openai/package.json packages/provider-openai/package.json
 COPY packages/provider-deepseek/package.json packages/provider-deepseek/package.json
 COPY packages/provider-anthropic/package.json packages/provider-anthropic/package.json
+COPY packages/evaluation/package.json packages/evaluation/package.json
 COPY packages/attestation/package.json packages/attestation/package.json
 COPY packages/blob-store/package.json packages/blob-store/package.json
 COPY packages/runner/package.json packages/runner/package.json
