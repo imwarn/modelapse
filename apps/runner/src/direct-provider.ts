@@ -90,6 +90,12 @@ export async function runDirectProvider(
     testCaseId: request.testCaseId,
     providerSlug: adapter.descriptor.providerSlug,
     endpointHostname,
+    ...(request.modelId
+      ? {
+          modelId: request.modelId,
+          requestedModel: request.model,
+        }
+      : {}),
   });
 
   const catalogEndpoint = new URL(target.endpointBaseUrl);
@@ -140,6 +146,8 @@ export async function runDirectProvider(
     request: modelRequest,
     run: {
       testCaseId: target.testCaseId,
+      ...(target.modelId ? { modelId: target.modelId } : {}),
+      ...(target.snapshotId ? { snapshotId: target.snapshotId } : {}),
       providerId: target.providerId,
       runnerBuild: deps.runnerBuild,
     },
