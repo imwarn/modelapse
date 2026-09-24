@@ -1,15 +1,15 @@
 import { Pool } from "pg";
 import {
-  parseDirectOpenAIRunRequest,
-  type DirectOpenAIRunRequest,
+  parseDirectProviderRunRequest,
+  type DirectProviderRunRequest,
 } from "./job.js";
 
 export type RunJobStatus = "queued" | "running" | "succeeded" | "failed";
 
 export interface RunJob {
   readonly id: string;
-  readonly kind: "openai_direct";
-  readonly payload: DirectOpenAIRunRequest;
+  readonly kind: "openai_direct" | "deepseek_direct";
+  readonly payload: DirectProviderRunRequest;
   readonly status: RunJobStatus;
   readonly idempotencyKey: string | null;
   readonly attempts: number;
@@ -27,7 +27,7 @@ export interface RunJob {
 
 interface RunJobRow {
   id: string;
-  kind: "openai_direct";
+  kind: "openai_direct" | "deepseek_direct";
   payload: unknown;
   status: RunJobStatus;
   idempotency_key: string | null;
@@ -67,7 +67,7 @@ function view(row: RunJobRow): RunJob {
   return {
     id: row.id,
     kind: row.kind,
-    payload: parseDirectOpenAIRunRequest(row.payload),
+    payload: parseDirectProviderRunRequest(row.payload),
     status: row.status,
     idempotencyKey: row.idempotency_key,
     attempts: row.attempts,
@@ -122,10 +122,10 @@ export class PgRunJobQueue {
   }
 
   async enqueue(input: {
-    readonly payload: DirectOpenAIRunRequest;
+    readonly payload: DirectProviderRunRequest;
     readonly idempotencyKey?: string;
   }): Promise<RunJob> {
-    const payload = parseDirectOpenAIRunRequest(input.payload);
+    const payload = parseDirectProviderRunRequest(input.payload);
     const idempotencyKey = input.idempotencyKey?.trim();
     if (idempotencyKey !== undefined) {
       if (!idempotencyKey || idempotencyKey.length > 128) {
@@ -136,10 +136,14 @@ export class PgRunJobQueue {
     const inserted = await this.pool.query<RunJobRow>(
       `INSERT INTO modelapse.run_jobs
         (kind, payload, idempotency_key)
-       VALUES ('openai_direct', $1::jsonb, $2)
+       VALUES ($3, $1::jsonb, $2)
        ON CONFLICT (idempotency_key) DO NOTHING
        RETURNING ${SELECT_COLUMNS}`,
-      [JSON.stringify(payload), idempotencyKey ?? null],
+      [
+        JSON.stringify(payload),
+        idempotencyKey ?? null,
+        payload.provider === "openai" ? "openai_direct" : "deepseek_direct",
+      ],
     );
 
     if (inserted.rows[0]) return view(inserted.rows[0]);
@@ -157,7 +161,7 @@ export class PgRunJobQueue {
     const row = existing.rows[0];
     if (!row) throw new Error("Idempotent Run job could not be reloaded");
 
-    const existingPayload = parseDirectOpenAIRunRequest(row.payload);
+    const existingPayload = parseDirectProviderRunRequest(row.payload);
     if (JSON.stringify(existingPayload) !== JSON.stringify(payload)) {
       throw new IdempotencyConflictError();
     }
