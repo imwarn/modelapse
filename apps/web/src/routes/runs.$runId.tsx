@@ -39,8 +39,8 @@ function evaluationClass(run: ArchiveRunDetail): string {
   return "badge";
 }
 
-function jsonBlock(value: Readonly<Record<string, unknown>> | null): string {
-  return value ? JSON.stringify(value, null, 2) : "—";
+function jsonBlock(value: string | null): string {
+  return value ?? "—";
 }
 
 function BlobProof({
@@ -261,15 +261,15 @@ function ArchiveRunPage() {
         <div className="json-grid">
           <div className="json-panel">
             <span>Run configuration</span>
-            <pre>{jsonBlock(run.config)}</pre>
+            <pre>{jsonBlock(run.configJson)}</pre>
           </div>
           <div className="json-panel">
             <span>Provider usage</span>
-            <pre>{jsonBlock(run.usage)}</pre>
+            <pre>{jsonBlock(run.usageJson)}</pre>
           </div>
           <div className="json-panel">
             <span>Timing</span>
-            <pre>{jsonBlock(run.timing)}</pre>
+            <pre>{jsonBlock(run.timingJson)}</pre>
           </div>
         </div>
       </section>
