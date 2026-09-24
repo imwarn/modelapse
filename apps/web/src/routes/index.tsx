@@ -1,10 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import {
+  getControlCatalog,
   getWorkbenchSnapshot,
   readJob,
   submitRun,
   type ArchiveRun,
+  type ControlCatalog,
   type ControlJob,
 } from "../modelapse";
 
@@ -34,11 +36,12 @@ function evaluationClass(run: ArchiveRun): string {
 
 function ModelapseHome() {
   const snapshot = Route.useLoaderData();
-  const [modelId, setModelId] = useState(snapshot.control.models[0]?.id ?? "");
-  const [testCaseId, setTestCaseId] = useState(
-    snapshot.control.tests[0]?.testCaseId ?? "",
-  );
+  const [catalog, setCatalog] = useState<ControlCatalog | null>(null);
+  const [modelId, setModelId] = useState("");
+  const [testCaseId, setTestCaseId] = useState("");
   const [operatorToken, setOperatorToken] = useState("");
+  const [unlocking, setUnlocking] = useState(false);
+  const [accessError, setAccessError] = useState<string | null>(null);
   const [job, setJob] = useState<ControlJob | null>(null);
   const [activeRun, setActiveRun] = useState<ArchiveRun | null>(null);
   const [runs, setRuns] = useState<readonly ArchiveRun[]>(
@@ -59,6 +62,36 @@ function ModelapseHome() {
     [runs, archiveModel, archiveTest],
   );
 
+  const selectedModel = catalog?.models.find((model) => model.id === modelId);
+  const selectedTest = catalog?.tests.find(
+    (test) => test.testCaseId === testCaseId,
+  );
+
+  async function handleUnlock(): Promise<void> {
+    if (!operatorToken || !snapshot.control.configured) return;
+
+    setUnlocking(true);
+    setAccessError(null);
+
+    try {
+      const unlocked = await getControlCatalog({
+        data: { operatorToken },
+      });
+      setCatalog(unlocked);
+      setModelId(unlocked.models[0]?.id ?? "");
+      setTestCaseId(unlocked.tests[0]?.testCaseId ?? "");
+    } catch (error) {
+      setCatalog(null);
+      setModelId("");
+      setTestCaseId("");
+      setAccessError(
+        error instanceof Error ? error.message : "Control access failed",
+      );
+    } finally {
+      setUnlocking(false);
+    }
+  }
+
   async function pollJob(jobId: string): Promise<void> {
     for (let attempt = 0; attempt < 120; attempt += 1) {
       const result = await readJob({
@@ -69,11 +102,12 @@ function ModelapseHome() {
       });
 
       setJob(result.job);
-      if (result.run) {
-        setActiveRun(result.run);
+      const archivedRun = result.run;
+      if (archivedRun) {
+        setActiveRun(archivedRun);
         setRuns((current) => [
-          result.run!,
-          ...current.filter((candidate) => candidate.id !== result.run!.id),
+          archivedRun,
+          ...current.filter((candidate) => candidate.id !== archivedRun.id),
         ]);
       }
 
@@ -81,7 +115,7 @@ function ModelapseHome() {
         return;
       }
 
-      await new Promise((resolve) => window.setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
 
     throw new Error(
@@ -90,7 +124,7 @@ function ModelapseHome() {
   }
 
   async function handleRun(): Promise<void> {
-    if (!modelId || !testCaseId || !operatorToken) return;
+    if (!catalog || !modelId || !testCaseId || !operatorToken) return;
 
     setBusy(true);
     setRunError(null);
@@ -113,13 +147,6 @@ function ModelapseHome() {
       setBusy(false);
     }
   }
-
-  const selectedModel = snapshot.control.models.find(
-    (model) => model.id === modelId,
-  );
-  const selectedTest = snapshot.control.tests.find(
-    (test) => test.testCaseId === testCaseId,
-  );
 
   return (
     <main>
@@ -175,28 +202,79 @@ function ModelapseHome() {
           </div>
           <span
             className={
-              snapshot.control.available
+              catalog
                 ? "badge badge-pass"
-                : "badge badge-fail"
+                : snapshot.control.configured
+                  ? "badge"
+                  : "badge badge-fail"
             }
           >
-            {snapshot.control.available ? "catalog ready" : "control unavailable"}
+            {catalog
+              ? "catalog ready"
+              : snapshot.control.configured
+                ? "operator locked"
+                : "control disabled"}
           </span>
         </div>
 
-        {snapshot.control.error ? (
-          <div className="notice notice-error">{snapshot.control.error}</div>
+        {!snapshot.control.configured ? (
+          <div className="notice notice-error">
+            This Web deployment is missing its server-side control or operator
+            credential.
+          </div>
         ) : null}
 
         <div className="control-grid">
           <label>
-            <span>01 / Model</span>
+            <span>01 / Operator access</span>
+            <input
+              type="password"
+              value={operatorToken}
+              onChange={(event) => setOperatorToken(event.target.value)}
+              placeholder="MODELAPSE_WEB_OPERATOR_TOKEN"
+              autoComplete="current-password"
+              disabled={busy || unlocking}
+            />
+            <small>
+              Sent only to this Web server. The API control token stays
+              server-side.
+            </small>
+          </label>
+
+          <div className="run-action">
+            <button
+              type="button"
+              onClick={() => void handleUnlock()}
+              disabled={
+                busy ||
+                unlocking ||
+                !snapshot.control.configured ||
+                !operatorToken
+              }
+            >
+              {unlocking
+                ? "Checking operator access…"
+                : catalog
+                  ? "Refresh control catalog"
+                  : "Unlock Run control"}
+            </button>
+            <small>
+              Runnable models and private Test metadata are returned only after
+              operator verification.
+            </small>
+          </div>
+
+          <label>
+            <span>02 / Model</span>
             <select
               value={modelId}
               onChange={(event) => setModelId(event.target.value)}
-              disabled={!snapshot.control.available || busy}
+              disabled={!catalog || busy}
             >
-              {snapshot.control.models.map((model) => (
+              <option value="" disabled>
+                {catalog ? "Select model" : "Unlock control first"}
+              </option>
+              {catalog?.models.map((model) => (
                 <option key={model.id} value={model.id}>
                   {model.marketingName} · {model.provider}
                 </option>
@@ -205,18 +283,21 @@ function ModelapseHome() {
             <small>
               {selectedModel
                 ? `${selectedModel.canonicalSlug} → ${selectedModel.apiModelId}`
-                : "No runnable model is registered."}
+                : "Runnable model bindings remain server-gated."}
             </small>
           </label>
 
           <label>
-            <span>02 / Test</span>
+            <span>03 / Test</span>
             <select
               value={testCaseId}
               onChange={(event) => setTestCaseId(event.target.value)}
-              disabled={!snapshot.control.available || busy}
+              disabled={!catalog || busy}
             >
-              {snapshot.control.tests.map((test) => (
+              <option value="" disabled>
+                {catalog ? "Select Test Case" : "Unlock control first"}
+              </option>
+              {catalog?.tests.map((test) => (
                 <option key={test.testCaseId} value={test.testCaseId}>
                   {test.familyName} · {test.caseSlug} · v{test.version}
                 </option>
@@ -225,42 +306,36 @@ function ModelapseHome() {
             <small>
               {selectedTest
                 ? `${selectedTest.evaluator.slug}@${selectedTest.evaluator.version} · ${selectedTest.visibility}`
-                : "No runnable Test Case is registered."}
+                : "Published runnable Test Cases remain server-gated."}
             </small>
           </label>
+        </div>
 
-          <label>
-            <span>03 / Operator token</span>
-            <input
-              type="password"
-              value={operatorToken}
-              onChange={(event) => setOperatorToken(event.target.value)}
-              placeholder="MODELAPSE_WEB_OPERATOR_TOKEN"
-              autoComplete="current-password"
-              disabled={busy}
-            />
+        {accessError ? (
+          <div className="notice notice-error">{accessError}</div>
+        ) : null}
+
+        <div className="execute-bar">
+          <div>
+            <strong>Controlled execution</strong>
             <small>
-              Sent only to this web server; the API control token stays
-              server-side.
+              first-party direct · durable queue · immutable evidence · derived
+              evaluation
             </small>
-          </label>
-
-          <div className="run-action">
-            <button
-              type="button"
-              onClick={() => void handleRun()}
-              disabled={
-                busy ||
-                !snapshot.control.available ||
-                !modelId ||
-                !testCaseId ||
-                !operatorToken
-              }
-            >
-              {busy ? "Run in progress…" : "Run selected test"}
-            </button>
-            <small>first-party direct · durable queue · immutable evidence</small>
           </div>
+          <button
+            type="button"
+            onClick={() => void handleRun()}
+            disabled={
+              busy ||
+              !catalog ||
+              !modelId ||
+              !testCaseId ||
+              !operatorToken
+            }
+          >
+            {busy ? "Run in progress…" : "Run selected test"}
+          </button>
         </div>
 
         {runError ? <div className="notice notice-error">{runError}</div> : null}
