@@ -14,7 +14,7 @@ export interface MigrationRunResult {
 }
 
 const OUTER_TRANSACTION =
-  /^\s*BEGIN;\s*([\s\S]*?)\s*COMMIT;\s*$/i;
+  /^\\s*BEGIN;\\s*([\\s\\S]*?)\\s*COMMIT;\\s*$/i;
 
 export function extractMigrationBody(sql: string): string {
   const match = OUTER_TRANSACTION.exec(sql);
@@ -33,7 +33,7 @@ function sha256(value: string): string {
 async function migrationFiles(directory: string): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true });
   return entries
-    .filter((entry) => entry.isFile() && /^\d{4}_.+\.sql$/.test(entry.name))
+    .filter((entry) => entry.isFile() && /^\\d{4}_.+\\.sql$/.test(entry.name))
     .map((entry) => entry.name)
     .sort((a, b) => a.localeCompare(b));
 }
@@ -49,7 +49,7 @@ export async function migrateDatabase(input: {
   try {
     await client.query("SELECT pg_advisory_lock(hashtext('modelapse:migrations'))");
 
-    await client.query(\`
+    await client.query(`
       CREATE SCHEMA IF NOT EXISTS modelapse;
 
       CREATE TABLE IF NOT EXISTS modelapse.schema_migrations (
@@ -58,7 +58,7 @@ export async function migrateDatabase(input: {
         applied_at timestamptz NOT NULL DEFAULT now(),
         runner_build text NOT NULL
       );
-    \`);
+    `);
 
     const results: AppliedMigration[] = [];
 
@@ -67,9 +67,9 @@ export async function migrateDatabase(input: {
       const digest = sha256(raw);
 
       const existing = await client.query<{ sha256: string }>(
-        \`SELECT sha256
+        `SELECT sha256
            FROM modelapse.schema_migrations
-          WHERE name = $1\`,
+          WHERE name = $1`,
         [name],
       );
 
@@ -92,9 +92,9 @@ export async function migrateDatabase(input: {
       try {
         await client.query(body);
         await client.query(
-          \`INSERT INTO modelapse.schema_migrations
+          `INSERT INTO modelapse.schema_migrations
              (name, sha256, runner_build)
-           VALUES ($1, $2, $3)\`,
+           VALUES ($1, $2, $3)`,
           [name, digest, input.runnerBuild],
         );
         await client.query("COMMIT");
