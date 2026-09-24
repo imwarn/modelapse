@@ -32,6 +32,11 @@ const plan: PlannedDirectRun = {
     caseType: "icon",
     visibility: "public",
     artifactType: "text",
+    evaluator: {
+      slug: "exact-text",
+      version: "1.0.0",
+      kind: "deterministic",
+    },
   },
   jobPayload: {
     provider: "deepseek",
