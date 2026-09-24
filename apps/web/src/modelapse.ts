@@ -195,6 +195,30 @@ function apiErrorMessage(payload: unknown, status: number): string {
   return `Modelapse API request failed with HTTP ${status}`;
 }
 
+function controlAuthDiagnostic(payload: unknown): string | null {
+  if (!isRecord(payload)) return null;
+
+  const reason =
+    payload.reason === "missing_authorization" ||
+    payload.reason === "invalid_authorization"
+      ? payload.reason
+      : null;
+  const build =
+    typeof payload.build === "string" && payload.build
+      ? payload.build.slice(0, 12)
+      : "unknown";
+
+  if (reason === "missing_authorization") {
+    return `API build ${build} did not receive the Authorization header from the Web service. Check MODELAPSE_API_ORIGIN and any reverse proxy between Web and API.`;
+  }
+
+  if (reason === "invalid_authorization") {
+    return `API build ${build} received the Authorization header but rejected it. The Web/API runtime MODELAPSE_CONTROL_TOKEN values differ, or the Web service is reaching an unexpected API instance.`;
+  }
+
+  return null;
+}
+
 async function requestJson<T>(
   path: string,
   options: ApiOptions = {},
@@ -233,10 +257,15 @@ async function requestJson<T>(
   }
 
   if (!response.ok) {
-    const message =
+    const diagnostic =
       options.control && response.status === 401
-        ? "Modelapse API rejected the Web control credential. Verify MODELAPSE_CONTROL_TOKEN is identical on the Web and API services, then redeploy both."
-        : apiErrorMessage(payload, response.status);
+        ? controlAuthDiagnostic(payload)
+        : null;
+    const message =
+      diagnostic ??
+      (options.control && response.status === 401
+        ? "Modelapse API rejected the Web control credential, but this API did not return auth diagnostics. Verify the Web is reaching the expected API deployment."
+        : apiErrorMessage(payload, response.status));
 
     throw new ApiRequestError(response.status, message);
   }
