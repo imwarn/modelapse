@@ -34,6 +34,14 @@ JOIN evaluators e
 WHERE tf.slug IN ('modelapse-direct-smoke', 'modelapse-smoke')
 ON CONFLICT (test_version_id) DO NOTHING;
 
+CREATE TRIGGER evaluations_append_only
+BEFORE UPDATE OR DELETE ON evaluations
+FOR EACH ROW EXECUTE FUNCTION prevent_append_only_mutation();
+
+CREATE TRIGGER metric_values_append_only
+BEFORE UPDATE OR DELETE ON metric_values
+FOR EACH ROW EXECUTE FUNCTION prevent_append_only_mutation();
+
 CREATE INDEX evaluations_evaluator_created_idx
   ON evaluations (evaluator_id, created_at DESC);
 
