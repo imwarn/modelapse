@@ -71,6 +71,117 @@ export interface ArchiveTest {
   readonly runCount: number;
 }
 
+export interface ArchiveModelSnapshot {
+  readonly id: string;
+  readonly providerSnapshotId: string;
+  readonly validFrom: string | null;
+  readonly validTo: string | null;
+  readonly sourceId: string | null;
+}
+
+export interface ArchiveModelRelation {
+  readonly id: string;
+  readonly direction: "outgoing" | "incoming";
+  readonly relationType: string;
+  readonly relatedModel: {
+    readonly id: string;
+    readonly canonicalSlug: string;
+    readonly marketingName: string;
+    readonly providerSlug: string;
+  };
+  readonly validFrom: string | null;
+  readonly validTo: string | null;
+  readonly sourceId: string | null;
+  readonly confidence: number;
+}
+
+export interface ArchiveTimelineEvent {
+  readonly id: string;
+  readonly kind:
+    | "model_released"
+    | "model_retired"
+    | "snapshot_started"
+    | "snapshot_ended"
+    | "relation"
+    | "run";
+  readonly occurredAt: string;
+  readonly title: string;
+  readonly description: string;
+  readonly runId: string | null;
+  readonly testCaseId: string | null;
+  readonly snapshotId: string | null;
+  readonly relatedModelId: string | null;
+}
+
+export interface ArchiveModelDetail extends ArchiveModel {
+  readonly family: {
+    readonly id: string;
+    readonly slug: string;
+    readonly displayName: string;
+  } | null;
+  readonly track: {
+    readonly id: string;
+    readonly slug: string;
+    readonly displayName: string;
+    readonly trackType: string | null;
+  } | null;
+  readonly releasedAt: string | null;
+  readonly retiredAt: string | null;
+  readonly canonicalSourceId: string | null;
+  readonly snapshots: readonly ArchiveModelSnapshot[];
+  readonly relations: readonly ArchiveModelRelation[];
+  readonly testCoverage: readonly {
+    readonly testCaseId: string;
+    readonly familySlug: string;
+    readonly familyName: string;
+    readonly version: string;
+    readonly caseSlug: string;
+    readonly runCount: number;
+    readonly latestRunAt: string | null;
+  }[];
+  readonly recentRuns: readonly ArchiveRun[];
+  readonly timeline: readonly ArchiveTimelineEvent[];
+}
+
+export interface ArchiveTestDetail extends ArchiveTest {
+  readonly origin: string;
+  readonly canonicalSourceId: string | null;
+  readonly versionStatus: string;
+  readonly definitionSha256: string;
+  readonly license: string | null;
+  readonly publishedAt: string | null;
+  readonly versionCreatedAt: string;
+  readonly caseType: string;
+  readonly caseStatus: string;
+  readonly activeFrom: string | null;
+  readonly activeTo: string | null;
+  readonly promptSha256: string;
+  readonly fixtureManifestSha256: string | null;
+  readonly evaluatorDefinitionSha256: string | null;
+  readonly modelCoverage: readonly {
+    readonly modelId: string;
+    readonly canonicalSlug: string;
+    readonly marketingName: string;
+    readonly providerSlug: string;
+    readonly runCount: number;
+    readonly latestRunAt: string | null;
+  }[];
+  readonly recentRuns: readonly ArchiveRun[];
+}
+
+export interface ArchiveComparison {
+  readonly test: ArchiveTest;
+  readonly rows: readonly {
+    readonly model: ArchiveModel;
+    readonly latestRun: ArchiveRun | null;
+  }[];
+}
+
+export interface ArchiveCatalog {
+  readonly models: readonly ArchiveModel[];
+  readonly tests: readonly ArchiveTest[];
+}
+
 export interface ArchiveRun {
   readonly id: string;
   readonly status: string;
@@ -200,6 +311,19 @@ interface ReadJobInput extends OperatorInput {
 
 interface ReadArchiveRunInput {
   readonly runId: string;
+}
+
+interface ReadArchiveModelInput {
+  readonly modelId: string;
+}
+
+interface ReadArchiveTestInput {
+  readonly testCaseId: string;
+}
+
+interface CompareArchiveInput {
+  readonly modelIds: readonly string[];
+  readonly testCaseId: string;
 }
 
 interface ApiOptions {
@@ -390,6 +514,53 @@ function parseArchiveRunInput(value: unknown): ReadArchiveRunInput {
   return { runId };
 }
 
+function parseArchiveModelInput(value: unknown): ReadArchiveModelInput {
+  if (!isRecord(value)) throw new Error("Archive Model request must be an object");
+
+  const modelId = value.modelId;
+  if (typeof modelId !== "string" || !UUID_RE.test(modelId)) {
+    throw new Error("modelId must be a UUID");
+  }
+
+  return { modelId };
+}
+
+function parseArchiveTestInput(value: unknown): ReadArchiveTestInput {
+  if (!isRecord(value)) throw new Error("Archive Test request must be an object");
+
+  const testCaseId = value.testCaseId;
+  if (typeof testCaseId !== "string" || !UUID_RE.test(testCaseId)) {
+    throw new Error("testCaseId must be a UUID");
+  }
+
+  return { testCaseId };
+}
+
+function parseArchiveComparisonInput(value: unknown): CompareArchiveInput {
+  if (!isRecord(value)) throw new Error("Archive comparison request must be an object");
+
+  const modelIds = value.modelIds;
+  const testCaseId = value.testCaseId;
+
+  if (
+    !Array.isArray(modelIds) ||
+    modelIds.length < 2 ||
+    modelIds.length > 4 ||
+    modelIds.some((modelId) => typeof modelId !== "string" || !UUID_RE.test(modelId)) ||
+    new Set(modelIds).size !== modelIds.length
+  ) {
+    throw new Error("modelIds must contain between 2 and 4 unique UUIDs");
+  }
+  if (typeof testCaseId !== "string" || !UUID_RE.test(testCaseId)) {
+    throw new Error("testCaseId must be a UUID");
+  }
+
+  return {
+    modelIds: modelIds as string[],
+    testCaseId,
+  };
+}
+
 function requireOperator(candidate: string): void {
   const expected = process.env.MODELAPSE_WEB_OPERATOR_TOKEN;
   if (!expected) {
@@ -445,6 +616,68 @@ export const getArchiveRun = createServerFn({ method: "POST" })
         usageJson: serializeArchiveMetadata(usage),
         timingJson: serializeArchiveMetadata(timing),
       };
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  });
+
+export const getArchiveCatalog = createServerFn({ method: "GET" }).handler(
+  async (): Promise<ArchiveCatalog> => {
+    const [models, tests] = await Promise.all([
+      requestJson<{ models: readonly ArchiveModel[] }>("/v1/archive/models"),
+      requestJson<{ tests: readonly ArchiveTest[] }>("/v1/archive/tests"),
+    ]);
+    return {
+      models: models.models,
+      tests: tests.tests,
+    };
+  },
+);
+
+export const getArchiveModel = createServerFn({ method: "POST" })
+  .validator(parseArchiveModelInput)
+  .handler(async ({ data }): Promise<ArchiveModelDetail | null> => {
+    try {
+      const result = await requestJson<{ model: ArchiveModelDetail }>(
+        `/v1/archive/models/${data.modelId}`,
+      );
+      return result.model;
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  });
+
+export const getArchiveTest = createServerFn({ method: "POST" })
+  .validator(parseArchiveTestInput)
+  .handler(async ({ data }): Promise<ArchiveTestDetail | null> => {
+    try {
+      const result = await requestJson<{ test: ArchiveTestDetail }>(
+        `/v1/archive/tests/${data.testCaseId}`,
+      );
+      return result.test;
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  });
+
+export const compareArchive = createServerFn({ method: "POST" })
+  .validator(parseArchiveComparisonInput)
+  .handler(async ({ data }): Promise<ArchiveComparison | null> => {
+    const modelIds = data.modelIds.join(",");
+    try {
+      const result = await requestJson<{ comparison: ArchiveComparison }>(
+        `/v1/archive/compare?modelIds=${encodeURIComponent(modelIds)}&testCaseId=${encodeURIComponent(data.testCaseId)}`,
+      );
+      return result.comparison;
     } catch (error) {
       if (error instanceof ApiRequestError && error.status === 404) {
         return null;
