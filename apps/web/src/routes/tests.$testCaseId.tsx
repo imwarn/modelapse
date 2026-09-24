@@ -187,13 +187,13 @@ function ArchiveTestPage() {
 
         <div className="coverage-grid">
           {test.modelCoverage.map((coverage) => (
-            <a
-              className="coverage-card"
-              href={`/models/${coverage.modelId}`}
-              key={coverage.modelId}
-            >
+            <article className="coverage-card" key={coverage.modelId}>
               <span>{coverage.providerSlug}</span>
-              <strong>{coverage.marketingName}</strong>
+              <strong>
+                <a className="archive-entity-link" href={`/models/${coverage.modelId}`}>
+                  {coverage.marketingName}
+                </a>
+              </strong>
               <small>{coverage.canonicalSlug}</small>
               <dl>
                 <div>
@@ -205,7 +205,18 @@ function ArchiveTestPage() {
                   <dd>{formatTimestamp(coverage.latestRunAt)}</dd>
                 </div>
               </dl>
-            </a>
+              <div className="coverage-actions">
+                <a className="text-link" href={`/models/${coverage.modelId}`}>
+                  Model detail →
+                </a>
+                <a
+                  className="text-link"
+                  href={`/history/${coverage.modelId}/${test.testCaseId}`}
+                >
+                  Run history →
+                </a>
+              </div>
+            </article>
           ))}
           {test.modelCoverage.length === 0 ? (
             <div className="empty-state">No model has a sealed public Run for this Test yet.</div>
