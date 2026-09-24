@@ -53,6 +53,8 @@ jobs:
             dockerfile: docker/api.Dockerfile
           - image: runner
             dockerfile: docker/runner.Dockerfile
+          - image: web
+            dockerfile: docker/web.Dockerfile
     steps:
       - uses: actions/checkout@v4
         with:
@@ -96,10 +98,11 @@ jobs:
       COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
       COOLIFY_API_UUID: ${{ secrets.COOLIFY_API_UUID }}
       COOLIFY_RUNNER_UUID: ${{ secrets.COOLIFY_RUNNER_UUID }}
+      COOLIFY_WEB_UUID: ${{ secrets.COOLIFY_WEB_UUID }}
       COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
       COOLIFY_READ_TOKEN: ${{ secrets.COOLIFY_READ_TOKEN }}
     steps:
-      - name: Deploy API, then runner
+      - name: Deploy API, runner, then optional web
         if: env.COOLIFY_URL != '' && env.COOLIFY_API_UUID != '' && env.COOLIFY_RUNNER_UUID != '' && env.COOLIFY_TOKEN != '' && env.COOLIFY_READ_TOKEN != ''
         run: |
           set -euo pipefail
@@ -155,9 +158,16 @@ jobs:
           RUNNER_DEPLOYMENT="$(deploy_resource "${COOLIFY_RUNNER_UUID}")"
           wait_for_deployment "$RUNNER_DEPLOYMENT"
 
+          if [ -n "${COOLIFY_WEB_UUID}" ]; then
+            WEB_DEPLOYMENT="$(deploy_resource "${COOLIFY_WEB_UUID}")"
+            wait_for_deployment "$WEB_DEPLOYMENT"
+          else
+            echo "COOLIFY_WEB_UUID is not configured; the web image was published but web deployment was skipped."
+          fi
+
       - name: Note missing Coolify configuration
         if: env.COOLIFY_URL == '' || env.COOLIFY_API_UUID == '' || env.COOLIFY_RUNNER_UUID == '' || env.COOLIFY_TOKEN == '' || env.COOLIFY_READ_TOKEN == ''
         run: |
-          echo "Images were published to GHCR, but Coolify deployment was skipped."
+          echo "Images were published to GHCR, but core Coolify deployment was skipped."
           echo "Configure production environment secrets COOLIFY_URL, COOLIFY_API_UUID,"
           echo "COOLIFY_RUNNER_UUID, COOLIFY_TOKEN and COOLIFY_READ_TOKEN to enable automatic deployment."

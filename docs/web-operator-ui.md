@@ -1,0 +1,121 @@
+# TanStack Start operator Web v0.1
+
+The first Modelapse Web layer closes the normal product loop without moving provider execution or privileged catalog access into the browser.
+
+```text
+Browser
+  |
+  | public page / Archive reads
+  v
+TanStack Start Web
+  |
+  | server functions
+  |  - verify MODELAPSE_WEB_OPERATOR_TOKEN for control actions
+  |  - attach MODELAPSE_CONTROL_TOKEN server-side
+  v
+Hono API
+  |
+  +--> Run Planner
+  +--> durable PostgreSQL Run job
+  +--> public Archive projection
+
+Runner
+  |
+  +--> first-party provider
+  +--> evidence capture
+  +--> sealed Run
+  +--> deterministic Evaluation
+```
+
+## Included in v0.1
+
+The root page provides:
+
+- canonical Model selection;
+- active published Test Case selection;
+- operator-authenticated Run submission;
+- durable job status polling;
+- sealed Run/Evidence/Evaluation result display;
+- public recent Archive browsing;
+- model and Test filters.
+
+The normal UI submits only `modelId` and `testCaseId`. Provider slug, API model alias, endpoint, prompt bytes, credentials, evidence level, and evaluator binding are still derived and revalidated by the backend.
+
+## Credential boundary
+
+The Web server has two different secrets:
+
+```text
+MODELAPSE_CONTROL_TOKEN
+MODELAPSE_WEB_OPERATOR_TOKEN
+```
+
+They must not be equal.
+
+`MODELAPSE_CONTROL_TOKEN` is the Hono control-plane credential. It exists only in the Web server runtime and is never intentionally serialized to the browser.
+
+`MODELAPSE_WEB_OPERATOR_TOKEN` is the narrow v0.1 operator gate. The operator types it into the UI when starting a Run. TanStack Start sends it to the same-origin server function, which verifies it before making the privileged Hono request.
+
+Archive reads do not require the operator token.
+
+This is an internal operator surface, not an end-user authentication system. General accounts, sessions, organizations, roles, and community submission permissions remain outside v0.1.
+
+## Runtime configuration
+
+Required for a deployed Web process:
+
+```text
+MODELAPSE_API_ORIGIN=http://<modelapse-api-internal-host>:3000
+MODELAPSE_CONTROL_TOKEN=<same server secret configured on the API>
+MODELAPSE_WEB_OPERATOR_TOKEN=<separate operator secret>
+```
+
+Optional:
+
+```text
+MODELAPSE_BUILD=<normally baked into the image>
+PORT=3000
+```
+
+The Web process does not connect directly to PostgreSQL and does not need provider credentials, signing material, or blob storage.
+
+## Local development
+
+Start the existing API and runner with their normal local environment, then run:
+
+```bash
+MODELAPSE_API_ORIGIN=http://127.0.0.1:3000 \
+MODELAPSE_CONTROL_TOKEN=local-control-token \
+MODELAPSE_WEB_OPERATOR_TOKEN=local-operator-token \
+npm run dev -w @modelapse/web
+```
+
+The development Web server listens on port 3001.
+
+## Production artifact
+
+CI builds:
+
+```text
+docker/web.Dockerfile
+```
+
+Successful current-`main` CI publishes:
+
+```text
+ghcr.io/imwarn/modelapse-web:main
+ghcr.io/imwarn/modelapse-web:sha-<full-git-sha>
+```
+
+Coolify deployment is optional until `COOLIFY_WEB_UUID` is configured. This lets Web rollout be staged without disturbing API/runner deployment.
+
+## Deliberately deferred
+
+- general user login/session management;
+- catalog administration CRUD;
+- Test Pack authoring UI;
+- community candidate submission/review UI;
+- raw private evidence/blob access;
+- long-lived WebSocket/SSE job streaming;
+- server-side Archive pagination/search beyond the current bounded API;
+- visual/image/video artifact rendering.
