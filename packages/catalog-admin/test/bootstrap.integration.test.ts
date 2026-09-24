@@ -8,7 +8,7 @@ import { migrateDatabase } from "@modelapse/database";
 import { PgRunRepository } from "@modelapse/persistence";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { PgCatalogAdmin } from "../src/index.js";
+import { PgCatalogAdmin, PgModelCatalogAdmin } from "../src/index.js";
 
 const ADMIN_DATABASE_URL =
   process.env.DATABASE_URL ??
@@ -27,6 +27,7 @@ describe("production catalog bootstrap", () => {
   const isolatedDatabaseUrl = databaseUrl(databaseName);
   let root = "";
   let catalog: PgCatalogAdmin | undefined;
+  let modelCatalog: PgModelCatalogAdmin | undefined;
   let runs: PgRunRepository | undefined;
 
   beforeAll(async () => {
@@ -45,15 +46,67 @@ describe("production catalog bootstrap", () => {
       isolatedDatabaseUrl,
       new FileSystemContentAddressedBlobStore(root),
     );
+    modelCatalog = PgModelCatalogAdmin.connect(isolatedDatabaseUrl);
     runs = PgRunRepository.connect(isolatedDatabaseUrl, { max: 2 });
   });
 
   afterAll(async () => {
     await runs?.close();
     await catalog?.close();
+    await modelCatalog?.close();
     await adminPool.query(`DROP DATABASE IF EXISTS "${databaseName}"`);
     await adminPool.end();
     if (root) await rm(root, { recursive: true, force: true });
+  });
+
+  it("registers the DeepSeek model and execution binding idempotently", async () => {
+    const first = await modelCatalog!.bootstrapDeepSeekFlash();
+    const second = await modelCatalog!.bootstrapDeepSeekFlash();
+
+    expect(second).toEqual(first);
+
+    const verification = new Pool({ connectionString: isolatedDatabaseUrl });
+    try {
+      const row = await verification.query<{
+        canonical_source_id: string | null;
+        api_model_id: string;
+        binding_source_id: string;
+        alias: string;
+        alias_observations: string;
+      }>(
+        `SELECT
+           m.canonical_source_id,
+           meb.api_model_id,
+           meb.source_id AS binding_source_id,
+           ma.alias,
+           COUNT(are.id)::text AS alias_observations
+         FROM modelapse.models m
+         JOIN modelapse.model_execution_bindings meb ON meb.model_id = m.id
+         JOIN modelapse.model_aliases ma
+           ON ma.provider_id = m.provider_id
+          AND ma.alias = meb.api_model_id
+         LEFT JOIN modelapse.alias_resolution_events are
+           ON are.alias_id = ma.id
+          AND are.resolved_model_id = m.id
+         WHERE m.id = $1
+         GROUP BY
+           m.canonical_source_id,
+           meb.api_model_id,
+           meb.source_id,
+           ma.alias`,
+        [first.modelId],
+      );
+
+      expect(row.rows[0]).toMatchObject({
+        canonical_source_id: first.sourceId,
+        api_model_id: "deepseek-flash",
+        binding_source_id: first.sourceId,
+        alias: "deepseek-flash",
+        alias_observations: "1",
+      });
+    } finally {
+      await verification.end();
+    }
   });
 
   it("bootstraps DeepSeek idempotently and resolves its sourced direct target", async () => {
