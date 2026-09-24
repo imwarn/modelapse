@@ -455,9 +455,7 @@ export class PgArchiveRepository {
              'reasoningMode', rc.reasoning_mode,
              'reasoningEffort', rc.reasoning_effort,
              'seed', rc.seed,
-             'serviceTier', rc.service_tier,
-             'tools', rc.tool_config,
-             'providerConfig', rc.provider_config
+             'serviceTier', rc.service_tier
            )
          ) END AS config,
          request_blob.sha256 AS request_sha256,
