@@ -216,8 +216,10 @@ async function requestJson<T>(
   const response = await fetch(new URL(path, apiOrigin()), {
     method: options.method ?? "GET",
     headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
     cache: "no-store",
+    ...(options.body === undefined
+      ? {}
+      : { body: JSON.stringify(options.body) }),
   });
 
   const raw = await response.text();
