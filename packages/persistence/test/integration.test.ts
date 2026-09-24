@@ -11,6 +11,7 @@ import type {
 } from "@modelapse/provider-adapter";
 import {
   executePersistedProviderRun,
+  PgArchiveRepository,
   PgRunRepository,
 } from "../src/index.js";
 
@@ -21,6 +22,7 @@ const DATABASE_URL =
 describe("PostgreSQL Run persistence", () => {
   const seedPool = new Pool({ connectionString: DATABASE_URL });
   const repository = PgRunRepository.connect(DATABASE_URL, { max: 2 });
+  const archive = PgArchiveRepository.connect(DATABASE_URL, { max: 2 });
   let root = "";
   let providerId = "";
   let testCaseId = "";
@@ -87,6 +89,7 @@ describe("PostgreSQL Run persistence", () => {
   });
 
   afterAll(async () => {
+    await archive.close();
     await repository.close();
     await seedPool.end();
     if (root) await rm(root, { recursive: true, force: true });
@@ -188,6 +191,32 @@ describe("PostgreSQL Run persistence", () => {
       providerResponseId: "response_1",
       upstreamId: "upstream_1",
       routedProviderName: "Fake Upstream",
+    });
+
+    const archived = await archive.getRun(result.run.id);
+    expect(archived).not.toBeNull();
+    expect(archived?.requestBlob).toMatchObject({
+      sha256: result.sealed.requestSha256,
+      visibility: "private",
+    });
+    expect(archived?.responseBlob).toMatchObject({
+      sha256: result.sealed.responseSha256,
+      visibility: "private",
+    });
+    expect(archived?.timing).toMatchObject({ durationMs: 250 });
+    expect(archived?.usage).toMatchObject({
+      inputTokens: 1,
+      outputTokens: 1,
+      totalTokens: 2,
+    });
+    expect(archived?.evidence[0]).toMatchObject({
+      level: "E3",
+      executionPath: "routed_provider",
+      collector: "modelapse-integration-test",
+      attestation: {
+        keyId: "integration-key",
+        algorithm: "Ed25519",
+      },
     });
 
     await expect(

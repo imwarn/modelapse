@@ -63,12 +63,52 @@ export interface ArchiveRunView {
     readonly status: string;
     readonly evaluatorSlug: string;
     readonly evaluatorVersion: string;
+    readonly evaluatorKind: string;
+    readonly definitionSha256: string;
+    readonly rawResultSha256: string | null;
     readonly exactMatch: boolean | null;
   } | null;
   readonly runnerBuild: string;
   readonly createdAt: string;
   readonly completedAt: string | null;
   readonly sealedAt: string | null;
+}
+
+export interface ArchiveBlobView {
+  readonly sha256: string;
+  readonly sizeBytes: number;
+  readonly mimeType: string;
+  readonly visibility: string;
+}
+
+export interface ArchiveRunEvidenceView {
+  readonly id: string;
+  readonly level: string;
+  readonly executionPath: string;
+  readonly collector: string;
+  readonly sourceId: string | null;
+  readonly notes: string | null;
+  readonly createdAt: string;
+  readonly attestation: {
+    readonly id: string;
+    readonly keyId: string;
+    readonly algorithm: string;
+    readonly payloadSha256: string;
+    readonly signature: string;
+    readonly keyValidFrom: string;
+    readonly keyValidTo: string | null;
+    readonly createdAt: string;
+  } | null;
+}
+
+export interface ArchiveRunDetailView extends ArchiveRunView {
+  readonly config: Readonly<Record<string, unknown>> | null;
+  readonly requestBlob: ArchiveBlobView | null;
+  readonly responseBlob: ArchiveBlobView | null;
+  readonly responseHeadersSha256: string | null;
+  readonly usage: Readonly<Record<string, unknown>> | null;
+  readonly timing: Readonly<Record<string, unknown>> | null;
+  readonly evidence: readonly ArchiveRunEvidenceView[];
 }
 
 interface ArchiveRunRow {
@@ -95,6 +135,9 @@ interface ArchiveRunRow {
   evaluation_status: string | null;
   evaluator_slug: string | null;
   evaluator_version: string | null;
+  evaluator_kind: string | null;
+  evaluator_definition_sha256: string | null;
+  evaluation_raw_result_sha256: string | null;
   exact_match: number | null;
   runner_build: string;
   created_at: Date;
@@ -133,12 +176,17 @@ function runView(row: ArchiveRunRow): ArchiveRunView {
       row.evaluation_id &&
       row.evaluation_status &&
       row.evaluator_slug &&
-      row.evaluator_version
+      row.evaluator_version &&
+      row.evaluator_kind &&
+      row.evaluator_definition_sha256
         ? {
             id: row.evaluation_id,
             status: row.evaluation_status,
             evaluatorSlug: row.evaluator_slug,
             evaluatorVersion: row.evaluator_version,
+            evaluatorKind: row.evaluator_kind,
+            definitionSha256: row.evaluator_definition_sha256,
+            rawResultSha256: row.evaluation_raw_result_sha256,
             exactMatch:
               row.exact_match === null ? null : Number(row.exact_match) === 1,
           }
@@ -175,6 +223,9 @@ const RUN_SELECT = `
     ev.status AS evaluation_status,
     e.slug AS evaluator_slug,
     e.version AS evaluator_version,
+    e.kind AS evaluator_kind,
+    e.definition_sha256 AS evaluator_definition_sha256,
+    ev.raw_result_blob_sha256 AS evaluation_raw_result_sha256,
     mv.numeric_value AS exact_match,
     r.runner_build,
     r.created_at,
@@ -366,8 +417,8 @@ export class PgArchiveRepository {
     return result.rows.map(runView);
   }
 
-  async getRun(runId: string): Promise<ArchiveRunView | null> {
-    const result = await this.pool.query<ArchiveRunRow>(
+  async getRun(runId: string): Promise<ArchiveRunDetailView | null> {
+    const summaryResult = await this.pool.query<ArchiveRunRow>(
       RUN_SELECT +
         `
        WHERE r.id = $1
@@ -377,6 +428,132 @@ export class PgArchiveRepository {
       [runId],
     );
 
-    return result.rows[0] ? runView(result.rows[0]) : null;
+    const summaryRow = summaryResult.rows[0];
+    if (!summaryRow) return null;
+
+    const detailResult = await this.pool.query<{
+      config: Readonly<Record<string, unknown>> | null;
+      request_sha256: string | null;
+      request_size_bytes: string | null;
+      request_mime_type: string | null;
+      request_visibility: string | null;
+      response_sha256: string | null;
+      response_size_bytes: string | null;
+      response_mime_type: string | null;
+      response_visibility: string | null;
+      response_headers_sha256: string | null;
+      usage: Readonly<Record<string, unknown>> | null;
+      timing: Readonly<Record<string, unknown>> | null;
+      evidence: ArchiveRunEvidenceView[];
+    }>(
+      `SELECT
+         CASE WHEN rc.run_id IS NULL THEN NULL ELSE jsonb_strip_nulls(
+           jsonb_build_object(
+             'temperature', rc.temperature,
+             'topP', rc.top_p,
+             'maxOutputTokens', rc.max_output_tokens,
+             'reasoningMode', rc.reasoning_mode,
+             'reasoningEffort', rc.reasoning_effort,
+             'seed', rc.seed::text,
+             'serviceTier', rc.service_tier
+           )
+         ) END AS config,
+         request_blob.sha256 AS request_sha256,
+         request_blob.size_bytes AS request_size_bytes,
+         request_blob.mime_type AS request_mime_type,
+         request_blob.visibility AS request_visibility,
+         response_blob.sha256 AS response_sha256,
+         response_blob.size_bytes AS response_size_bytes,
+         response_blob.mime_type AS response_mime_type,
+         response_blob.visibility AS response_visibility,
+         prm.response_headers_blob_sha256 AS response_headers_sha256,
+         prm.usage,
+         prm.timing,
+         COALESCE((
+           SELECT jsonb_agg(
+             jsonb_strip_nulls(jsonb_build_object(
+               'id', er.id,
+               'level', er.level,
+               'executionPath', er.execution_path,
+               'collector', er.collector,
+               'sourceId', er.source_id,
+               'notes', er.notes,
+               'createdAt', er.created_at,
+               'attestation', CASE
+                 WHEN ra.id IS NULL THEN NULL
+                 ELSE jsonb_build_object(
+                   'id', ra.id,
+                   'keyId', ra.key_id,
+                   'algorithm', ak.algorithm,
+                   'payloadSha256', ra.payload_blob_sha256,
+                   'signature', ra.signature,
+                   'keyValidFrom', ak.valid_from,
+                   'keyValidTo', ak.valid_to,
+                   'createdAt', ra.created_at
+                 )
+               END
+             ))
+             ORDER BY er.created_at ASC
+           )
+           FROM modelapse.evidence_records er
+           LEFT JOIN modelapse.run_attestations ra
+             ON ra.id = er.attestation_id
+           LEFT JOIN modelapse.attestation_keys ak
+             ON ak.id = ra.key_id
+           WHERE er.run_id = r.id
+         ), '[]'::jsonb) AS evidence
+       FROM modelapse.runs r
+       JOIN modelapse.test_cases tc ON tc.id = r.test_case_id
+       LEFT JOIN modelapse.run_configs rc ON rc.run_id = r.id
+       LEFT JOIN modelapse.provider_run_metadata prm ON prm.run_id = r.id
+       LEFT JOIN modelapse.blobs request_blob
+         ON request_blob.sha256 = r.request_blob_sha256
+       LEFT JOIN modelapse.blobs response_blob
+         ON response_blob.sha256 = r.response_blob_sha256
+       WHERE r.id = $1
+         AND tc.visibility = 'public'
+         AND r.sealed_at IS NOT NULL
+       LIMIT 1`,
+      [runId],
+    );
+
+    const detail = detailResult.rows[0];
+    if (!detail) return null;
+
+    const blob = (
+      sha256: string | null,
+      sizeBytes: string | null,
+      mimeType: string | null,
+      visibility: string | null,
+    ): ArchiveBlobView | null =>
+      sha256 && sizeBytes && mimeType && visibility
+        ? {
+            sha256,
+            sizeBytes: Number(sizeBytes),
+            mimeType,
+            visibility,
+          }
+        : null;
+
+    return {
+      ...runView(summaryRow),
+      config: detail.config,
+      requestBlob: blob(
+        detail.request_sha256,
+        detail.request_size_bytes,
+        detail.request_mime_type,
+        detail.request_visibility,
+      ),
+      responseBlob: blob(
+        detail.response_sha256,
+        detail.response_size_bytes,
+        detail.response_mime_type,
+        detail.response_visibility,
+      ),
+      responseHeadersSha256: detail.response_headers_sha256,
+      usage: detail.usage,
+      timing: detail.timing,
+      evidence: detail.evidence,
+    };
   }
 }

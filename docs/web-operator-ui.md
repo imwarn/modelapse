@@ -1,4 +1,4 @@
-# TanStack Start operator Web v0.1
+# TanStack Start Web and Archive
 
 The first Modelapse Web layer closes the normal product loop without moving provider execution or privileged catalog access into the browser.
 
@@ -108,6 +108,42 @@ ghcr.io/imwarn/modelapse-web:sha-<full-git-sha>
 ```
 
 Coolify deployment is optional until `COOLIFY_WEB_UUID` is configured. This lets Web rollout be staged without disturbing API/runner deployment.
+
+## Archive / Run Detail v0.2
+
+Every sealed public Run now has a stable route:
+
+```text
+/runs/<run-id>
+```
+
+The page is public and does not require the operator credential. Its loader reads only `/v1/archive/runs/:runId`, so private Test Cases and unsealed Runs remain outside the Archive projection.
+
+The detail page exposes public verification metadata without publishing captured provider traffic:
+
+- canonical/provider/Test identity;
+- requested and returned model identifiers;
+- Run status and sealed timestamps;
+- runner build and execution path;
+- reproducibility-oriented scalar Run configuration;
+- request and response SHA-256, size and MIME metadata;
+- response-header capture SHA-256;
+- normalized timing and usage metadata;
+- Evidence records and collector identity;
+- attestation key ID, algorithm, payload hash and signature;
+- Evaluation identity, evaluator definition hash, raw result hash and deterministic result.
+
+Request and response payload bytes remain private CAS objects. Their `objectKey` values are not included in the public Archive contract.
+
+This preserves the project rule:
+
+```text
+Run = historical fact
+Evidence = provenance
+Evaluation = derived view
+```
+
+The Archive list and successful operator Run result both link directly to the immutable Run detail URL.
 
 ## Deliberately deferred
 

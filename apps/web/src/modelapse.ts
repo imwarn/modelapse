@@ -102,12 +102,62 @@ export interface ArchiveRun {
     readonly status: string;
     readonly evaluatorSlug: string;
     readonly evaluatorVersion: string;
+    readonly evaluatorKind: string;
+    readonly definitionSha256: string;
+    readonly rawResultSha256: string | null;
     readonly exactMatch: boolean | null;
   } | null;
   readonly runnerBuild: string;
   readonly createdAt: string;
   readonly completedAt: string | null;
   readonly sealedAt: string | null;
+}
+
+export interface ArchiveBlob {
+  readonly sha256: string;
+  readonly sizeBytes: number;
+  readonly mimeType: string;
+  readonly visibility: string;
+}
+
+export interface ArchiveRunEvidence {
+  readonly id: string;
+  readonly level: string;
+  readonly executionPath: string;
+  readonly collector: string;
+  readonly sourceId: string | null;
+  readonly notes: string | null;
+  readonly createdAt: string;
+  readonly attestation: {
+    readonly id: string;
+    readonly keyId: string;
+    readonly algorithm: string;
+    readonly payloadSha256: string;
+    readonly signature: string;
+    readonly keyValidFrom: string;
+    readonly keyValidTo: string | null;
+    readonly createdAt: string;
+  } | null;
+}
+
+export interface ArchiveRunDetail extends ArchiveRun {
+  readonly configJson: string | null;
+  readonly requestBlob: ArchiveBlob | null;
+  readonly responseBlob: ArchiveBlob | null;
+  readonly responseHeadersSha256: string | null;
+  readonly usageJson: string | null;
+  readonly timingJson: string | null;
+  readonly evidence: readonly ArchiveRunEvidence[];
+}
+
+interface ArchiveRunDetailWire extends ArchiveRun {
+  readonly config: unknown;
+  readonly requestBlob: ArchiveBlob | null;
+  readonly responseBlob: ArchiveBlob | null;
+  readonly responseHeadersSha256: string | null;
+  readonly usage: unknown;
+  readonly timing: unknown;
+  readonly evidence: readonly ArchiveRunEvidence[];
 }
 
 export interface ControlJob {
@@ -146,6 +196,10 @@ interface SubmitRunInput extends OperatorInput {
 
 interface ReadJobInput extends OperatorInput {
   readonly jobId: string;
+}
+
+interface ReadArchiveRunInput {
+  readonly runId: string;
 }
 
 interface ApiOptions {
@@ -193,6 +247,11 @@ function apiErrorMessage(payload: unknown, status: number): string {
     if (message) return message;
   }
   return `Modelapse API request failed with HTTP ${status}`;
+}
+
+function serializeArchiveMetadata(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  return JSON.stringify(value, null, 2) ?? null;
 }
 
 function controlAuthDiagnostic(payload: unknown): string | null {
@@ -320,6 +379,17 @@ function parseReadJobInput(value: unknown): ReadJobInput {
   return { operatorToken, jobId };
 }
 
+function parseArchiveRunInput(value: unknown): ReadArchiveRunInput {
+  if (!isRecord(value)) throw new Error("Archive Run request must be an object");
+
+  const runId = value.runId;
+  if (typeof runId !== "string" || !UUID_RE.test(runId)) {
+    throw new Error("runId must be a UUID");
+  }
+
+  return { runId };
+}
+
 function requireOperator(candidate: string): void {
   const expected = process.env.MODELAPSE_WEB_OPERATOR_TOKEN;
   if (!expected) {
@@ -360,6 +430,28 @@ export const getWorkbenchSnapshot = createServerFn({ method: "GET" }).handler(
     };
   },
 );
+
+export const getArchiveRun = createServerFn({ method: "POST" })
+  .validator(parseArchiveRunInput)
+  .handler(async ({ data }): Promise<ArchiveRunDetail | null> => {
+    try {
+      const result = await requestJson<{ run: ArchiveRunDetailWire }>(
+        `/v1/archive/runs/${data.runId}`,
+      );
+      const { config, usage, timing, ...run } = result.run;
+      return {
+        ...run,
+        configJson: serializeArchiveMetadata(config),
+        usageJson: serializeArchiveMetadata(usage),
+        timingJson: serializeArchiveMetadata(timing),
+      };
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  });
 
 export const getControlCatalog = createServerFn({ method: "POST" })
   .validator(parseOperatorInput)

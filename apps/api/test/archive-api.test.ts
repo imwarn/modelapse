@@ -43,12 +43,66 @@ const archiveRun = {
     status: "completed",
     evaluatorSlug: "exact-text",
     evaluatorVersion: "1.0.0",
+    evaluatorKind: "deterministic",
+    definitionSha256:
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    rawResultSha256:
+      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     exactMatch: true,
   },
   runnerBuild: "build-test",
   createdAt: "2026-09-24T08:00:00.000Z",
   completedAt: "2026-09-24T08:00:01.000Z",
   sealedAt: "2026-09-24T08:00:01.100Z",
+  config: {
+    maxOutputTokens: 64,
+  },
+  requestBlob: {
+    sha256:
+      "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    sizeBytes: 123,
+    mimeType: "application/json",
+    visibility: "private",
+  },
+  responseBlob: {
+    sha256:
+      "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    sizeBytes: 456,
+    mimeType: "application/json",
+    visibility: "private",
+  },
+  responseHeadersSha256:
+    "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  usage: {
+    inputTokens: 4,
+    outputTokens: 1,
+    totalTokens: 5,
+  },
+  timing: {
+    durationMs: 1000,
+  },
+  evidence: [
+    {
+      id: "00000000-0000-4000-8000-000000000026",
+      level: "E4",
+      executionPath: "first_party_direct",
+      collector: "modelapse-smoke",
+      sourceId: null,
+      notes: null,
+      createdAt: "2026-09-24T08:00:01.100Z",
+      attestation: {
+        id: "00000000-0000-4000-8000-000000000027",
+        keyId: "prod-key",
+        algorithm: "Ed25519",
+        payloadSha256:
+          "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        signature: "base64-signature",
+        keyValidFrom: "2026-09-24T00:00:00.000Z",
+        keyValidTo: null,
+        createdAt: "2026-09-24T08:00:01.100Z",
+      },
+    },
+  ],
 } as const;
 
 describe("Archive read API", () => {
