@@ -145,6 +145,62 @@ Evaluation = derived view
 
 The Archive list and successful operator Run result both link directly to the immutable Run detail URL.
 
+## Archive v0.3: Model / Test detail, timeline and comparison
+
+The public Archive now has first-class entity routes:
+
+```text
+/models/<model-id>
+/tests/<test-case-id>
+/compare
+```
+
+### Model detail
+
+The Model page combines canonical catalog identity with public Archive evidence:
+
+- provider, family, track, release/retirement metadata;
+- provider snapshots and explicit model relations;
+- Test coverage based on sealed public Runs;
+- recent sealed Runs;
+- an evolution timeline composed from dated model lifecycle events, snapshot validity, sourced model relations and sealed public Runs.
+
+Timeline entries remain descriptive facts. Evaluation results can appear on Run events, but the timeline does not convert them into a ranking or inferred model quality trend.
+
+### Test detail
+
+The Test page exposes the immutable public Test identity:
+
+- family / variant / case / version metadata;
+- definition, prompt, fixture and evaluator hashes;
+- origin, license, publication and active-window metadata;
+- model coverage based only on sealed public Runs;
+- recent Run history.
+
+Blob object locations and raw private payloads remain excluded.
+
+### Comparison foundation
+
+`/compare` lets a reader select one public Test Case and 2–4 canonical models. The comparison uses the latest sealed public Run for each exact model × Test Case pair and presents the records side by side:
+
+- exact Run identity;
+- completion time;
+- requested / returned model identifiers;
+- execution path and evidence level;
+- evaluator identity and deterministic result when available.
+
+The comparison endpoint does not calculate an overall score, winner, ranking, or cross-Test aggregate. It is intentionally a record comparison layer that later evaluation views can build on.
+
+Public API additions:
+
+```text
+GET /v1/archive/models/:modelId
+GET /v1/archive/tests/:testCaseId
+GET /v1/archive/compare?modelIds=<2-4 comma-separated UUIDs>&testCaseId=<UUID>
+```
+
+All three remain outside operator authentication and read only Archive-safe projections.
+
 ## Deliberately deferred
 
 - general user login/session management;
