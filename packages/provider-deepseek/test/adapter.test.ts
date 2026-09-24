@@ -24,7 +24,7 @@ describe("DeepSeek Responses adapter", () => {
       credentialName: "DEEPSEEK_API_KEY",
     });
     expect(prepared.body).not.toContain("DEEPSEEK_API_KEY");
-    expect(JSON.parse(prepared.body)).toMatchObject({
+    expect(JSON.parse(prepared.body ?? "")).toMatchObject({
       model: "deepseek-flash",
       input: [{ role: "user", content: "modelapse" }],
       max_output_tokens: 32,
