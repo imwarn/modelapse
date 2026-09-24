@@ -315,6 +315,36 @@ button:disabled {
   color: #ffb1b1;
 }
 
+.execute-bar {
+  margin-top: 20px;
+  padding: 20px 22px;
+  border: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  background: rgba(255, 255, 255, 0.012);
+}
+
+.execute-bar > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.execute-bar strong {
+  font-size: 14px;
+}
+
+.execute-bar small {
+  color: var(--muted);
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.execute-bar button {
+  min-width: 220px;
+}
+
 .job-panel {
   margin-top: 24px;
   padding: 24px;
@@ -501,5 +531,15 @@ footer {
 
   .job-panel dl {
     grid-template-columns: 1fr;
+  }
+
+  .execute-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .execute-bar button {
+    width: 100%;
+    min-width: 0;
   }
 }
