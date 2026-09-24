@@ -17,7 +17,8 @@
     "@modelapse/evidence-transport": "*",
     "@modelapse/persistence": "*",
     "@modelapse/provider-adapter": "*",
-    "@modelapse/provider-openai": "*"
+    "@modelapse/provider-openai": "*",
+    "@modelapse/provider-deepseek": "*"
   },
   "devDependencies": {
     "@types/pg": "8.23.1",
