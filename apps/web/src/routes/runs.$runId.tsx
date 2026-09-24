@@ -56,7 +56,7 @@ function BlobProof({
       <strong title={blob?.sha256}>{shortHash(blob?.sha256 ?? null)}</strong>
       <small>
         {blob
-          ? `${blob.mimeType} · ${blob.sizeBytes.toLocaleString()} bytes · ${blob.visibility} bytes`
+          ? `${blob.mimeType} · ${blob.sizeBytes} bytes · ${blob.visibility} bytes`
           : "not captured"}
       </small>
     </div>
