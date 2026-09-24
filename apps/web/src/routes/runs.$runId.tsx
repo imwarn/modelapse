@@ -109,9 +109,10 @@ function ArchiveRunPage() {
             <small>AI Model Test & Evolution Archive</small>
           </span>
         </a>
-        <a className="header-link" href="/#archive">
-          Archive
-        </a>
+        <nav className="header-nav">
+          <a className="header-link" href="/#archive">Archive</a>
+          <a className="header-link" href="/compare">Compare</a>
+        </nav>
       </header>
 
       <section className="run-detail-hero">
@@ -124,9 +125,19 @@ function ArchiveRunPage() {
         <div className="run-title-row">
           <div>
             <p className="eyebrow">SEALED RUN</p>
-            <h1>{run.model.marketingName ?? run.requestedModel}</h1>
+            <h1>
+              {run.model.id ? (
+                <a className="entity-title-link" href={`/models/${run.model.id}`}>
+                  {run.model.marketingName ?? run.requestedModel}
+                </a>
+              ) : (
+                run.model.marketingName ?? run.requestedModel
+              )}
+            </h1>
             <p className="run-subtitle">
-              {run.test.familyName} · {run.test.caseSlug} · v{run.test.version}
+              <a className="text-link" href={`/tests/${run.test.testCaseId}`}>
+                {run.test.familyName} · {run.test.caseSlug} · v{run.test.version}
+              </a>
             </p>
           </div>
           <div className="run-verdict">
@@ -216,7 +227,15 @@ function ArchiveRunPage() {
             </div>
             <div>
               <dt>Canonical model</dt>
-              <dd>{run.model.canonicalSlug ?? "unbound"}</dd>
+              <dd>
+                {run.model.id ? (
+                  <a className="text-link" href={`/models/${run.model.id}`}>
+                    {run.model.canonicalSlug ?? "unbound"}
+                  </a>
+                ) : (
+                  run.model.canonicalSlug ?? "unbound"
+                )}
+              </dd>
             </div>
             <div>
               <dt>Execution path</dt>
@@ -249,7 +268,11 @@ function ArchiveRunPage() {
             </div>
             <div>
               <dt>Test Case ID</dt>
-              <dd>{run.test.testCaseId}</dd>
+              <dd>
+                <a className="text-link" href={`/tests/${run.test.testCaseId}`}>
+                  {run.test.testCaseId}
+                </a>
+              </dd>
             </div>
             <div>
               <dt>Variant</dt>
