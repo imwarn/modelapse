@@ -2,6 +2,7 @@
 
 import {
   HeadContent,
+  Outlet,
   Scripts,
   createRootRoute,
 } from "@tanstack/react-router";
@@ -27,6 +28,7 @@ export const Route = createRootRoute({
     ],
     links: [{ rel: "stylesheet", href: appCss }],
   }),
+  component: Outlet,
   shellComponent: RootDocument,
 });
 
