@@ -96,6 +96,8 @@ export interface DirectExecutionTarget {
   readonly providerSlug: string;
   readonly endpointBaseUrl: string;
   readonly endpointHostname: string;
+  readonly modelId: string | null;
+  readonly snapshotId: string | null;
   readonly promptBlob: BlobDescriptor;
 }
 
@@ -104,5 +106,7 @@ export interface ExecutionCatalogRepository {
     readonly testCaseId: string;
     readonly providerSlug: string;
     readonly endpointHostname: string;
+    readonly modelId?: string;
+    readonly requestedModel?: string;
   }): Promise<DirectExecutionTarget>;
 }
