@@ -25,7 +25,14 @@ type ControlPlanner = Pick<
 >;
 type ArchiveRepository = Pick<
   PgArchiveRepository,
-  "ping" | "listModels" | "listTests" | "listRuns" | "getRun"
+  | "ping"
+  | "listModels"
+  | "listTests"
+  | "listRuns"
+  | "getRun"
+  | "getModel"
+  | "getTest"
+  | "compareLatest"
 >;
 
 export interface AppDependencies {
@@ -154,6 +161,78 @@ export function createApp(deps: AppDependencies) {
       return c.json({ error: "archive_unavailable" }, 503);
     }
     return c.json({ tests: await deps.archive.listTests() });
+  });
+
+  app.get("/v1/archive/models/:modelId", async (c) => {
+    if (!deps.archive) {
+      return c.json({ error: "archive_unavailable" }, 503);
+    }
+
+    const modelId = c.req.param("modelId");
+    if (!UUID_RE.test(modelId)) {
+      return c.json({ error: "invalid_model_id" }, 400);
+    }
+
+    const model = await deps.archive.getModel(modelId);
+    if (!model) {
+      return c.json({ error: "archive_model_not_found" }, 404);
+    }
+
+    return c.json({ model });
+  });
+
+  app.get("/v1/archive/tests/:testCaseId", async (c) => {
+    if (!deps.archive) {
+      return c.json({ error: "archive_unavailable" }, 503);
+    }
+
+    const testCaseId = c.req.param("testCaseId");
+    if (!UUID_RE.test(testCaseId)) {
+      return c.json({ error: "invalid_test_case_id" }, 400);
+    }
+
+    const test = await deps.archive.getTest(testCaseId);
+    if (!test) {
+      return c.json({ error: "archive_test_not_found" }, 404);
+    }
+
+    return c.json({ test });
+  });
+
+  app.get("/v1/archive/compare", async (c) => {
+    if (!deps.archive) {
+      return c.json({ error: "archive_unavailable" }, 503);
+    }
+
+    const rawModelIds = c.req.query("modelIds");
+    const testCaseId = c.req.query("testCaseId");
+    const modelIds = rawModelIds
+      ?.split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    if (
+      !modelIds ||
+      modelIds.length < 2 ||
+      modelIds.length > 4 ||
+      new Set(modelIds).size !== modelIds.length ||
+      modelIds.some((modelId) => !UUID_RE.test(modelId))
+    ) {
+      return c.json({ error: "invalid_model_ids" }, 400);
+    }
+    if (!testCaseId || !UUID_RE.test(testCaseId)) {
+      return c.json({ error: "invalid_test_case_id" }, 400);
+    }
+
+    const comparison = await deps.archive.compareLatest({
+      modelIds,
+      testCaseId,
+    });
+    if (!comparison) {
+      return c.json({ error: "archive_comparison_not_found" }, 404);
+    }
+
+    return c.json({ comparison });
   });
 
   app.get("/v1/archive/runs", async (c) => {

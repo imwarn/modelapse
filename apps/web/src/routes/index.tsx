@@ -392,7 +392,11 @@ function ModelapseHome() {
             <p className="eyebrow">PUBLIC ARCHIVE</p>
             <h2>Recent sealed runs</h2>
           </div>
-          <div className="archive-filters">
+          <div className="archive-tools">
+            <a className="header-link archive-compare-link" href="/compare">
+              Compare models →
+            </a>
+            <div className="archive-filters">
             <select
               aria-label="Filter Archive by model"
               value={archiveModel}
@@ -417,6 +421,7 @@ function ModelapseHome() {
                 </option>
               ))}
             </select>
+            </div>
           </div>
         </div>
 
@@ -439,13 +444,22 @@ function ModelapseHome() {
                 <small>{run.provider.slug}</small>
               </span>
               <span>
-                <strong>
-                  {run.model.marketingName ?? run.requestedModel}
-                </strong>
+                {run.model.id ? (
+                  <a className="archive-entity-link" href={`/models/${run.model.id}`}>
+                    {run.model.marketingName ?? run.requestedModel}
+                  </a>
+                ) : (
+                  <strong>{run.model.marketingName ?? run.requestedModel}</strong>
+                )}
                 <small>{run.returnedModel ?? run.requestedModel}</small>
               </span>
               <span>
-                <strong>{run.test.caseSlug}</strong>
+                <a
+                  className="archive-entity-link"
+                  href={`/tests/${run.test.testCaseId}`}
+                >
+                  {run.test.caseSlug}
+                </a>
                 <small>
                   {run.test.familySlug} · v{run.test.version}
                 </small>

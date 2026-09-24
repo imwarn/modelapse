@@ -105,6 +105,160 @@ const archiveRun = {
   ],
 } as const;
 
+const archiveModelDetail = {
+  id: MODEL_ID,
+  provider: archiveRun.provider,
+  canonicalSlug: "deepseek-flash",
+  marketingName: "DeepSeek Flash",
+  status: "active",
+  runCount: 1,
+  latestRunAt: archiveRun.completedAt,
+  family: {
+    id: "00000000-0000-4000-8000-000000000031",
+    slug: "deepseek",
+    displayName: "DeepSeek",
+  },
+  track: {
+    id: "00000000-0000-4000-8000-000000000032",
+    slug: "flash",
+    displayName: "Flash",
+    trackType: "fast",
+  },
+  releasedAt: "2026-09-01T00:00:00.000Z",
+  retiredAt: null,
+  canonicalSourceId: "00000000-0000-4000-8000-000000000033",
+  snapshots: [
+    {
+      id: "00000000-0000-4000-8000-000000000034",
+      providerSnapshotId: "deepseek-flash-202609",
+      validFrom: "2026-09-01T00:00:00.000Z",
+      validTo: null,
+      sourceId: "00000000-0000-4000-8000-000000000033",
+    },
+  ],
+  relations: [],
+  testCoverage: [
+    {
+      testCaseId: TEST_CASE_ID,
+      familySlug: archiveRun.test.familySlug,
+      familyName: archiveRun.test.familyName,
+      version: archiveRun.test.version,
+      caseSlug: archiveRun.test.caseSlug,
+      runCount: 1,
+      latestRunAt: archiveRun.completedAt,
+    },
+  ],
+  recentRuns: [archiveRun],
+  timeline: [
+    {
+      id: `run:${RUN_ID}`,
+      kind: "run",
+      occurredAt: archiveRun.completedAt,
+      title: "Run · exact-modelapse",
+      description: "E4 · exact match",
+      runId: RUN_ID,
+      testCaseId: TEST_CASE_ID,
+      snapshotId: null,
+      relatedModelId: null,
+    },
+  ],
+} as const;
+
+const archiveTestDetail = {
+  testCaseId: TEST_CASE_ID,
+  familySlug: archiveRun.test.familySlug,
+  familyName: archiveRun.test.familyName,
+  variantSlug: archiveRun.test.variantSlug,
+  variantName: archiveRun.test.variantName,
+  category: "smoke",
+  artifactType: "text",
+  version: archiveRun.test.version,
+  caseSlug: archiveRun.test.caseSlug,
+  evaluator: {
+    slug: "exact-text",
+    version: "1.0.0",
+    kind: "deterministic",
+  },
+  runCount: 1,
+  origin: "modelapse",
+  canonicalSourceId: null,
+  versionStatus: "published",
+  definitionSha256:
+    "1111111111111111111111111111111111111111111111111111111111111111",
+  license: "Apache-2.0",
+  publishedAt: "2026-09-01T00:00:00.000Z",
+  versionCreatedAt: "2026-08-31T00:00:00.000Z",
+  caseType: "public",
+  caseStatus: "active",
+  activeFrom: "2026-09-01T00:00:00.000Z",
+  activeTo: null,
+  promptSha256:
+    "2222222222222222222222222222222222222222222222222222222222222222",
+  fixtureManifestSha256: null,
+  evaluatorDefinitionSha256: archiveRun.evaluation.definitionSha256,
+  modelCoverage: [
+    {
+      modelId: MODEL_ID,
+      canonicalSlug: "deepseek-flash",
+      marketingName: "DeepSeek Flash",
+      providerSlug: "deepseek",
+      runCount: 1,
+      latestRunAt: archiveRun.completedAt,
+    },
+  ],
+  recentRuns: [archiveRun],
+} as const;
+
+const archiveComparison = {
+  test: {
+    testCaseId: TEST_CASE_ID,
+    familySlug: archiveRun.test.familySlug,
+    familyName: archiveRun.test.familyName,
+    variantSlug: archiveRun.test.variantSlug,
+    variantName: archiveRun.test.variantName,
+    category: "smoke",
+    artifactType: "text",
+    version: archiveRun.test.version,
+    caseSlug: archiveRun.test.caseSlug,
+    evaluator: {
+      slug: "exact-text",
+      version: "1.0.0",
+      kind: "deterministic",
+    },
+    runCount: 1,
+  },
+  rows: [
+    {
+      model: {
+        id: MODEL_ID,
+        provider: archiveRun.provider,
+        canonicalSlug: "deepseek-flash",
+        marketingName: "DeepSeek Flash",
+        status: "active",
+        runCount: 1,
+        latestRunAt: archiveRun.completedAt,
+      },
+      latestRun: archiveRun,
+    },
+    {
+      model: {
+        id: "00000000-0000-4000-8000-000000000035",
+        provider: {
+          id: "00000000-0000-4000-8000-000000000036",
+          slug: "openai",
+          name: "OpenAI",
+        },
+        canonicalSlug: "gpt-test",
+        marketingName: "GPT Test",
+        status: "active",
+        runCount: 0,
+        latestRunAt: null,
+      },
+      latestRun: null,
+    },
+  ],
+} as const;
+
 describe("Archive read API", () => {
   it("exposes public model, test and evaluated Run views without control auth", async () => {
     const app = createApp({
@@ -147,6 +301,11 @@ describe("Archive read API", () => {
         ],
         listRuns: async () => [archiveRun],
         getRun: async (runId) => (runId === RUN_ID ? archiveRun : null),
+        getModel: async (modelId) =>
+          modelId === MODEL_ID ? archiveModelDetail : null,
+        getTest: async (testCaseId) =>
+          testCaseId === TEST_CASE_ID ? archiveTestDetail : null,
+        compareLatest: async () => archiveComparison,
       },
     });
 
@@ -165,6 +324,33 @@ describe("Archive read API", () => {
           evaluator: { slug: "exact-text" },
         },
       ],
+    });
+
+    const model = await app.request("/v1/archive/models/" + MODEL_ID);
+    expect(model.status).toBe(200);
+    await expect(model.json()).resolves.toMatchObject({
+      model: {
+        id: MODEL_ID,
+        timeline: [{ kind: "run", runId: RUN_ID }],
+      },
+    });
+
+    const test = await app.request("/v1/archive/tests/" + TEST_CASE_ID);
+    expect(test.status).toBe(200);
+    await expect(test.json()).resolves.toMatchObject({
+      test: {
+        testCaseId: TEST_CASE_ID,
+        definitionSha256: archiveTestDetail.definitionSha256,
+      },
+    });
+
+    const secondModelId = archiveComparison.rows[1].model.id;
+    const comparison = await app.request(
+      `/v1/archive/compare?modelIds=${MODEL_ID},${secondModelId}&testCaseId=${TEST_CASE_ID}`,
+    );
+    expect(comparison.status).toBe(200);
+    await expect(comparison.json()).resolves.toEqual({
+      comparison: archiveComparison,
     });
 
     const runs = await app.request(
@@ -187,6 +373,9 @@ describe("Archive read API", () => {
         listTests: async () => [],
         listRuns: async () => [],
         getRun: async () => null,
+        getModel: async () => null,
+        getTest: async () => null,
+        compareLatest: async () => null,
       },
     });
 
@@ -196,5 +385,19 @@ describe("Archive read API", () => {
     expect(
       (await app.request("/v1/archive/runs?limit=101")).status,
     ).toBe(400);
+    expect(
+      (await app.request("/v1/archive/models/nope")).status,
+    ).toBe(400);
+    expect(
+      (await app.request("/v1/archive/tests/nope")).status,
+    ).toBe(400);
+    expect(
+      (
+        await app.request(
+          `/v1/archive/compare?modelIds=${MODEL_ID}&testCaseId=${TEST_CASE_ID}`,
+        )
+      ).status,
+    ).toBe(400);
+
   });
 });
