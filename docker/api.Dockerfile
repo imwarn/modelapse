@@ -16,6 +16,7 @@ COPY packages/runner/package.json packages/runner/package.json
 COPY packages/persistence/package.json packages/persistence/package.json
 COPY packages/control-plane/package.json packages/control-plane/package.json
 COPY packages/testpack-sdk/package.json packages/testpack-sdk/package.json
+COPY packages/catalog-admin/package.json packages/catalog-admin/package.json
 
 RUN npm install
 
