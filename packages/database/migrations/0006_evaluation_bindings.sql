@@ -23,6 +23,22 @@ VALUES
   )
 ON CONFLICT (slug, version) DO NOTHING;
 
+DO $
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM evaluators
+    WHERE slug = 'exact-text'
+      AND version = '1.0.0'
+      AND kind = 'deterministic'
+      AND definition_sha256 =
+        '513621b96e389527409b735499aaa3f5c2d0d6bd438ffc752d3060fba066c7b5'
+  ) THEN
+    RAISE EXCEPTION 'exact-text evaluator v1.0.0 conflicts with catalog';
+  END IF;
+END;
+$;
+
 INSERT INTO test_version_evaluators (test_version_id, evaluator_id)
 SELECT tv.id, e.id
 FROM test_versions tv
