@@ -42,7 +42,7 @@ describe("DeepSeek first-party direct queue path", () => {
     await migrateDatabase({
       connectionString: isolatedDatabaseUrl,
       migrationsDirectory: fileURLToPath(
-        new URL("../../database/migrations/", import.meta.url),
+        new URL("../../../packages/database/migrations/", import.meta.url),
       ),
       runnerBuild: "deepseek-integration-migrations",
     });
