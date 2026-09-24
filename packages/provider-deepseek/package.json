@@ -1,0 +1,17 @@
+{
+  "name": "@modelapse/provider-deepseek",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./dist/src/index.js" },
+  "types": "./dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelapse/provider-adapter": "*"
+  },
+  "devDependencies": { "vitest": "3.0.8" }
+}
