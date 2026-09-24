@@ -33,6 +33,7 @@ type ArchiveRepository = Pick<
   | "getModel"
   | "getTest"
   | "compareLatest"
+  | "getRunHistory"
 >;
 
 export interface AppDependencies {
@@ -197,6 +198,42 @@ export function createApp(deps: AppDependencies) {
     }
 
     return c.json({ test });
+  });
+
+  app.get("/v1/archive/history", async (c) => {
+    if (!deps.archive) {
+      return c.json({ error: "archive_unavailable" }, 503);
+    }
+
+    const modelId = c.req.query("modelId");
+    const testCaseId = c.req.query("testCaseId");
+    const rawLimit = c.req.query("limit");
+
+    if (!modelId || !UUID_RE.test(modelId)) {
+      return c.json({ error: "invalid_model_id" }, 400);
+    }
+    if (!testCaseId || !UUID_RE.test(testCaseId)) {
+      return c.json({ error: "invalid_test_case_id" }, 400);
+    }
+
+    const limit = rawLimit === undefined ? undefined : Number(rawLimit);
+    if (
+      limit !== undefined &&
+      (!Number.isInteger(limit) || limit < 1 || limit > 100)
+    ) {
+      return c.json({ error: "invalid_limit" }, 400);
+    }
+
+    const history = await deps.archive.getRunHistory({
+      modelId,
+      testCaseId,
+      ...(limit !== undefined ? { limit } : {}),
+    });
+    if (!history) {
+      return c.json({ error: "archive_history_not_found" }, 404);
+    }
+
+    return c.json({ history });
   });
 
   app.get("/v1/archive/compare", async (c) => {

@@ -7,6 +7,7 @@ import { Route as rootRouteImport } from "./routes/__root";
 import { Route as TestsTestCaseIdRouteImport } from "./routes/tests.$testCaseId";
 import { Route as RunsRunIdRouteImport } from "./routes/runs.$runId";
 import { Route as ModelsModelIdRouteImport } from "./routes/models.$modelId";
+import { Route as HistoryModelIdTestCaseIdRouteImport } from "./routes/history.$modelId.$testCaseId";
 import { Route as CompareRouteImport } from "./routes/compare";
 import { Route as IndexRouteImport } from "./routes/index";
 
@@ -28,6 +29,12 @@ const ModelsModelIdRoute = ModelsModelIdRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any);
 
+const HistoryModelIdTestCaseIdRoute = HistoryModelIdTestCaseIdRouteImport.update({
+  id: "/history/$modelId/$testCaseId",
+  path: "/history/$modelId/$testCaseId",
+  getParentRoute: () => rootRouteImport,
+} as any);
+
 const CompareRoute = CompareRouteImport.update({
   id: "/compare",
   path: "/compare",
@@ -43,6 +50,7 @@ const IndexRoute = IndexRouteImport.update({
 export interface FileRoutesByFullPath {
   "/": typeof IndexRoute;
   "/compare": typeof CompareRoute;
+  "/history/$modelId/$testCaseId": typeof HistoryModelIdTestCaseIdRoute;
   "/models/$modelId": typeof ModelsModelIdRoute;
   "/runs/$runId": typeof RunsRunIdRoute;
   "/tests/$testCaseId": typeof TestsTestCaseIdRoute;
@@ -51,6 +59,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   "/": typeof IndexRoute;
   "/compare": typeof CompareRoute;
+  "/history/$modelId/$testCaseId": typeof HistoryModelIdTestCaseIdRoute;
   "/models/$modelId": typeof ModelsModelIdRoute;
   "/runs/$runId": typeof RunsRunIdRoute;
   "/tests/$testCaseId": typeof TestsTestCaseIdRoute;
@@ -60,6 +69,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport;
   "/": typeof IndexRoute;
   "/compare": typeof CompareRoute;
+  "/history/$modelId/$testCaseId": typeof HistoryModelIdTestCaseIdRoute;
   "/models/$modelId": typeof ModelsModelIdRoute;
   "/runs/$runId": typeof RunsRunIdRoute;
   "/tests/$testCaseId": typeof TestsTestCaseIdRoute;
@@ -70,6 +80,7 @@ export interface FileRouteTypes {
   fullPaths:
     | "/"
     | "/compare"
+    | "/history/$modelId/$testCaseId"
     | "/models/$modelId"
     | "/runs/$runId"
     | "/tests/$testCaseId";
@@ -77,6 +88,7 @@ export interface FileRouteTypes {
   to:
     | "/"
     | "/compare"
+    | "/history/$modelId/$testCaseId"
     | "/models/$modelId"
     | "/runs/$runId"
     | "/tests/$testCaseId";
@@ -84,6 +96,7 @@ export interface FileRouteTypes {
     | "__root__"
     | "/"
     | "/compare"
+    | "/history/$modelId/$testCaseId"
     | "/models/$modelId"
     | "/runs/$runId"
     | "/tests/$testCaseId";
@@ -104,6 +117,13 @@ declare module "@tanstack/react-router" {
       path: "/compare";
       fullPath: "/compare";
       preLoaderRoute: typeof CompareRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/history/$modelId/$testCaseId": {
+      id: "/history/$modelId/$testCaseId";
+      path: "/history/$modelId/$testCaseId";
+      fullPath: "/history/$modelId/$testCaseId";
+      preLoaderRoute: typeof HistoryModelIdTestCaseIdRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/models/$modelId": {
@@ -133,6 +153,7 @@ declare module "@tanstack/react-router" {
 const rootRouteChildren = {
   IndexRoute,
   CompareRoute,
+  HistoryModelIdTestCaseIdRoute,
   ModelsModelIdRoute,
   RunsRunIdRoute,
   TestsTestCaseIdRoute,
