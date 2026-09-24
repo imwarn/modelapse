@@ -3,7 +3,9 @@ import { Hono } from "hono";
 import {
   IdempotencyConflictError,
   parseDirectProviderRunRequest,
+  parseRunSelectionRequest,
   type PgRunJobQueue,
+  type PgRunPlanner,
   type RunJob,
 } from "@modelapse/control-plane";
 import type { RunRepository, RunView } from "@modelapse/persistence";
@@ -13,10 +15,15 @@ const UUID_RE =
 
 type RunApiRepository = Pick<RunRepository, "ping" | "getRun">;
 type ControlQueue = Pick<PgRunJobQueue, "ping" | "enqueue" | "get">;
+type ControlPlanner = Pick<
+  PgRunPlanner,
+  "ping" | "listModels" | "listTests" | "plan"
+>;
 
 export interface AppDependencies {
   readonly runs: RunApiRepository;
   readonly jobs?: ControlQueue;
+  readonly planner?: ControlPlanner;
   readonly controlToken?: string;
 }
 
@@ -58,6 +65,18 @@ function authorized(header: string | undefined, token: string): boolean {
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
+function idempotencyKey(
+  value: string | undefined,
+): { value?: string; error?: "invalid_idempotency_key" } {
+  if (
+    value !== undefined &&
+    (!value.trim() || value.length > 128)
+  ) {
+    return { error: "invalid_idempotency_key" };
+  }
+  return value ? { value } : {};
+}
+
 export function createApp(deps: AppDependencies) {
   const app = new Hono();
 
@@ -78,6 +97,7 @@ export function createApp(deps: AppDependencies) {
     try {
       await deps.runs.ping();
       if (deps.jobs) await deps.jobs.ping();
+      if (deps.planner) await deps.planner.ping();
       return c.json({
         ready: true,
         service: "modelapse-api",
@@ -105,6 +125,103 @@ export function createApp(deps: AppDependencies) {
     }
 
     return c.json({ run: publicRun(run) });
+  });
+
+  app.get("/v1/control/catalog/models", async (c) => {
+    if (!deps.planner || !deps.controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    if (!authorized(c.req.header("authorization"), deps.controlToken)) {
+      return c.json({ error: "unauthorized" }, 401);
+    }
+
+    return c.json({ models: await deps.planner.listModels() });
+  });
+
+  app.get("/v1/control/catalog/tests", async (c) => {
+    if (!deps.planner || !deps.controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    if (!authorized(c.req.header("authorization"), deps.controlToken)) {
+      return c.json({ error: "unauthorized" }, 401);
+    }
+
+    return c.json({ tests: await deps.planner.listTests() });
+  });
+
+  app.post("/v1/control/runs", async (c) => {
+    if (!deps.jobs || !deps.planner || !deps.controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    if (!authorized(c.req.header("authorization"), deps.controlToken)) {
+      return c.json({ error: "unauthorized" }, 401);
+    }
+
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid_json" }, 400);
+    }
+
+    let selection;
+    try {
+      selection = parseRunSelectionRequest(raw);
+    } catch (error) {
+      return c.json(
+        {
+          error: "invalid_run_selection",
+          message:
+            error instanceof Error ? error.message : "Invalid Run selection",
+        },
+        400,
+      );
+    }
+
+    const key = idempotencyKey(c.req.header("idempotency-key"));
+    if (key.error) return c.json({ error: key.error }, 400);
+
+    try {
+      const plan = await deps.planner.plan(selection);
+      const job = await deps.jobs.enqueue({
+        payload: plan.jobPayload,
+        ...(key.value ? { idempotencyKey: key.value } : {}),
+      });
+
+      return c.json(
+        {
+          selection: {
+            model: {
+              id: plan.model.id,
+              provider: plan.model.provider,
+              marketingName: plan.model.marketingName,
+              apiModelId: plan.model.apiModelId,
+            },
+            test: {
+              testCaseId: plan.test.testCaseId,
+              familySlug: plan.test.familySlug,
+              variantSlug: plan.test.variantSlug,
+              version: plan.test.version,
+              caseSlug: plan.test.caseSlug,
+            },
+          },
+          job: controlJob(job),
+        },
+        202,
+      );
+    } catch (error) {
+      if (error instanceof IdempotencyConflictError) {
+        return c.json({ error: "idempotency_conflict" }, 409);
+      }
+      return c.json(
+        {
+          error: "run_not_plannable",
+          message:
+            error instanceof Error ? error.message : "Run cannot be planned",
+        },
+        400,
+      );
+    }
   });
 
   app.post("/v1/control/run-jobs", async (c) => {
@@ -135,18 +252,13 @@ export function createApp(deps: AppDependencies) {
       );
     }
 
-    const idempotencyKey = c.req.header("idempotency-key");
-    if (
-      idempotencyKey !== undefined &&
-      (!idempotencyKey.trim() || idempotencyKey.length > 128)
-    ) {
-      return c.json({ error: "invalid_idempotency_key" }, 400);
-    }
+    const key = idempotencyKey(c.req.header("idempotency-key"));
+    if (key.error) return c.json({ error: key.error }, 400);
 
     try {
       const job = await deps.jobs.enqueue({
         payload,
-        ...(idempotencyKey ? { idempotencyKey } : {}),
+        ...(key.value ? { idempotencyKey: key.value } : {}),
       });
       return c.json({ job: controlJob(job) }, 202);
     } catch (error) {
