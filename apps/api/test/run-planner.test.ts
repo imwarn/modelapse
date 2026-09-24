@@ -174,6 +174,42 @@ describe("selection-based Run Planner API", () => {
     expect(response.status).toBe(200);
   });
 
+  it("distinguishes missing from invalid control authorization without exposing secrets", async () => {
+    const app = createApp({
+      runs: baseRuns(),
+      controlToken: "control-secret",
+      planner: {
+        ping: async () => undefined,
+        listModels: async () => [plan.model],
+        listTests: async () => [plan.test],
+        plan: async () => plan,
+      },
+      jobs: {
+        ping: async () => undefined,
+        get: async () => queuedJob,
+        enqueue: async () => queuedJob,
+      },
+    });
+
+    const missing = await app.request("/v1/control/catalog/models");
+    expect(missing.status).toBe(401);
+    await expect(missing.json()).resolves.toMatchObject({
+      error: "unauthorized",
+      reason: "missing_authorization",
+    });
+
+    const invalid = await app.request("/v1/control/catalog/models", {
+      headers: {
+        authorization: "Bearer wrong-secret",
+      },
+    });
+    expect(invalid.status).toBe(401);
+    await expect(invalid.json()).resolves.toMatchObject({
+      error: "unauthorized",
+      reason: "invalid_authorization",
+    });
+  });
+
   it("does not let the normal Run endpoint accept provider or model strings", async () => {
     const app = createApp({
       runs: baseRuns(),
