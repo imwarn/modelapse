@@ -141,12 +141,22 @@ export interface ArchiveRunEvidence {
 }
 
 export interface ArchiveRunDetail extends ArchiveRun {
-  readonly config: Readonly<Record<string, unknown>> | null;
+  readonly configJson: string | null;
   readonly requestBlob: ArchiveBlob | null;
   readonly responseBlob: ArchiveBlob | null;
   readonly responseHeadersSha256: string | null;
-  readonly usage: Readonly<Record<string, unknown>> | null;
-  readonly timing: Readonly<Record<string, unknown>> | null;
+  readonly usageJson: string | null;
+  readonly timingJson: string | null;
+  readonly evidence: readonly ArchiveRunEvidence[];
+}
+
+interface ArchiveRunDetailWire extends ArchiveRun {
+  readonly config: unknown;
+  readonly requestBlob: ArchiveBlob | null;
+  readonly responseBlob: ArchiveBlob | null;
+  readonly responseHeadersSha256: string | null;
+  readonly usage: unknown;
+  readonly timing: unknown;
   readonly evidence: readonly ArchiveRunEvidence[];
 }
 
@@ -420,10 +430,16 @@ export const getArchiveRun = createServerFn({ method: "POST" })
   .validator(parseArchiveRunInput)
   .handler(async ({ data }): Promise<ArchiveRunDetail | null> => {
     try {
-      const result = await requestJson<{ run: ArchiveRunDetail }>(
+      const result = await requestJson<{ run: ArchiveRunDetailWire }>(
         `/v1/archive/runs/${data.runId}`,
       );
-      return result.run;
+      const { config, usage, timing, ...run } = result.run;
+      return {
+        ...run,
+        configJson: config === null ? null : JSON.stringify(config, null, 2),
+        usageJson: usage === null ? null : JSON.stringify(usage, null, 2),
+        timingJson: timing === null ? null : JSON.stringify(timing, null, 2),
+      };
     } catch (error) {
       if (error instanceof ApiRequestError && error.status === 404) {
         return null;
