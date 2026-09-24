@@ -233,10 +233,12 @@ async function requestJson<T>(
   }
 
   if (!response.ok) {
-    throw new ApiRequestError(
-      response.status,
-      apiErrorMessage(payload, response.status),
-    );
+    const message =
+      options.control && response.status === 401
+        ? "Modelapse API rejected the Web control credential. Verify MODELAPSE_CONTROL_TOKEN is identical on the Web and API services, then redeploy both."
+        : apiErrorMessage(payload, response.status);
+
+    throw new ApiRequestError(response.status, message);
   }
 
   return payload as T;
