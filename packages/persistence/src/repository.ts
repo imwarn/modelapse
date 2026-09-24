@@ -85,13 +85,23 @@ export class PgRunRepository implements RunRepository {
     readonly testCaseId: string;
     readonly providerSlug: string;
     readonly endpointHostname: string;
+    readonly modelId?: string;
+    readonly requestedModel?: string;
   }): Promise<DirectExecutionTarget> {
+    if ((input.modelId === undefined) !== (input.requestedModel === undefined)) {
+      throw new Error(
+        "modelId and requestedModel must either both be supplied or both be omitted",
+      );
+    }
+
     const result = await this.pool.query<{
       test_case_id: string;
       provider_id: string;
       provider_slug: string;
       endpoint_base_url: string;
       endpoint_hostname: string;
+      model_id: string | null;
+      snapshot_id: string | null;
       prompt_sha256: string;
       prompt_size_bytes: string;
       prompt_mime_type: string;
@@ -104,6 +114,8 @@ export class PgRunRepository implements RunRepository {
          p.slug AS provider_slug,
          pe.base_url AS endpoint_base_url,
          pe.hostname AS endpoint_hostname,
+         m.id AS model_id,
+         meb.snapshot_id,
          b.sha256 AS prompt_sha256,
          b.size_bytes AS prompt_size_bytes,
          b.mime_type AS prompt_mime_type,
@@ -120,20 +132,46 @@ export class PgRunRepository implements RunRepository {
         AND pe.source_id IS NOT NULL
         AND (pe.valid_from IS NULL OR pe.valid_from <= now())
         AND (pe.valid_to IS NULL OR pe.valid_to > now())
+       LEFT JOIN modelapse.models m
+         ON m.id = $4::uuid
+        AND m.provider_id = p.id
+        AND m.status IN ('preview', 'active')
+        AND m.canonical_source_id IS NOT NULL
+       LEFT JOIN modelapse.model_execution_bindings meb
+         ON meb.model_id = m.id
+        AND meb.endpoint_id = pe.id
+        AND meb.api_model_id = $5
+        AND meb.source_id IS NOT NULL
+        AND meb.valid_from <= now()
+        AND (meb.valid_to IS NULL OR meb.valid_to > now())
        WHERE tc.id = $1
          AND tc.status = 'active'
          AND tv.status = 'published'
          AND (tc.active_from IS NULL OR tc.active_from <= now())
          AND (tc.active_to IS NULL OR tc.active_to > now())
-       ORDER BY pe.valid_from DESC NULLS LAST
+         AND (
+           $4::uuid IS NULL
+           OR (m.id IS NOT NULL AND meb.id IS NOT NULL)
+         )
+       ORDER BY
+         pe.valid_from DESC NULLS LAST,
+         meb.valid_from DESC NULLS LAST
        LIMIT 1`,
-      [input.testCaseId, input.providerSlug, input.endpointHostname],
+      [
+        input.testCaseId,
+        input.providerSlug,
+        input.endpointHostname,
+        input.modelId ?? null,
+        input.requestedModel ?? null,
+      ],
     );
 
     const row = result.rows[0];
     if (!row) {
       throw new Error(
-        "No active published Test Case and verified first-party endpoint match the direct execution request",
+        input.modelId
+          ? "Selected canonical model, Test Case and sourced first-party binding are no longer runnable"
+          : "No active published Test Case and verified first-party endpoint match the direct execution request",
       );
     }
 
@@ -143,6 +181,8 @@ export class PgRunRepository implements RunRepository {
       providerSlug: row.provider_slug,
       endpointBaseUrl: row.endpoint_base_url,
       endpointHostname: row.endpoint_hostname,
+      modelId: row.model_id,
+      snapshotId: row.snapshot_id,
       promptBlob: {
         sha256: row.prompt_sha256,
         sizeBytes: Number(row.prompt_size_bytes),
