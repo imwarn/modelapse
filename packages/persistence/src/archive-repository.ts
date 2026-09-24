@@ -111,6 +111,116 @@ export interface ArchiveRunDetailView extends ArchiveRunView {
   readonly evidence: readonly ArchiveRunEvidenceView[];
 }
 
+export interface ArchiveModelSnapshotView {
+  readonly id: string;
+  readonly providerSnapshotId: string;
+  readonly validFrom: string | null;
+  readonly validTo: string | null;
+  readonly sourceId: string | null;
+}
+
+export interface ArchiveModelRelationView {
+  readonly id: string;
+  readonly direction: "outgoing" | "incoming";
+  readonly relationType: string;
+  readonly relatedModel: {
+    readonly id: string;
+    readonly canonicalSlug: string;
+    readonly marketingName: string;
+    readonly providerSlug: string;
+  };
+  readonly validFrom: string | null;
+  readonly validTo: string | null;
+  readonly sourceId: string | null;
+  readonly confidence: number;
+}
+
+export interface ArchiveTestCoverageView {
+  readonly testCaseId: string;
+  readonly familySlug: string;
+  readonly familyName: string;
+  readonly version: string;
+  readonly caseSlug: string;
+  readonly runCount: number;
+  readonly latestRunAt: string | null;
+}
+
+export interface ArchiveModelCoverageView {
+  readonly modelId: string;
+  readonly canonicalSlug: string;
+  readonly marketingName: string;
+  readonly providerSlug: string;
+  readonly runCount: number;
+  readonly latestRunAt: string | null;
+}
+
+export interface ArchiveTimelineEventView {
+  readonly id: string;
+  readonly kind:
+    | "model_released"
+    | "model_retired"
+    | "snapshot_started"
+    | "snapshot_ended"
+    | "relation"
+    | "run";
+  readonly occurredAt: string;
+  readonly title: string;
+  readonly description: string;
+  readonly runId: string | null;
+  readonly testCaseId: string | null;
+  readonly snapshotId: string | null;
+  readonly relatedModelId: string | null;
+}
+
+export interface ArchiveModelDetailView extends ArchiveModelView {
+  readonly family: {
+    readonly id: string;
+    readonly slug: string;
+    readonly displayName: string;
+  } | null;
+  readonly track: {
+    readonly id: string;
+    readonly slug: string;
+    readonly displayName: string;
+    readonly trackType: string | null;
+  } | null;
+  readonly releasedAt: string | null;
+  readonly retiredAt: string | null;
+  readonly canonicalSourceId: string | null;
+  readonly snapshots: readonly ArchiveModelSnapshotView[];
+  readonly relations: readonly ArchiveModelRelationView[];
+  readonly testCoverage: readonly ArchiveTestCoverageView[];
+  readonly recentRuns: readonly ArchiveRunView[];
+  readonly timeline: readonly ArchiveTimelineEventView[];
+}
+
+export interface ArchiveTestDetailView extends ArchiveTestView {
+  readonly origin: string;
+  readonly canonicalSourceId: string | null;
+  readonly versionStatus: string;
+  readonly definitionSha256: string;
+  readonly license: string | null;
+  readonly publishedAt: string | null;
+  readonly versionCreatedAt: string;
+  readonly caseType: string;
+  readonly caseStatus: string;
+  readonly activeFrom: string | null;
+  readonly activeTo: string | null;
+  readonly promptSha256: string;
+  readonly fixtureManifestSha256: string | null;
+  readonly evaluatorDefinitionSha256: string | null;
+  readonly modelCoverage: readonly ArchiveModelCoverageView[];
+  readonly recentRuns: readonly ArchiveRunView[];
+}
+
+export interface ArchiveComparisonView {
+  readonly test: ArchiveTestView;
+  readonly rows: readonly {
+    readonly model: ArchiveModelView;
+    readonly latestRun: ArchiveRunView | null;
+  }[];
+}
+
 interface ArchiveRunRow {
   id: string;
   status: string;
@@ -415,6 +525,533 @@ export class PgArchiveRepository {
     );
 
     return result.rows.map(runView);
+  }
+
+  async getModel(modelId: string): Promise<ArchiveModelDetailView | null> {
+    const modelResult = await this.pool.query<{
+      id: string;
+      provider_id: string;
+      provider_slug: string;
+      provider_name: string;
+      canonical_slug: string;
+      marketing_name: string;
+      status: string;
+      released_at: Date | null;
+      retired_at: Date | null;
+      canonical_source_id: string | null;
+      family_id: string | null;
+      family_slug: string | null;
+      family_name: string | null;
+      track_id: string | null;
+      track_slug: string | null;
+      track_name: string | null;
+      track_type: string | null;
+      run_count: string;
+      latest_run_at: Date | null;
+    }>(
+      `SELECT
+         m.id,
+         p.id AS provider_id,
+         p.slug AS provider_slug,
+         p.name AS provider_name,
+         m.canonical_slug,
+         m.marketing_name,
+         m.status,
+         m.released_at,
+         m.retired_at,
+         m.canonical_source_id,
+         mf.id AS family_id,
+         mf.slug AS family_slug,
+         mf.display_name AS family_name,
+         mt.id AS track_id,
+         mt.slug AS track_slug,
+         mt.display_name AS track_name,
+         mt.track_type,
+         (
+           SELECT COUNT(*)::text
+           FROM modelapse.runs r
+           JOIN modelapse.test_cases rtc ON rtc.id = r.test_case_id
+           WHERE r.model_id = m.id
+             AND r.sealed_at IS NOT NULL
+             AND rtc.visibility = 'public'
+         ) AS run_count,
+         (
+           SELECT MAX(r.completed_at)
+           FROM modelapse.runs r
+           JOIN modelapse.test_cases rtc ON rtc.id = r.test_case_id
+           WHERE r.model_id = m.id
+             AND r.sealed_at IS NOT NULL
+             AND rtc.visibility = 'public'
+         ) AS latest_run_at
+       FROM modelapse.models m
+       JOIN modelapse.providers p ON p.id = m.provider_id
+       LEFT JOIN modelapse.model_families mf ON mf.id = m.family_id
+       LEFT JOIN modelapse.model_tracks mt ON mt.id = m.track_id
+       WHERE m.id = $1
+       LIMIT 1`,
+      [modelId],
+    );
+
+    const row = modelResult.rows[0];
+    if (!row) return null;
+
+    const [snapshotResult, relationResult, coverageResult, allRuns] =
+      await Promise.all([
+        this.pool.query<{
+          id: string;
+          provider_snapshot_id: string;
+          valid_from: Date | null;
+          valid_to: Date | null;
+          source_id: string | null;
+        }>(
+          `SELECT id, provider_snapshot_id, valid_from, valid_to, source_id
+           FROM modelapse.model_snapshots
+           WHERE model_id = $1
+           ORDER BY valid_from DESC NULLS LAST, provider_snapshot_id`,
+          [modelId],
+        ),
+        this.pool.query<{
+          id: string;
+          direction: "outgoing" | "incoming";
+          relation_type: string;
+          related_model_id: string;
+          related_canonical_slug: string;
+          related_marketing_name: string;
+          related_provider_slug: string;
+          valid_from: Date | null;
+          valid_to: Date | null;
+          source_id: string | null;
+          confidence: string;
+        }>(
+          `SELECT
+             mr.id,
+             CASE
+               WHEN mr.from_model_id = $1 THEN 'outgoing'
+               ELSE 'incoming'
+             END AS direction,
+             mr.relation_type,
+             related.id AS related_model_id,
+             related.canonical_slug AS related_canonical_slug,
+             related.marketing_name AS related_marketing_name,
+             rp.slug AS related_provider_slug,
+             mr.valid_from,
+             mr.valid_to,
+             mr.source_id,
+             mr.confidence::text AS confidence
+           FROM modelapse.model_relations mr
+           JOIN modelapse.models related
+             ON related.id = CASE
+               WHEN mr.from_model_id = $1 THEN mr.to_model_id
+               ELSE mr.from_model_id
+             END
+           JOIN modelapse.providers rp ON rp.id = related.provider_id
+           WHERE mr.from_model_id = $1 OR mr.to_model_id = $1
+           ORDER BY mr.valid_from DESC NULLS LAST, mr.relation_type`,
+          [modelId],
+        ),
+        this.pool.query<{
+          test_case_id: string;
+          family_slug: string;
+          family_name: string;
+          version: string;
+          case_slug: string;
+          run_count: string;
+          latest_run_at: Date | null;
+        }>(
+          `SELECT
+             tc.id AS test_case_id,
+             tf.slug AS family_slug,
+             tf.name AS family_name,
+             tv.version,
+             tc.slug AS case_slug,
+             COUNT(r.id)::text AS run_count,
+             MAX(r.completed_at) AS latest_run_at
+           FROM modelapse.runs r
+           JOIN modelapse.test_cases tc ON tc.id = r.test_case_id
+           JOIN modelapse.test_versions tv ON tv.id = tc.test_version_id
+           JOIN modelapse.test_variants tvar ON tvar.id = tv.variant_id
+           JOIN modelapse.test_families tf ON tf.id = tvar.family_id
+           WHERE r.model_id = $1
+             AND r.sealed_at IS NOT NULL
+             AND tc.visibility = 'public'
+           GROUP BY tc.id, tv.id, tf.id
+           ORDER BY MAX(r.completed_at) DESC NULLS LAST, tf.slug, tc.slug`,
+          [modelId],
+        ),
+        this.listRuns({ modelId, limit: 100 }),
+      ]);
+
+    const snapshots: ArchiveModelSnapshotView[] = snapshotResult.rows.map(
+      (snapshot) => ({
+        id: snapshot.id,
+        providerSnapshotId: snapshot.provider_snapshot_id,
+        validFrom: snapshot.valid_from?.toISOString() ?? null,
+        validTo: snapshot.valid_to?.toISOString() ?? null,
+        sourceId: snapshot.source_id,
+      }),
+    );
+
+    const relations: ArchiveModelRelationView[] = relationResult.rows.map(
+      (relation) => ({
+        id: relation.id,
+        direction: relation.direction,
+        relationType: relation.relation_type,
+        relatedModel: {
+          id: relation.related_model_id,
+          canonicalSlug: relation.related_canonical_slug,
+          marketingName: relation.related_marketing_name,
+          providerSlug: relation.related_provider_slug,
+        },
+        validFrom: relation.valid_from?.toISOString() ?? null,
+        validTo: relation.valid_to?.toISOString() ?? null,
+        sourceId: relation.source_id,
+        confidence: Number(relation.confidence),
+      }),
+    );
+
+    const timeline: ArchiveTimelineEventView[] = [];
+
+    if (row.released_at) {
+      timeline.push({
+        id: `model:${row.id}:released`,
+        kind: "model_released",
+        occurredAt: row.released_at.toISOString(),
+        title: "Model released",
+        description: row.marketing_name,
+        runId: null,
+        testCaseId: null,
+        snapshotId: null,
+        relatedModelId: null,
+      });
+    }
+    if (row.retired_at) {
+      timeline.push({
+        id: `model:${row.id}:retired`,
+        kind: "model_retired",
+        occurredAt: row.retired_at.toISOString(),
+        title: "Model retired",
+        description: row.marketing_name,
+        runId: null,
+        testCaseId: null,
+        snapshotId: null,
+        relatedModelId: null,
+      });
+    }
+
+    for (const snapshot of snapshots) {
+      if (snapshot.validFrom) {
+        timeline.push({
+          id: `snapshot:${snapshot.id}:start`,
+          kind: "snapshot_started",
+          occurredAt: snapshot.validFrom,
+          title: "Snapshot observed",
+          description: snapshot.providerSnapshotId,
+          runId: null,
+          testCaseId: null,
+          snapshotId: snapshot.id,
+          relatedModelId: null,
+        });
+      }
+      if (snapshot.validTo) {
+        timeline.push({
+          id: `snapshot:${snapshot.id}:end`,
+          kind: "snapshot_ended",
+          occurredAt: snapshot.validTo,
+          title: "Snapshot validity ended",
+          description: snapshot.providerSnapshotId,
+          runId: null,
+          testCaseId: null,
+          snapshotId: snapshot.id,
+          relatedModelId: null,
+        });
+      }
+    }
+
+    for (const relation of relations) {
+      if (!relation.validFrom) continue;
+      timeline.push({
+        id: `relation:${relation.id}`,
+        kind: "relation",
+        occurredAt: relation.validFrom,
+        title: relation.relationType.replaceAll("_", " "),
+        description: `${relation.direction} · ${relation.relatedModel.marketingName}`,
+        runId: null,
+        testCaseId: null,
+        snapshotId: null,
+        relatedModelId: relation.relatedModel.id,
+      });
+    }
+
+    for (const run of allRuns) {
+      timeline.push({
+        id: `run:${run.id}`,
+        kind: "run",
+        occurredAt: run.completedAt ?? run.sealedAt ?? run.createdAt,
+        title: `Run · ${run.test.caseSlug}`,
+        description: `${run.evidenceLevel ?? "—"} · ${
+          run.evaluation?.exactMatch === true
+            ? "exact match"
+            : run.evaluation?.exactMatch === false
+              ? "mismatch"
+              : run.evaluation?.status ?? "not evaluated"
+        }`,
+        runId: run.id,
+        testCaseId: run.test.testCaseId,
+        snapshotId: null,
+        relatedModelId: null,
+      });
+    }
+
+    timeline.sort(
+      (left, right) =>
+        Date.parse(right.occurredAt) - Date.parse(left.occurredAt),
+    );
+
+    return {
+      id: row.id,
+      provider: {
+        id: row.provider_id,
+        slug: row.provider_slug,
+        name: row.provider_name,
+      },
+      canonicalSlug: row.canonical_slug,
+      marketingName: row.marketing_name,
+      status: row.status,
+      runCount: Number(row.run_count),
+      latestRunAt: row.latest_run_at?.toISOString() ?? null,
+      family:
+        row.family_id && row.family_slug && row.family_name
+          ? {
+              id: row.family_id,
+              slug: row.family_slug,
+              displayName: row.family_name,
+            }
+          : null,
+      track:
+        row.track_id && row.track_slug && row.track_name
+          ? {
+              id: row.track_id,
+              slug: row.track_slug,
+              displayName: row.track_name,
+              trackType: row.track_type,
+            }
+          : null,
+      releasedAt: row.released_at?.toISOString() ?? null,
+      retiredAt: row.retired_at?.toISOString() ?? null,
+      canonicalSourceId: row.canonical_source_id,
+      snapshots,
+      relations,
+      testCoverage: coverageResult.rows.map((coverage) => ({
+        testCaseId: coverage.test_case_id,
+        familySlug: coverage.family_slug,
+        familyName: coverage.family_name,
+        version: coverage.version,
+        caseSlug: coverage.case_slug,
+        runCount: Number(coverage.run_count),
+        latestRunAt: coverage.latest_run_at?.toISOString() ?? null,
+      })),
+      recentRuns: allRuns.slice(0, 20),
+      timeline,
+    };
+  }
+
+  async getTest(testCaseId: string): Promise<ArchiveTestDetailView | null> {
+    const testResult = await this.pool.query<{
+      test_case_id: string;
+      family_slug: string;
+      family_name: string;
+      origin: string;
+      canonical_source_id: string | null;
+      variant_slug: string;
+      variant_name: string;
+      category: string;
+      artifact_type: string;
+      version: string;
+      version_status: string;
+      definition_sha256: string;
+      license: string | null;
+      published_at: Date | null;
+      version_created_at: Date;
+      case_slug: string;
+      case_type: string;
+      case_status: string;
+      active_from: Date | null;
+      active_to: Date | null;
+      prompt_blob_sha256: string;
+      fixture_manifest_blob_sha256: string | null;
+      evaluator_slug: string | null;
+      evaluator_version: string | null;
+      evaluator_kind: string | null;
+      evaluator_definition_sha256: string | null;
+      run_count: string;
+    }>(
+      `SELECT
+         tc.id AS test_case_id,
+         tf.slug AS family_slug,
+         tf.name AS family_name,
+         tf.origin,
+         tf.canonical_source_id,
+         tvar.slug AS variant_slug,
+         tvar.name AS variant_name,
+         tvar.category,
+         tvar.artifact_type,
+         tv.version,
+         tv.status AS version_status,
+         tv.definition_sha256,
+         tv.license,
+         tv.published_at,
+         tv.created_at AS version_created_at,
+         tc.slug AS case_slug,
+         tc.case_type,
+         tc.status AS case_status,
+         tc.active_from,
+         tc.active_to,
+         tc.prompt_blob_sha256,
+         tc.fixture_manifest_blob_sha256,
+         evaluator.slug AS evaluator_slug,
+         evaluator.version AS evaluator_version,
+         evaluator.kind AS evaluator_kind,
+         evaluator.definition_sha256 AS evaluator_definition_sha256,
+         (
+           SELECT COUNT(*)::text
+           FROM modelapse.runs r
+           WHERE r.test_case_id = tc.id
+             AND r.sealed_at IS NOT NULL
+         ) AS run_count
+       FROM modelapse.test_cases tc
+       JOIN modelapse.test_versions tv ON tv.id = tc.test_version_id
+       JOIN modelapse.test_variants tvar ON tvar.id = tv.variant_id
+       JOIN modelapse.test_families tf ON tf.id = tvar.family_id
+       LEFT JOIN LATERAL (
+         SELECT e.slug, e.version, e.kind, e.definition_sha256
+         FROM modelapse.test_version_evaluators tve
+         JOIN modelapse.evaluators e ON e.id = tve.evaluator_id
+         WHERE tve.test_version_id = tv.id
+         ORDER BY e.slug, e.version
+         LIMIT 1
+       ) evaluator ON true
+       WHERE tc.id = $1
+         AND tc.visibility = 'public'
+       LIMIT 1`,
+      [testCaseId],
+    );
+
+    const row = testResult.rows[0];
+    if (!row) return null;
+
+    const [coverageResult, recentRuns] = await Promise.all([
+      this.pool.query<{
+        model_id: string;
+        canonical_slug: string;
+        marketing_name: string;
+        provider_slug: string;
+        run_count: string;
+        latest_run_at: Date | null;
+      }>(
+        `SELECT
+           m.id AS model_id,
+           m.canonical_slug,
+           m.marketing_name,
+           p.slug AS provider_slug,
+           COUNT(r.id)::text AS run_count,
+           MAX(r.completed_at) AS latest_run_at
+         FROM modelapse.runs r
+         JOIN modelapse.models m ON m.id = r.model_id
+         JOIN modelapse.providers p ON p.id = m.provider_id
+         WHERE r.test_case_id = $1
+           AND r.sealed_at IS NOT NULL
+         GROUP BY m.id, p.id
+         ORDER BY MAX(r.completed_at) DESC NULLS LAST, p.slug, m.marketing_name`,
+        [testCaseId],
+      ),
+      this.listRuns({ testCaseId, limit: 50 }),
+    ]);
+
+    return {
+      testCaseId: row.test_case_id,
+      familySlug: row.family_slug,
+      familyName: row.family_name,
+      variantSlug: row.variant_slug,
+      variantName: row.variant_name,
+      category: row.category,
+      artifactType: row.artifact_type,
+      version: row.version,
+      caseSlug: row.case_slug,
+      evaluator:
+        row.evaluator_slug && row.evaluator_version && row.evaluator_kind
+          ? {
+              slug: row.evaluator_slug,
+              version: row.evaluator_version,
+              kind: row.evaluator_kind,
+            }
+          : null,
+      runCount: Number(row.run_count),
+      origin: row.origin,
+      canonicalSourceId: row.canonical_source_id,
+      versionStatus: row.version_status,
+      definitionSha256: row.definition_sha256,
+      license: row.license,
+      publishedAt: row.published_at?.toISOString() ?? null,
+      versionCreatedAt: row.version_created_at.toISOString(),
+      caseType: row.case_type,
+      caseStatus: row.case_status,
+      activeFrom: row.active_from?.toISOString() ?? null,
+      activeTo: row.active_to?.toISOString() ?? null,
+      promptSha256: row.prompt_blob_sha256,
+      fixtureManifestSha256: row.fixture_manifest_blob_sha256,
+      evaluatorDefinitionSha256: row.evaluator_definition_sha256,
+      modelCoverage: coverageResult.rows.map((coverage) => ({
+        modelId: coverage.model_id,
+        canonicalSlug: coverage.canonical_slug,
+        marketingName: coverage.marketing_name,
+        providerSlug: coverage.provider_slug,
+        runCount: Number(coverage.run_count),
+        latestRunAt: coverage.latest_run_at?.toISOString() ?? null,
+      })),
+      recentRuns,
+    };
+  }
+
+  async compareLatest(input: {
+    readonly modelIds: readonly string[];
+    readonly testCaseId: string;
+  }): Promise<ArchiveComparisonView | null> {
+    const modelIds = [...new Set(input.modelIds)];
+    if (modelIds.length < 2 || modelIds.length > 4) {
+      throw new Error("Archive comparison requires between 2 and 4 models");
+    }
+
+    const [models, tests] = await Promise.all([
+      this.listModels(),
+      this.listTests(),
+    ]);
+    const selectedModels = modelIds
+      .map((modelId) => models.find((model) => model.id === modelId))
+      .filter((model): model is ArchiveModelView => Boolean(model));
+    const test = tests.find((candidate) => candidate.testCaseId === input.testCaseId);
+
+    if (!test || selectedModels.length !== modelIds.length) {
+      return null;
+    }
+
+    const latestRuns = await Promise.all(
+      modelIds.map(async (modelId) => {
+        const runs = await this.listRuns({
+          modelId,
+          testCaseId: input.testCaseId,
+          limit: 1,
+        });
+        return runs[0] ?? null;
+      }),
+    );
+
+    return {
+      test,
+      rows: selectedModels.map((model, index) => ({
+        model,
+        latestRun: latestRuns[index] ?? null,
+      })),
+    };
   }
 
   async getRun(runId: string): Promise<ArchiveRunDetailView | null> {
