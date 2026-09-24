@@ -286,6 +286,28 @@ export class PgEvaluationRepository {
         );
       }
 
+      const storedMetrics = await client.query<{
+        metric_key: string;
+        numeric_value: number | null;
+        text_value: string | null;
+      }>(
+        `SELECT metric_key, numeric_value, text_value
+           FROM modelapse.metric_values
+          WHERE evaluation_id = $1`,
+        [evaluationId],
+      );
+      const byKey = new Map(
+        storedMetrics.rows.map((row) => [row.metric_key, row] as const),
+      );
+      if (
+        Number(byKey.get("exact_match")?.numeric_value) !==
+          (input.exactMatch ? 1 : 0) ||
+        byKey.get("expected_text")?.text_value !== input.expected ||
+        byKey.get("actual_text")?.text_value !== input.actual
+      ) {
+        throw new Error("Evaluation metric idempotency conflict");
+      }
+
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");
