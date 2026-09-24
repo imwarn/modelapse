@@ -8,9 +8,12 @@ function requiredEnv(name: string): string {
 }
 
 const command = process.argv[2];
-if (command !== "bootstrap-openai-smoke") {
+if (
+  command !== "bootstrap-openai-smoke" &&
+  command !== "bootstrap-deepseek-smoke"
+) {
   throw new Error(
-    'Usage: catalog-admin bootstrap-openai-smoke',
+    "Usage: catalog-admin bootstrap-openai-smoke|bootstrap-deepseek-smoke",
   );
 }
 
@@ -22,9 +25,11 @@ const admin = PgCatalogAdmin.connect(
 );
 
 try {
-  const result = await admin.bootstrapOpenAISmoke({
-    runnerBuild: requiredEnv("MODELAPSE_BUILD"),
-  });
+  const input = { runnerBuild: requiredEnv("MODELAPSE_BUILD") };
+  const result =
+    command === "bootstrap-openai-smoke"
+      ? await admin.bootstrapOpenAISmoke(input)
+      : await admin.bootstrapDeepSeekSmoke(input);
   process.stdout.write(JSON.stringify(result, null, 2) + "\n");
 } finally {
   await admin.close();
