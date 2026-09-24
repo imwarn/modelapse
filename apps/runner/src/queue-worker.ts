@@ -1,6 +1,6 @@
 import type { BlobStore } from "@modelapse/blob-store";
 import {
-  parseDirectOpenAIRunRequest,
+  parseDirectProviderRunRequest,
   type PgRunJobQueue,
   type RunJob,
 } from "@modelapse/control-plane";
@@ -13,6 +13,7 @@ import {
   type ExecutionCatalogRepository,
   type RunRepository,
 } from "@modelapse/persistence";
+import { runDirectDeepSeek } from "./direct-deepseek.js";
 import { runDirectOpenAI } from "./direct-openai.js";
 
 export interface QueueWorkerDependencies {
@@ -49,8 +50,8 @@ export async function processOneQueuedRunJob(
 
   let runId: string;
   try {
-    const request = parseDirectOpenAIRunRequest(job.payload);
-    const result = await runDirectOpenAI(request, {
+    const request = parseDirectProviderRunRequest(job.payload);
+    const providerDeps = {
       repository: deps.repository,
       blobStore: deps.blobStore,
       transport: deps.transport,
@@ -58,7 +59,12 @@ export async function processOneQueuedRunJob(
       signer: deps.signer,
       runnerBuild: deps.runnerBuild,
       ...(deps.collector ? { collector: deps.collector } : {}),
-    });
+    };
+
+    const result =
+      request.provider === "openai"
+        ? await runDirectOpenAI(request, providerDeps)
+        : await runDirectDeepSeek(request, providerDeps);
     runId = result.run.id;
   } catch (error) {
     return deps.queue.fail({
