@@ -68,3 +68,6 @@ jobs:
 
       - name: Build runner container
         run: docker build -f docker/runner.Dockerfile -t modelapse-runner:ci .
+
+      - name: Build web container
+        run: docker build -f docker/web.Dockerfile -t modelapse-web:ci .
