@@ -11,7 +11,7 @@ import {
   EnvironmentCredentialResolver,
   NodeEvidenceTransport,
 } from "@modelapse/evidence-transport";
-import { PgEvaluationRepository, PgRunRepository } from "@modelapse/persistence";
+import { PgArchiveRepository, PgEvaluationRepository, PgRunRepository } from "@modelapse/persistence";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { processOneQueuedRunJob } from "../src/queue-worker.js";
@@ -175,6 +175,7 @@ describe("DeepSeek first-party direct queue path", () => {
     expect(run?.modelId).toBe(modelId);
     expect(run?.requestedModel).toBe("deepseek-flash");
     expect(run?.returnedModel).toBe("deepseek-flash");
+    expect(run?.responseBlob?.mimeType).toBe("application/json");
     expect(run?.evidence[0]).toMatchObject({
       level: "E4",
       executionPath: "first_party_direct",
@@ -193,6 +194,27 @@ describe("DeepSeek first-party direct queue path", () => {
         actual_text: "modelapse",
       },
     });
+
+    const archive = PgArchiveRepository.connect(isolatedDatabaseUrl, { max: 1 });
+    try {
+      const archived = await archive.getRun(run!.id);
+      expect(archived).toMatchObject({
+        id: run!.id,
+        model: {
+          id: modelId,
+          canonicalSlug: "deepseek-flash",
+        },
+        provider: { slug: "deepseek" },
+        evidenceLevel: "E4",
+        evaluation: {
+          status: "completed",
+          evaluatorSlug: "exact-text",
+          exactMatch: true,
+        },
+      });
+    } finally {
+      await archive.close();
+    }
 
     const requestBytes = await new FileSystemContentAddressedBlobStore(root).get(
       run!.requestBlob!.sha256,
