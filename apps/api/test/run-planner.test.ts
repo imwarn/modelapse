@@ -148,6 +148,32 @@ describe("selection-based Run Planner API", () => {
     });
   });
 
+  it("normalizes surrounding whitespace in the configured control token", async () => {
+    const app = createApp({
+      runs: baseRuns(),
+      controlToken: "  control-secret\n",
+      planner: {
+        ping: async () => undefined,
+        listModels: async () => [plan.model],
+        listTests: async () => [plan.test],
+        plan: async () => plan,
+      },
+      jobs: {
+        ping: async () => undefined,
+        get: async () => queuedJob,
+        enqueue: async () => queuedJob,
+      },
+    });
+
+    const response = await app.request("/v1/control/catalog/models", {
+      headers: {
+        authorization: "Bearer control-secret",
+      },
+    });
+
+    expect(response.status).toBe(200);
+  });
+
   it("does not let the normal Run endpoint accept provider or model strings", async () => {
     const app = createApp({
       runs: baseRuns(),

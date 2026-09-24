@@ -185,6 +185,10 @@ The browser never receives `MODELAPSE_CONTROL_TOKEN`. TanStack Start server func
 
 Do not reuse the API control token as the operator token.
 
+The `MODELAPSE_CONTROL_TOKEN` value on the API and Web resources must be the **same secret**. Enter the raw value without wrapping quotes. Leading/trailing whitespace is ignored by current runtime normalization, but avoiding it keeps Coolify configuration unambiguous.
+
+If operator unlock succeeds but the UI reports that the API rejected the Web control credential, the browser-to-Web operator gate is working and the failure is specifically the Web-to-API credential. Re-save the same `MODELAPSE_CONTROL_TOKEN` on both Coolify resources and redeploy both services.
+
 ## GHCR authentication
 
 If the GHCR packages are private, authenticate the Coolify deployment server with a GitHub token that can read packages.

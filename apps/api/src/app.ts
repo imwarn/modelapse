@@ -88,6 +88,7 @@ function idempotencyKey(
 
 export function createApp(deps: AppDependencies) {
   const app = new Hono();
+  const controlToken = deps.controlToken?.trim();
 
   app.onError((error, c) => {
     console.error(error);
@@ -203,10 +204,10 @@ export function createApp(deps: AppDependencies) {
   });
 
   app.get("/v1/control/catalog/models", async (c) => {
-    if (!deps.planner || !deps.controlToken) {
+    if (!deps.planner || !controlToken) {
       return c.json({ error: "control_plane_disabled" }, 503);
     }
-    if (!authorized(c.req.header("authorization"), deps.controlToken)) {
+    if (!authorized(c.req.header("authorization"), controlToken)) {
       return c.json({ error: "unauthorized" }, 401);
     }
 
@@ -214,10 +215,10 @@ export function createApp(deps: AppDependencies) {
   });
 
   app.get("/v1/control/catalog/tests", async (c) => {
-    if (!deps.planner || !deps.controlToken) {
+    if (!deps.planner || !controlToken) {
       return c.json({ error: "control_plane_disabled" }, 503);
     }
-    if (!authorized(c.req.header("authorization"), deps.controlToken)) {
+    if (!authorized(c.req.header("authorization"), controlToken)) {
       return c.json({ error: "unauthorized" }, 401);
     }
 
@@ -225,10 +226,10 @@ export function createApp(deps: AppDependencies) {
   });
 
   app.post("/v1/control/runs", async (c) => {
-    if (!deps.jobs || !deps.planner || !deps.controlToken) {
+    if (!deps.jobs || !deps.planner || !controlToken) {
       return c.json({ error: "control_plane_disabled" }, 503);
     }
-    if (!authorized(c.req.header("authorization"), deps.controlToken)) {
+    if (!authorized(c.req.header("authorization"), controlToken)) {
       return c.json({ error: "unauthorized" }, 401);
     }
 
@@ -301,10 +302,10 @@ export function createApp(deps: AppDependencies) {
   });
 
   app.post("/v1/control/run-jobs", async (c) => {
-    if (!deps.jobs || !deps.controlToken) {
+    if (!deps.jobs || !controlToken) {
       return c.json({ error: "control_plane_disabled" }, 503);
     }
-    if (!authorized(c.req.header("authorization"), deps.controlToken)) {
+    if (!authorized(c.req.header("authorization"), controlToken)) {
       return c.json({ error: "unauthorized" }, 401);
     }
 
@@ -346,10 +347,10 @@ export function createApp(deps: AppDependencies) {
   });
 
   app.get("/v1/control/run-jobs/:jobId", async (c) => {
-    if (!deps.jobs || !deps.controlToken) {
+    if (!deps.jobs || !controlToken) {
       return c.json({ error: "control_plane_disabled" }, 503);
     }
-    if (!authorized(c.req.header("authorization"), deps.controlToken)) {
+    if (!authorized(c.req.header("authorization"), controlToken)) {
       return c.json({ error: "unauthorized" }, 401);
     }
 
