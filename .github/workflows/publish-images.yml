@@ -91,10 +91,11 @@ jobs:
     needs: [guard, publish]
     if: needs.guard.outputs.current == 'true'
     runs-on: ubuntu-latest
+    environment: production
     env:
-      COOLIFY_URL: ${{ vars.COOLIFY_URL }}
-      COOLIFY_API_UUID: ${{ vars.COOLIFY_API_UUID }}
-      COOLIFY_RUNNER_UUID: ${{ vars.COOLIFY_RUNNER_UUID }}
+      COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
+      COOLIFY_API_UUID: ${{ secrets.COOLIFY_API_UUID }}
+      COOLIFY_RUNNER_UUID: ${{ secrets.COOLIFY_RUNNER_UUID }}
       COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
     steps:
       - name: Trigger API and runner deployment
@@ -113,5 +114,5 @@ jobs:
         if: env.COOLIFY_URL == '' || env.COOLIFY_API_UUID == '' || env.COOLIFY_RUNNER_UUID == '' || env.COOLIFY_TOKEN == ''
         run: |
           echo "Images were published to GHCR, but Coolify deployment was skipped."
-          echo "Configure repository variables COOLIFY_URL, COOLIFY_API_UUID, COOLIFY_RUNNER_UUID"
-          echo "and repository secret COOLIFY_TOKEN to enable automatic deployment."
+          echo "Configure production environment secrets COOLIFY_URL, COOLIFY_API_UUID,"
+          echo "COOLIFY_RUNNER_UUID and COOLIFY_TOKEN to enable automatic deployment."

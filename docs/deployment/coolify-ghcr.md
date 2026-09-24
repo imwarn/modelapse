@@ -22,21 +22,24 @@ The mutable `:main` tag is used for automatic production updates. The immutable 
 
 The publishing workflow refuses to publish a successful but stale CI run if `main` has already advanced to a newer commit.
 
-## GitHub repository configuration
+## GitHub production environment configuration
 
-Create these repository **Variables**:
+Create a GitHub Actions environment named:
+
+```text
+production
+```
+
+Add these **Environment secrets** to that environment:
 
 ```text
 COOLIFY_URL=https://coolify.example.com
 COOLIFY_API_UUID=<Coolify API application UUID>
 COOLIFY_RUNNER_UUID=<Coolify runner application UUID>
-```
-
-Create this repository **Secret**:
-
-```text
 COOLIFY_TOKEN=<Coolify API token>
 ```
+
+The deploy job explicitly targets the `production` environment, so these values do not need to be duplicated as repository-level variables or secrets.
 
 If these values are absent, GitHub Actions still publishes both GHCR images but skips the Coolify deployment trigger.
 
@@ -200,7 +203,7 @@ MODELAPSE_CONTROL_TOKEN
 
 They belong in Coolify runtime configuration only.
 
-GitHub needs only the Coolify deployment token plus non-secret Coolify URL/resource UUID variables. GHCR publishing uses the workflow-provided `GITHUB_TOKEN`.
+GitHub Actions needs only the four Coolify values stored as `production` environment secrets. GHCR publishing uses the workflow-provided `GITHUB_TOKEN`.
 
 ## Release ordering
 
