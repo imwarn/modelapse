@@ -93,7 +93,10 @@ function ArchiveRunPage() {
     );
   }
 
-  const primaryEvidence = run.evidence[0] ?? null;
+  const primaryEvidence =
+    run.evidence.find((evidence) => evidence.level === run.evidenceLevel) ??
+    run.evidence[0] ??
+    null;
   const attestation = primaryEvidence?.attestation ?? null;
 
   return (
