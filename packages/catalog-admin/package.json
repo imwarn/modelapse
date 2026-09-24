@@ -1,0 +1,27 @@
+{
+  "name": "@modelapse/catalog-admin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./dist/src/index.js"
+  },
+  "types": "./dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run test/openai-smoke.test.ts",
+    "test:integration": "vitest run test/bootstrap.integration.test.ts",
+    "bootstrap:openai-smoke": "node dist/src/cli.js bootstrap-openai-smoke"
+  },
+  "dependencies": {
+    "@modelapse/blob-store": "*",
+    "@modelapse/testpack-sdk": "*",
+    "pg": "8.23.0"
+  },
+  "devDependencies": {
+    "@modelapse/persistence": "*",
+    "@types/pg": "8.23.1",
+    "vitest": "3.0.8"
+  }
+}
