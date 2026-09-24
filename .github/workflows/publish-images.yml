@@ -102,7 +102,7 @@ jobs:
       COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
       COOLIFY_READ_TOKEN: ${{ secrets.COOLIFY_READ_TOKEN }}
     steps:
-      - name: Deploy API, runner, then optional web
+      - name: Deploy API, then independently runner and optional web
         if: env.COOLIFY_URL != '' && env.COOLIFY_API_UUID != '' && env.COOLIFY_RUNNER_UUID != '' && env.COOLIFY_TOKEN != '' && env.COOLIFY_READ_TOKEN != ''
         run: |
           set -euo pipefail
@@ -139,7 +139,14 @@ jobs:
                   return 0
                   ;;
                 failed|cancelled|cancelled-by-user)
-                  echo "$response" | jq .
+                  echo "$response" | jq '{
+                    deployment_uuid,
+                    application_name,
+                    status,
+                    created_at,
+                    updated_at,
+                    finished_at
+                  }'
                   return 1
                   ;;
               esac
@@ -155,14 +162,35 @@ jobs:
           API_DEPLOYMENT="$(deploy_resource "${COOLIFY_API_UUID}")"
           wait_for_deployment "$API_DEPLOYMENT"
 
-          RUNNER_DEPLOYMENT="$(deploy_resource "${COOLIFY_RUNNER_UUID}")"
-          wait_for_deployment "$RUNNER_DEPLOYMENT"
+          failures=0
+
+          if RUNNER_DEPLOYMENT="$(deploy_resource "${COOLIFY_RUNNER_UUID}")"; then
+            if ! wait_for_deployment "$RUNNER_DEPLOYMENT"; then
+              echo "Runner deployment failed; continuing so Web can still converge to the same release."
+              failures=$((failures + 1))
+            fi
+          else
+            echo "Runner deployment could not be queued; continuing so Web can still converge."
+            failures=$((failures + 1))
+          fi
 
           if [ -n "${COOLIFY_WEB_UUID}" ]; then
-            WEB_DEPLOYMENT="$(deploy_resource "${COOLIFY_WEB_UUID}")"
-            wait_for_deployment "$WEB_DEPLOYMENT"
+            if WEB_DEPLOYMENT="$(deploy_resource "${COOLIFY_WEB_UUID}")"; then
+              if ! wait_for_deployment "$WEB_DEPLOYMENT"; then
+                echo "Web deployment failed."
+                failures=$((failures + 1))
+              fi
+            else
+              echo "Web deployment could not be queued."
+              failures=$((failures + 1))
+            fi
           else
             echo "COOLIFY_WEB_UUID is not configured; the web image was published but web deployment was skipped."
+          fi
+
+          if [ "$failures" -gt 0 ]; then
+            echo "$failures production deployment(s) failed."
+            exit 1
           fi
 
       - name: Note missing Coolify configuration
