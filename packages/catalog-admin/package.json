@@ -13,7 +13,8 @@
     "test": "vitest run test/openai-smoke.test.ts",
     "test:integration": "vitest run test/bootstrap.integration.test.ts",
     "bootstrap:openai-smoke": "node dist/src/cli.js bootstrap-openai-smoke",
-    "bootstrap:deepseek-smoke": "node dist/src/cli.js bootstrap-deepseek-smoke"
+    "bootstrap:deepseek-smoke": "node dist/src/cli.js bootstrap-deepseek-smoke",
+    "bootstrap:deepseek-flash-model": "node dist/src/cli.js bootstrap-deepseek-flash-model"
   },
   "dependencies": {
     "@modelapse/blob-store": "*",

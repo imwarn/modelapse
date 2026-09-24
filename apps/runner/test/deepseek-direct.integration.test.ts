@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FileSystemContentAddressedBlobStore } from "@modelapse/blob-store";
-import { PgCatalogAdmin } from "@modelapse/catalog-admin";
-import { PgRunJobQueue } from "@modelapse/control-plane";
+import { PgCatalogAdmin, PgModelCatalogAdmin } from "@modelapse/catalog-admin";
+import { PgRunJobQueue, PgRunPlanner } from "@modelapse/control-plane";
 import { migrateDatabase } from "@modelapse/database";
 import {
   EnvironmentCredentialResolver,
@@ -35,7 +35,10 @@ describe("DeepSeek first-party direct queue path", () => {
   let repository: PgRunRepository | undefined;
   let queue: PgRunJobQueue | undefined;
   let catalog: PgCatalogAdmin | undefined;
+  let modelCatalog: PgModelCatalogAdmin | undefined;
+  let planner: PgRunPlanner | undefined;
   let testCaseId = "";
+  let modelId = "";
 
   beforeAll(async () => {
     await adminPool.query(`CREATE DATABASE "${databaseName}"`);
@@ -52,17 +55,24 @@ describe("DeepSeek first-party direct queue path", () => {
     repository = PgRunRepository.connect(isolatedDatabaseUrl, { max: 2 });
     queue = PgRunJobQueue.connect(isolatedDatabaseUrl, { max: 2 });
     catalog = PgCatalogAdmin.connect(isolatedDatabaseUrl, blobStore);
+    modelCatalog = PgModelCatalogAdmin.connect(isolatedDatabaseUrl);
+    planner = PgRunPlanner.connect(isolatedDatabaseUrl, { max: 2 });
 
     const bootstrapped = await catalog.bootstrapDeepSeekSmoke({
       runnerBuild: "deepseek-bootstrap",
     });
     testCaseId = bootstrapped.testCaseId;
+
+    const model = await modelCatalog.bootstrapDeepSeekFlash();
+    modelId = model.modelId;
   });
 
   afterAll(async () => {
     await queue?.close();
+    await planner?.close();
     await repository?.close();
     await catalog?.close();
+    await modelCatalog?.close();
     await adminPool.query(
       `DROP DATABASE IF EXISTS "${databaseName}"`,
     );
@@ -113,16 +123,24 @@ describe("DeepSeek first-party direct queue path", () => {
     });
 
     const { privateKey } = generateKeyPairSync("ed25519");
-    const job = await queue!.enqueue({
-      payload: {
-        provider: "deepseek",
-        testCaseId,
-        model: "deepseek-flash",
-        config: {
-          reasoningEffort: "none",
-          maxOutputTokens: 32,
-        },
+    const plan = await planner!.plan({
+      modelId,
+      testCaseId,
+      config: {
+        reasoningEffort: "none",
+        maxOutputTokens: 32,
       },
+    });
+
+    expect(plan.jobPayload).toMatchObject({
+      provider: "deepseek",
+      modelId,
+      model: "deepseek-flash",
+      testCaseId,
+    });
+
+    const job = await queue!.enqueue({
+      payload: plan.jobPayload,
       idempotencyKey: "deepseek-" + randomUUID(),
     });
 
@@ -150,6 +168,7 @@ describe("DeepSeek first-party direct queue path", () => {
     const run = await repository!.getRun(completed!.runId!);
     expect(run?.status).toBe("completed");
     expect(run?.executionPath).toBe("first_party_direct");
+    expect(run?.modelId).toBe(modelId);
     expect(run?.requestedModel).toBe("deepseek-flash");
     expect(run?.returnedModel).toBe("deepseek-flash");
     expect(run?.evidence[0]).toMatchObject({

@@ -1,5 +1,8 @@
 import { serve } from "@hono/node-server";
-import { PgRunJobQueue } from "@modelapse/control-plane";
+import {
+  PgRunJobQueue,
+  PgRunPlanner,
+} from "@modelapse/control-plane";
 import { PgRunRepository } from "@modelapse/persistence";
 import { createApp } from "./app.js";
 
@@ -10,11 +13,13 @@ if (!databaseUrl) {
 
 const runs = PgRunRepository.connect(databaseUrl);
 const jobs = PgRunJobQueue.connect(databaseUrl);
+const planner = PgRunPlanner.connect(databaseUrl);
 const controlToken = process.env.MODELAPSE_CONTROL_TOKEN;
 const port = Number(process.env.PORT ?? "3000");
 const app = createApp({
   runs,
   jobs,
+  planner,
   ...(controlToken ? { controlToken } : {}),
 });
 
@@ -31,7 +36,7 @@ function shutdown(signal: string): void {
   console.log(signal + ": shutting down modelapse-api");
 
   server.close((error) => {
-    void Promise.all([runs.close(), jobs.close()]).finally(() => {
+    void Promise.all([runs.close(), jobs.close(), planner.close()]).finally(() => {
       if (error) {
         console.error(error);
         process.exit(1);
