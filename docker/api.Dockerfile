@@ -9,6 +9,7 @@ COPY packages/domain/package.json packages/domain/package.json
 COPY packages/provider-adapter/package.json packages/provider-adapter/package.json
 COPY packages/evidence-transport/package.json packages/evidence-transport/package.json
 COPY packages/provider-openai/package.json packages/provider-openai/package.json
+COPY packages/provider-deepseek/package.json packages/provider-deepseek/package.json
 COPY packages/provider-anthropic/package.json packages/provider-anthropic/package.json
 COPY packages/attestation/package.json packages/attestation/package.json
 COPY packages/blob-store/package.json packages/blob-store/package.json

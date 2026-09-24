@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import {
   IdempotencyConflictError,
-  parseDirectOpenAIRunRequest,
+  parseDirectProviderRunRequest,
   type PgRunJobQueue,
   type RunJob,
 } from "@modelapse/control-plane";
@@ -124,7 +124,7 @@ export function createApp(deps: AppDependencies) {
 
     let payload;
     try {
-      payload = parseDirectOpenAIRunRequest(raw);
+      payload = parseDirectProviderRunRequest(raw);
     } catch (error) {
       return c.json(
         {

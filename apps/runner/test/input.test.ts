@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parseDirectDeepSeekRunRequest } from "../src/direct-deepseek.js";
 import { parseDirectOpenAIRunRequest } from "../src/direct-openai.js";
 
 const TEST_CASE_ID = "00000000-0000-4000-8000-000000000001";
@@ -46,7 +47,29 @@ describe("parseDirectOpenAIRunRequest", () => {
     ).toThrow(/unsupported fields/);
   });
 
-  it("rejects non-OpenAI providers", () => {
+  it("accepts the narrow DeepSeek direct job contract", () => {
+    expect(
+      parseDirectDeepSeekRunRequest({
+        provider: "deepseek",
+        testCaseId: TEST_CASE_ID,
+        model: "deepseek-flash",
+        config: {
+          maxOutputTokens: 64,
+          reasoningEffort: "none",
+        },
+      }),
+    ).toEqual({
+      provider: "deepseek",
+      testCaseId: TEST_CASE_ID,
+      model: "deepseek-flash",
+      config: {
+        maxOutputTokens: 64,
+        reasoningEffort: "none",
+      },
+    });
+  });
+
+  it("rejects unsupported providers", () => {
     expect(() =>
       parseDirectOpenAIRunRequest({
         provider: "anthropic",

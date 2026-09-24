@@ -7,7 +7,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run test/input.test.ts",
-    "test:integration": "vitest run test/openai-direct.integration.test.ts",
+    "test:integration": "vitest run test/openai-direct.integration.test.ts test/deepseek-direct.integration.test.ts",
     "start": "node dist/src/index.js"
   },
   "dependencies": {
@@ -17,11 +17,14 @@
     "@modelapse/evidence-transport": "*",
     "@modelapse/persistence": "*",
     "@modelapse/provider-adapter": "*",
-    "@modelapse/provider-openai": "*"
+    "@modelapse/provider-openai": "*",
+    "@modelapse/provider-deepseek": "*"
   },
   "devDependencies": {
     "@types/pg": "8.23.1",
     "pg": "8.23.0",
-    "vitest": "3.0.8"
+    "vitest": "3.0.8",
+    "@modelapse/catalog-admin": "*",
+    "@modelapse/database": "*"
   }
 }
