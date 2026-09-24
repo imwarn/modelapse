@@ -25,7 +25,7 @@ RUN npm install
 COPY apps ./apps
 COPY packages ./packages
 
-RUN npm run build
+RUN npm run build:backend
 
 FROM node:22-alpine AS runtime
 WORKDIR /app
