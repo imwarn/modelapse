@@ -60,6 +60,10 @@ describe("production catalog bootstrap", () => {
   });
 
   it("registers the DeepSeek model and execution binding idempotently", async () => {
+    await catalog!.bootstrapDeepSeekSmoke({
+      runnerBuild: "deepseek-model-prerequisite",
+    });
+
     const first = await modelCatalog!.bootstrapDeepSeekFlash();
     const second = await modelCatalog!.bootstrapDeepSeekFlash();
 
