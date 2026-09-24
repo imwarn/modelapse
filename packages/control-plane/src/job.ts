@@ -2,17 +2,16 @@ import type { RunConfig } from "@modelapse/domain";
 
 export type DirectProviderSlug = "openai" | "deepseek";
 
+export type DirectRunConfig = Pick<
+  RunConfig,
+  "temperature" | "topP" | "maxOutputTokens" | "reasoningEffort" | "serviceTier"
+>;
+
 interface DirectProviderRunBase {
   readonly testCaseId: string;
+  readonly modelId?: string;
   readonly model: string;
-  readonly config?: Pick<
-    RunConfig,
-    | "temperature"
-    | "topP"
-    | "maxOutputTokens"
-    | "reasoningEffort"
-    | "serviceTier"
-  >;
+  readonly config?: DirectRunConfig;
 }
 
 export interface DirectOpenAIRunRequest extends DirectProviderRunBase {
@@ -27,14 +26,16 @@ export type DirectProviderRunRequest =
   | DirectOpenAIRunRequest
   | DirectDeepSeekRunRequest;
 
-const UUID_RE =
+export const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(
+  value: unknown,
+): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function rejectUnknownKeys(
+export function rejectUnknownKeys(
   record: Record<string, unknown>,
   allowed: readonly string[],
   label: string,
@@ -70,7 +71,9 @@ function optionalString(
   return value;
 }
 
-function parseConfig(value: unknown): DirectProviderRunRequest["config"] {
+export function parseDirectRunConfig(
+  value: unknown,
+): DirectRunConfig | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) throw new Error("config must be an object");
 
@@ -116,7 +119,11 @@ export function parseDirectProviderRunRequest(
 ): DirectProviderRunRequest {
   if (!isRecord(value)) throw new Error("job payload must be an object");
 
-  rejectUnknownKeys(value, ["provider", "testCaseId", "model", "config"], "job");
+  rejectUnknownKeys(
+    value,
+    ["provider", "testCaseId", "modelId", "model", "config"],
+    "job",
+  );
 
   if (value.provider !== "openai" && value.provider !== "deepseek") {
     throw new Error('provider must be "openai" or "deepseek"');
@@ -124,15 +131,22 @@ export function parseDirectProviderRunRequest(
   if (typeof value.testCaseId !== "string" || !UUID_RE.test(value.testCaseId)) {
     throw new Error("testCaseId must be a UUID");
   }
+  if (
+    value.modelId !== undefined &&
+    (typeof value.modelId !== "string" || !UUID_RE.test(value.modelId))
+  ) {
+    throw new Error("modelId must be a UUID");
+  }
   if (typeof value.model !== "string" || value.model.trim().length === 0) {
     throw new Error("model must be a non-empty string");
   }
 
-  const config = parseConfig(value.config);
+  const config = parseDirectRunConfig(value.config);
 
   return {
     provider: value.provider,
     testCaseId: value.testCaseId,
+    ...(typeof value.modelId === "string" ? { modelId: value.modelId } : {}),
     model: value.model,
     ...(config ? { config } : {}),
   };
