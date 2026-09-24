@@ -11,6 +11,7 @@ COPY packages/evidence-transport/package.json packages/evidence-transport/packag
 COPY packages/provider-openai/package.json packages/provider-openai/package.json
 COPY packages/provider-deepseek/package.json packages/provider-deepseek/package.json
 COPY packages/provider-anthropic/package.json packages/provider-anthropic/package.json
+COPY packages/evaluation/package.json packages/evaluation/package.json
 COPY packages/attestation/package.json packages/attestation/package.json
 COPY packages/blob-store/package.json packages/blob-store/package.json
 COPY packages/runner/package.json packages/runner/package.json
@@ -48,6 +49,8 @@ COPY --from=build /app/packages/provider-openai/package.json ./packages/provider
 COPY --from=build /app/packages/provider-openai/dist ./packages/provider-openai/dist
 COPY --from=build /app/packages/provider-deepseek/package.json ./packages/provider-deepseek/package.json
 COPY --from=build /app/packages/provider-deepseek/dist ./packages/provider-deepseek/dist
+COPY --from=build /app/packages/evaluation/package.json ./packages/evaluation/package.json
+COPY --from=build /app/packages/evaluation/dist ./packages/evaluation/dist
 COPY --from=build /app/packages/attestation/package.json ./packages/attestation/package.json
 COPY --from=build /app/packages/attestation/dist ./packages/attestation/dist
 COPY --from=build /app/packages/blob-store/package.json ./packages/blob-store/package.json
