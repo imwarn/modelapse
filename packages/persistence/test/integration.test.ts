@@ -26,6 +26,9 @@ describe("PostgreSQL Run persistence", () => {
   let root = "";
   let providerId = "";
   let testCaseId = "";
+  let modelId = "";
+  let relatedModelId = "";
+  let snapshotId = "";
 
   beforeAll(async () => {
     root = await mkdtemp(join(tmpdir(), "modelapse-integration-"));
@@ -47,6 +50,84 @@ describe("PostgreSQL Run persistence", () => {
       [`integration-router-${suffix}`, "Integration Router"],
     );
     providerId = provider.rows[0]!.id;
+
+    const modelFamily = await seedPool.query<{ id: string }>(
+      `INSERT INTO modelapse.model_families
+        (provider_id, slug, display_name)
+       VALUES ($1, $2, 'Integration Models')
+       RETURNING id`,
+      [providerId, `integration-models-${suffix}`],
+    );
+
+    const modelTrack = await seedPool.query<{ id: string }>(
+      `INSERT INTO modelapse.model_tracks
+        (family_id, slug, display_name, track_type)
+       VALUES ($1, 'main', 'Main', 'integration')
+       RETURNING id`,
+      [modelFamily.rows[0]!.id],
+    );
+
+    const model = await seedPool.query<{ id: string }>(
+      `INSERT INTO modelapse.models
+        (
+          provider_id,
+          family_id,
+          track_id,
+          canonical_slug,
+          marketing_name,
+          released_at,
+          status
+        )
+       VALUES ($1, $2, $3, $4, 'Integration Model', $5, 'active')
+       RETURNING id`,
+      [
+        providerId,
+        modelFamily.rows[0]!.id,
+        modelTrack.rows[0]!.id,
+        `integration-model-${suffix}`,
+        "2026-09-01T00:00:00.000Z",
+      ],
+    );
+    modelId = model.rows[0]!.id;
+
+    const relatedModel = await seedPool.query<{ id: string }>(
+      `INSERT INTO modelapse.models
+        (
+          provider_id,
+          family_id,
+          track_id,
+          canonical_slug,
+          marketing_name,
+          released_at,
+          status
+        )
+       VALUES ($1, $2, $3, $4, 'Integration Model Next', $5, 'preview')
+       RETURNING id`,
+      [
+        providerId,
+        modelFamily.rows[0]!.id,
+        modelTrack.rows[0]!.id,
+        `integration-model-next-${suffix}`,
+        "2026-09-20T00:00:00.000Z",
+      ],
+    );
+    relatedModelId = relatedModel.rows[0]!.id;
+
+    const snapshot = await seedPool.query<{ id: string }>(
+      `INSERT INTO modelapse.model_snapshots
+        (model_id, provider_snapshot_id, valid_from)
+       VALUES ($1, $2, $3)
+       RETURNING id`,
+      [modelId, `integration-snapshot-${suffix}`, "2026-09-01T00:00:00.000Z"],
+    );
+    snapshotId = snapshot.rows[0]!.id;
+
+    await seedPool.query(
+      `INSERT INTO modelapse.model_relations
+        (from_model_id, to_model_id, relation_type, valid_from, confidence)
+       VALUES ($1, $2, 'successor_of', $3, 1.0)`,
+      [relatedModelId, modelId, "2026-09-20T00:00:00.000Z"],
+    );
 
     const family = await seedPool.query<{ id: string }>(
       `INSERT INTO modelapse.test_families (slug, name, origin)
@@ -168,6 +249,8 @@ describe("PostgreSQL Run persistence", () => {
       },
       run: {
         testCaseId,
+        modelId,
+        snapshotId,
         providerId,
         runnerBuild: "integration-test",
       },
@@ -217,6 +300,52 @@ describe("PostgreSQL Run persistence", () => {
         keyId: "integration-key",
         algorithm: "Ed25519",
       },
+    });
+
+    const archivedModel = await archive.getModel(modelId);
+    expect(archivedModel).toMatchObject({
+      id: modelId,
+      family: { displayName: "Integration Models" },
+      track: { displayName: "Main" },
+      runCount: 1,
+      snapshots: [{ id: snapshotId }],
+      testCoverage: [{ testCaseId, runCount: 1 }],
+    });
+    expect(
+      archivedModel?.relations.some(
+        (relation) =>
+          relation.relatedModel.id === relatedModelId &&
+          relation.relationType === "successor_of",
+      ),
+    ).toBe(true);
+    expect(
+      archivedModel?.timeline.some(
+        (event) => event.kind === "run" && event.runId === result.run.id,
+      ),
+    ).toBe(true);
+
+    const archivedTest = await archive.getTest(testCaseId);
+    expect(archivedTest).toMatchObject({
+      testCaseId,
+      origin: "modelapse",
+      runCount: 1,
+      modelCoverage: [{ modelId, runCount: 1 }],
+    });
+    expect(archivedTest?.recentRuns[0]?.id).toBe(result.run.id);
+
+    const comparison = await archive.compareLatest({
+      modelIds: [modelId, relatedModelId],
+      testCaseId,
+    });
+    expect(comparison).not.toBeNull();
+    expect(comparison?.rows).toHaveLength(2);
+    expect(comparison?.rows[0]).toMatchObject({
+      model: { id: modelId },
+      latestRun: { id: result.run.id },
+    });
+    expect(comparison?.rows[1]).toMatchObject({
+      model: { id: relatedModelId },
+      latestRun: null,
     });
 
     await expect(
