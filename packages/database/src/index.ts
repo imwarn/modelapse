@@ -1,1 +1,1 @@
-export * from "./migrate.js";\n
+export * from "./migrate.js";
