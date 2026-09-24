@@ -90,6 +90,7 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
       body: JSON.stringify(body),
       capture: {
         responseHeaderAllowlist: [
+          "content-type",
           "x-request-id",
           "openai-processing-ms",
           "openai-version",

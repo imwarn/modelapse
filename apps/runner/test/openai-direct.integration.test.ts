@@ -10,7 +10,7 @@ import {
   EnvironmentCredentialResolver,
   NodeEvidenceTransport,
 } from "@modelapse/evidence-transport";
-import { PgRunRepository } from "@modelapse/persistence";
+import { PgEvaluationRepository, PgRunRepository } from "@modelapse/persistence";
 import { runDirectOpenAI } from "../src/direct-openai.js";
 import { processOneQueuedRunJob } from "../src/queue-worker.js";
 
@@ -21,6 +21,7 @@ const DATABASE_URL =
 describe("OpenAI first-party direct control path", () => {
   const seedPool = new Pool({ connectionString: DATABASE_URL });
   const repository = PgRunRepository.connect(DATABASE_URL, { max: 2 });
+  const evaluations = PgEvaluationRepository.connect(DATABASE_URL, { max: 2 });
   let root = "";
   let testCaseId = "";
 
@@ -110,6 +111,7 @@ describe("OpenAI first-party direct control path", () => {
   });
 
   afterAll(async () => {
+    await evaluations.close();
     await repository.close();
     await seedPool.end();
     if (root) await rm(root, { recursive: true, force: true });
@@ -250,6 +252,7 @@ describe("OpenAI first-party direct control path", () => {
       const completed = await processOneQueuedRunJob({
         queue,
         repository,
+        evaluations,
         blobStore,
         transport,
         credentials: new EnvironmentCredentialResolver({
@@ -298,6 +301,7 @@ describe("OpenAI first-party direct control path", () => {
       const failed = await processOneQueuedRunJob({
         queue,
         repository,
+        evaluations,
         blobStore,
         transport: new NodeEvidenceTransport({
           fetch: async () => {

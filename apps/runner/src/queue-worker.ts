@@ -11,14 +11,20 @@ import type {
 import {
   PersistedRunExecutionError,
   type ExecutionCatalogRepository,
+  type PgEvaluationRepository,
   type RunRepository,
 } from "@modelapse/persistence";
+import { evaluateCompletedRun } from "./evaluate-run.js";
 import { runDirectDeepSeek } from "./direct-deepseek.js";
 import { runDirectOpenAI } from "./direct-openai.js";
 
 export interface QueueWorkerDependencies {
   readonly queue: PgRunJobQueue;
   readonly repository: RunRepository & ExecutionCatalogRepository;
+  readonly evaluations: Pick<
+    PgEvaluationRepository,
+    "resolveForRun" | "recordExactText"
+  >;
   readonly blobStore: BlobStore;
   readonly transport: EvidenceTransport;
   readonly credentials: CredentialResolver;
@@ -48,7 +54,7 @@ export async function processOneQueuedRunJob(
   });
   if (!job) return null;
 
-  let runId: string;
+  let runId: string | undefined;
   try {
     const request = parseDirectProviderRunRequest(job.payload);
     const providerDeps = {
@@ -65,16 +71,32 @@ export async function processOneQueuedRunJob(
       request.provider === "openai"
         ? await runDirectOpenAI(request, providerDeps)
         : await runDirectDeepSeek(request, providerDeps);
+
     runId = result.run.id;
+
+    if (result.run.status === "completed") {
+      await evaluateCompletedRun({
+        runId,
+        normalized: result.sealed.normalized,
+        blobStore: deps.blobStore,
+        evaluations: deps.evaluations,
+      });
+    }
   } catch (error) {
+    const failedRunId =
+      runId ??
+      (error instanceof PersistedRunExecutionError ? error.runId : undefined);
+
     return deps.queue.fail({
       jobId: job.id,
       workerId: deps.workerId,
       error: safeError(error),
-      ...(error instanceof PersistedRunExecutionError
-        ? { runId: error.runId }
-        : {}),
+      ...(failedRunId ? { runId: failedRunId } : {}),
     });
+  }
+
+  if (!runId) {
+    throw new Error("Run job completed without a Run id");
   }
 
   return deps.queue.succeed({

@@ -11,7 +11,7 @@ import {
   EnvironmentCredentialResolver,
   NodeEvidenceTransport,
 } from "@modelapse/evidence-transport";
-import { PgRunRepository } from "@modelapse/persistence";
+import { PgArchiveRepository, PgEvaluationRepository, PgRunRepository } from "@modelapse/persistence";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { processOneQueuedRunJob } from "../src/queue-worker.js";
@@ -33,6 +33,7 @@ describe("DeepSeek first-party direct queue path", () => {
   const isolatedDatabaseUrl = databaseUrl(databaseName);
   let root = "";
   let repository: PgRunRepository | undefined;
+  let evaluations: PgEvaluationRepository | undefined;
   let queue: PgRunJobQueue | undefined;
   let catalog: PgCatalogAdmin | undefined;
   let modelCatalog: PgModelCatalogAdmin | undefined;
@@ -53,6 +54,7 @@ describe("DeepSeek first-party direct queue path", () => {
     root = await mkdtemp(join(tmpdir(), "modelapse-deepseek-"));
     const blobStore = new FileSystemContentAddressedBlobStore(root);
     repository = PgRunRepository.connect(isolatedDatabaseUrl, { max: 2 });
+    evaluations = PgEvaluationRepository.connect(isolatedDatabaseUrl, { max: 2 });
     queue = PgRunJobQueue.connect(isolatedDatabaseUrl, { max: 2 });
     catalog = PgCatalogAdmin.connect(isolatedDatabaseUrl, blobStore);
     modelCatalog = PgModelCatalogAdmin.connect(isolatedDatabaseUrl);
@@ -70,6 +72,7 @@ describe("DeepSeek first-party direct queue path", () => {
   afterAll(async () => {
     await queue?.close();
     await planner?.close();
+    await evaluations?.close();
     await repository?.close();
     await catalog?.close();
     await modelCatalog?.close();
@@ -147,6 +150,7 @@ describe("DeepSeek first-party direct queue path", () => {
     const completed = await processOneQueuedRunJob({
       queue: queue!,
       repository: repository!,
+      evaluations: evaluations!,
       blobStore: new FileSystemContentAddressedBlobStore(root),
       transport,
       credentials: new EnvironmentCredentialResolver({
@@ -171,11 +175,46 @@ describe("DeepSeek first-party direct queue path", () => {
     expect(run?.modelId).toBe(modelId);
     expect(run?.requestedModel).toBe("deepseek-flash");
     expect(run?.returnedModel).toBe("deepseek-flash");
+    expect(run?.responseBlob?.mimeType).toBe("application/json");
     expect(run?.evidence[0]).toMatchObject({
       level: "E4",
       executionPath: "first_party_direct",
       collector: "modelapse-runner/deepseek-direct",
     });
+
+    const evaluation = await evaluations!.getForRun(run!.id);
+    expect(evaluation).toHaveLength(1);
+    expect(evaluation[0]).toMatchObject({
+      evaluatorSlug: "exact-text",
+      evaluatorVersion: "1.0.0",
+      status: "completed",
+      metrics: {
+        exact_match: 1,
+        expected_text: "modelapse",
+        actual_text: "modelapse",
+      },
+    });
+
+    const archive = PgArchiveRepository.connect(isolatedDatabaseUrl, { max: 1 });
+    try {
+      const archived = await archive.getRun(run!.id);
+      expect(archived).toMatchObject({
+        id: run!.id,
+        model: {
+          id: modelId,
+          canonicalSlug: "deepseek-flash",
+        },
+        provider: { slug: "deepseek" },
+        evidenceLevel: "E4",
+        evaluation: {
+          status: "completed",
+          evaluatorSlug: "exact-text",
+          exactMatch: true,
+        },
+      });
+    } finally {
+      await archive.close();
+    }
 
     const requestBytes = await new FileSystemContentAddressedBlobStore(root).get(
       run!.requestBlob!.sha256,

@@ -8,7 +8,11 @@ import {
   type PgRunPlanner,
   type RunJob,
 } from "@modelapse/control-plane";
-import type { RunRepository, RunView } from "@modelapse/persistence";
+import type {
+  PgArchiveRepository,
+  RunRepository,
+  RunView,
+} from "@modelapse/persistence";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -19,11 +23,16 @@ type ControlPlanner = Pick<
   PgRunPlanner,
   "ping" | "listModels" | "listTests" | "plan"
 >;
+type ArchiveRepository = Pick<
+  PgArchiveRepository,
+  "ping" | "listModels" | "listTests" | "listRuns" | "getRun"
+>;
 
 export interface AppDependencies {
   readonly runs: RunApiRepository;
   readonly jobs?: ControlQueue;
   readonly planner?: ControlPlanner;
+  readonly archive?: ArchiveRepository;
   readonly controlToken?: string;
 }
 
@@ -98,6 +107,7 @@ export function createApp(deps: AppDependencies) {
       await deps.runs.ping();
       if (deps.jobs) await deps.jobs.ping();
       if (deps.planner) await deps.planner.ping();
+      if (deps.archive) await deps.archive.ping();
       return c.json({
         ready: true,
         service: "modelapse-api",
@@ -111,6 +121,71 @@ export function createApp(deps: AppDependencies) {
         503,
       );
     }
+  });
+
+  app.get("/v1/archive/models", async (c) => {
+    if (!deps.archive) {
+      return c.json({ error: "archive_unavailable" }, 503);
+    }
+    return c.json({ models: await deps.archive.listModels() });
+  });
+
+  app.get("/v1/archive/tests", async (c) => {
+    if (!deps.archive) {
+      return c.json({ error: "archive_unavailable" }, 503);
+    }
+    return c.json({ tests: await deps.archive.listTests() });
+  });
+
+  app.get("/v1/archive/runs", async (c) => {
+    if (!deps.archive) {
+      return c.json({ error: "archive_unavailable" }, 503);
+    }
+
+    const modelId = c.req.query("modelId");
+    const testCaseId = c.req.query("testCaseId");
+    const rawLimit = c.req.query("limit");
+
+    if (modelId && !UUID_RE.test(modelId)) {
+      return c.json({ error: "invalid_model_id" }, 400);
+    }
+    if (testCaseId && !UUID_RE.test(testCaseId)) {
+      return c.json({ error: "invalid_test_case_id" }, 400);
+    }
+
+    const limit = rawLimit === undefined ? undefined : Number(rawLimit);
+    if (
+      limit !== undefined &&
+      (!Number.isInteger(limit) || limit < 1 || limit > 100)
+    ) {
+      return c.json({ error: "invalid_limit" }, 400);
+    }
+
+    return c.json({
+      runs: await deps.archive.listRuns({
+        ...(modelId ? { modelId } : {}),
+        ...(testCaseId ? { testCaseId } : {}),
+        ...(limit !== undefined ? { limit } : {}),
+      }),
+    });
+  });
+
+  app.get("/v1/archive/runs/:runId", async (c) => {
+    if (!deps.archive) {
+      return c.json({ error: "archive_unavailable" }, 503);
+    }
+
+    const runId = c.req.param("runId");
+    if (!UUID_RE.test(runId)) {
+      return c.json({ error: "invalid_run_id" }, 400);
+    }
+
+    const run = await deps.archive.getRun(runId);
+    if (!run) {
+      return c.json({ error: "archive_run_not_found" }, 404);
+    }
+
+    return c.json({ run });
   });
 
   app.get("/v1/runs/:runId", async (c) => {
@@ -203,6 +278,7 @@ export function createApp(deps: AppDependencies) {
               variantSlug: plan.test.variantSlug,
               version: plan.test.version,
               caseSlug: plan.test.caseSlug,
+              evaluator: plan.test.evaluator,
             },
           },
           job: controlJob(job),

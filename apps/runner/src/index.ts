@@ -11,7 +11,10 @@ import {
   EnvironmentCredentialResolver,
   NodeEvidenceTransport,
 } from "@modelapse/evidence-transport";
-import { PgRunRepository } from "@modelapse/persistence";
+import {
+  PgEvaluationRepository,
+  PgRunRepository,
+} from "@modelapse/persistence";
 import { runDirectDeepSeek } from "./direct-deepseek.js";
 import { runDirectOpenAI } from "./direct-openai.js";
 import { processOneQueuedRunJob } from "./queue-worker.js";
@@ -77,6 +80,7 @@ const providerTimeoutMs = positiveIntegerEnv(
 );
 const privateKey = await privateKeyPem();
 const repository = PgRunRepository.connect(databaseUrl, { max: 2 });
+const evaluations = PgEvaluationRepository.connect(databaseUrl, { max: 2 });
 const blobStore = new FileSystemContentAddressedBlobStore(blobRoot);
 const credentials = new EnvironmentCredentialResolver();
 const transport = new NodeEvidenceTransport({ timeoutMs: providerTimeoutMs });
@@ -130,6 +134,7 @@ async function runQueueMode(): Promise<void> {
       const job = await processOneQueuedRunJob({
         queue,
         repository,
+        evaluations,
         blobStore,
         transport,
         credentials,
@@ -172,5 +177,8 @@ try {
     throw new Error('MODELAPSE_RUNNER_MODE must be "stdin" or "queue"');
   }
 } finally {
-  await repository.close();
+  await Promise.all([
+    repository.close(),
+    evaluations.close(),
+  ]);
 }
