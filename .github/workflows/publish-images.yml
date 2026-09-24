@@ -98,17 +98,61 @@ jobs:
       COOLIFY_RUNNER_UUID: ${{ secrets.COOLIFY_RUNNER_UUID }}
       COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
     steps:
-      - name: Trigger API and runner deployment
+      - name: Deploy API, then runner
         if: env.COOLIFY_URL != '' && env.COOLIFY_API_UUID != '' && env.COOLIFY_RUNNER_UUID != '' && env.COOLIFY_TOKEN != ''
         run: |
           set -euo pipefail
           BASE_URL="${COOLIFY_URL%/}"
-          curl --fail-with-body --silent --show-error \
-            --retry 3 --retry-delay 2 \
-            --request POST \
-            "${BASE_URL}/api/v1/deploy?uuid=${COOLIFY_API_UUID},${COOLIFY_RUNNER_UUID}" \
-            --header "Authorization: Bearer ${COOLIFY_TOKEN}" \
-            --header "Accept: application/json"
+
+          deploy_resource() {
+            local resource_uuid="$1"
+            local response
+            response="$(curl --fail-with-body --silent --show-error \
+              --retry 3 --retry-delay 2 \
+              --request POST \
+              "${BASE_URL}/api/v1/deploy?uuid=${resource_uuid}" \
+              --header "Authorization: Bearer ${COOLIFY_TOKEN}" \
+              --header "Accept: application/json")"
+            echo "$response" >&2
+            echo "$response" | jq -er '.deployments[0].deployment_uuid'
+          }
+
+          wait_for_deployment() {
+            local deployment_uuid="$1"
+            local attempts=0
+            while [ "$attempts" -lt 120 ]; do
+              local response status
+              response="$(curl --fail-with-body --silent --show-error \
+                --retry 3 --retry-delay 2 \
+                "${BASE_URL}/api/v1/deployments/${deployment_uuid}" \
+                --header "Authorization: Bearer ${COOLIFY_TOKEN}" \
+                --header "Accept: application/json")"
+              status="$(echo "$response" | jq -r '.status')"
+              echo "Deployment ${deployment_uuid}: ${status}"
+
+              case "$status" in
+                finished)
+                  return 0
+                  ;;
+                failed|cancelled|cancelled-by-user)
+                  echo "$response" | jq .
+                  return 1
+                  ;;
+              esac
+
+              attempts=$((attempts + 1))
+              sleep 5
+            done
+
+            echo "Timed out waiting for deployment ${deployment_uuid}"
+            return 1
+          }
+
+          API_DEPLOYMENT="$(deploy_resource "${COOLIFY_API_UUID}")"
+          wait_for_deployment "$API_DEPLOYMENT"
+
+          RUNNER_DEPLOYMENT="$(deploy_resource "${COOLIFY_RUNNER_UUID}")"
+          wait_for_deployment "$RUNNER_DEPLOYMENT"
 
       - name: Note missing Coolify configuration
         if: env.COOLIFY_URL == '' || env.COOLIFY_API_UUID == '' || env.COOLIFY_RUNNER_UUID == '' || env.COOLIFY_TOKEN == ''
