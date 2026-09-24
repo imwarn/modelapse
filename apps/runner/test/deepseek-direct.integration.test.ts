@@ -64,7 +64,7 @@ describe("DeepSeek first-party direct queue path", () => {
     await repository?.close();
     await catalog?.close();
     await adminPool.query(
-      `DROP DATABASE IF EXISTS "${databaseName}" WITH (FORCE)`,
+      `DROP DATABASE IF EXISTS "${databaseName}"`,
     );
     await adminPool.end();
     if (root) await rm(root, { recursive: true, force: true });
