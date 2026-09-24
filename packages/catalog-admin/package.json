@@ -22,6 +22,7 @@
   "devDependencies": {
     "@modelapse/persistence": "*",
     "@types/pg": "8.23.1",
-    "vitest": "3.0.8"
+    "vitest": "3.0.8",
+    "@modelapse/database": "*"
   }
 }
