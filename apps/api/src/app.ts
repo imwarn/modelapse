@@ -74,6 +74,24 @@ function authorized(header: string | undefined, token: string): boolean {
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
+type ControlAuthIssue = "missing_authorization" | "invalid_authorization";
+
+function controlAuthIssue(
+  header: string | undefined,
+  token: string,
+): ControlAuthIssue | null {
+  if (!header) return "missing_authorization";
+  return authorized(header, token) ? null : "invalid_authorization";
+}
+
+function controlAuthError(issue: ControlAuthIssue) {
+  return {
+    error: "unauthorized",
+    reason: issue,
+    build: process.env.MODELAPSE_BUILD ?? "dev",
+  } as const;
+}
+
 function idempotencyKey(
   value: string | undefined,
 ): { value?: string; error?: "invalid_idempotency_key" } {
@@ -207,8 +225,12 @@ export function createApp(deps: AppDependencies) {
     if (!deps.planner || !controlToken) {
       return c.json({ error: "control_plane_disabled" }, 503);
     }
-    if (!authorized(c.req.header("authorization"), controlToken)) {
-      return c.json({ error: "unauthorized" }, 401);
+    const authIssue = controlAuthIssue(
+      c.req.header("authorization"),
+      controlToken,
+    );
+    if (authIssue) {
+      return c.json(controlAuthError(authIssue), 401);
     }
 
     return c.json({ models: await deps.planner.listModels() });
@@ -218,8 +240,12 @@ export function createApp(deps: AppDependencies) {
     if (!deps.planner || !controlToken) {
       return c.json({ error: "control_plane_disabled" }, 503);
     }
-    if (!authorized(c.req.header("authorization"), controlToken)) {
-      return c.json({ error: "unauthorized" }, 401);
+    const authIssue = controlAuthIssue(
+      c.req.header("authorization"),
+      controlToken,
+    );
+    if (authIssue) {
+      return c.json(controlAuthError(authIssue), 401);
     }
 
     return c.json({ tests: await deps.planner.listTests() });
@@ -229,8 +255,12 @@ export function createApp(deps: AppDependencies) {
     if (!deps.jobs || !deps.planner || !controlToken) {
       return c.json({ error: "control_plane_disabled" }, 503);
     }
-    if (!authorized(c.req.header("authorization"), controlToken)) {
-      return c.json({ error: "unauthorized" }, 401);
+    const authIssue = controlAuthIssue(
+      c.req.header("authorization"),
+      controlToken,
+    );
+    if (authIssue) {
+      return c.json(controlAuthError(authIssue), 401);
     }
 
     let raw: unknown;
@@ -305,8 +335,12 @@ export function createApp(deps: AppDependencies) {
     if (!deps.jobs || !controlToken) {
       return c.json({ error: "control_plane_disabled" }, 503);
     }
-    if (!authorized(c.req.header("authorization"), controlToken)) {
-      return c.json({ error: "unauthorized" }, 401);
+    const authIssue = controlAuthIssue(
+      c.req.header("authorization"),
+      controlToken,
+    );
+    if (authIssue) {
+      return c.json(controlAuthError(authIssue), 401);
     }
 
     let raw: unknown;
@@ -350,8 +384,12 @@ export function createApp(deps: AppDependencies) {
     if (!deps.jobs || !controlToken) {
       return c.json({ error: "control_plane_disabled" }, 503);
     }
-    if (!authorized(c.req.header("authorization"), controlToken)) {
-      return c.json({ error: "unauthorized" }, 401);
+    const authIssue = controlAuthIssue(
+      c.req.header("authorization"),
+      controlToken,
+    );
+    if (authIssue) {
+      return c.json(controlAuthError(authIssue), 401);
     }
 
     const jobId = c.req.param("jobId");
