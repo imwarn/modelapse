@@ -4,6 +4,7 @@ import { createApp } from "../src/app.js";
 const RUN_ID = "00000000-0000-4000-8000-000000000021";
 const MODEL_ID = "00000000-0000-4000-8000-000000000022";
 const TEST_CASE_ID = "00000000-0000-4000-8000-000000000023";
+const PREVIOUS_RUN_ID = "00000000-0000-4000-8000-000000000037";
 
 function baseRuns() {
   return {
@@ -101,6 +102,62 @@ const archiveRun = {
         keyValidTo: null,
         createdAt: "2026-09-24T08:00:01.100Z",
       },
+    },
+  ],
+  relations: [
+    {
+      direction: "outgoing",
+      relationType: "repeat_of",
+      relatedRunId: PREVIOUS_RUN_ID,
+      createdAt: "2026-09-24T08:00:01.200Z",
+    },
+  ],
+} as const;
+
+const archiveRunHistory = {
+  model: {
+    id: MODEL_ID,
+    provider: archiveRun.provider,
+    canonicalSlug: "deepseek-flash",
+    marketingName: "DeepSeek Flash",
+    status: "active",
+    runCount: 2,
+    latestRunAt: archiveRun.completedAt,
+  },
+  test: {
+    testCaseId: TEST_CASE_ID,
+    familySlug: archiveRun.test.familySlug,
+    familyName: archiveRun.test.familyName,
+    variantSlug: archiveRun.test.variantSlug,
+    variantName: archiveRun.test.variantName,
+    category: "smoke",
+    artifactType: "text",
+    version: archiveRun.test.version,
+    caseSlug: archiveRun.test.caseSlug,
+    evaluator: {
+      slug: "exact-text",
+      version: "1.0.0",
+      kind: "deterministic",
+    },
+    runCount: 2,
+  },
+  runs: [
+    {
+      ...archiveRun,
+      id: PREVIOUS_RUN_ID,
+      createdAt: "2026-09-23T08:00:00.000Z",
+      completedAt: "2026-09-23T08:00:01.000Z",
+      sealedAt: "2026-09-23T08:00:01.100Z",
+      relations: [],
+    },
+    archiveRun,
+  ],
+  relations: [
+    {
+      fromRunId: RUN_ID,
+      toRunId: PREVIOUS_RUN_ID,
+      relationType: "repeat_of",
+      createdAt: "2026-09-24T08:00:01.200Z",
     },
   ],
 } as const;
@@ -306,6 +363,7 @@ describe("Archive read API", () => {
         getTest: async (testCaseId) =>
           testCaseId === TEST_CASE_ID ? archiveTestDetail : null,
         compareLatest: async () => archiveComparison,
+        getRunHistory: async () => archiveRunHistory,
       },
     });
 
@@ -353,6 +411,14 @@ describe("Archive read API", () => {
       comparison: archiveComparison,
     });
 
+    const history = await app.request(
+      `/v1/archive/history?modelId=${MODEL_ID}&testCaseId=${TEST_CASE_ID}&limit=20`,
+    );
+    expect(history.status).toBe(200);
+    await expect(history.json()).resolves.toEqual({
+      history: archiveRunHistory,
+    });
+
     const runs = await app.request(
       `/v1/archive/runs?modelId=${MODEL_ID}&testCaseId=${TEST_CASE_ID}&limit=10`,
     );
@@ -376,6 +442,7 @@ describe("Archive read API", () => {
         getModel: async () => null,
         getTest: async () => null,
         compareLatest: async () => null,
+        getRunHistory: async () => null,
       },
     });
 
@@ -395,6 +462,20 @@ describe("Archive read API", () => {
       (
         await app.request(
           `/v1/archive/compare?modelIds=${MODEL_ID}&testCaseId=${TEST_CASE_ID}`,
+        )
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await app.request(
+          `/v1/archive/history?modelId=nope&testCaseId=${TEST_CASE_ID}`,
+        )
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await app.request(
+          `/v1/archive/history?modelId=${MODEL_ID}&testCaseId=${TEST_CASE_ID}&limit=101`,
         )
       ).status,
     ).toBe(400);
