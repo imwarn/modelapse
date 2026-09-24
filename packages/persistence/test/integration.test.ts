@@ -276,6 +276,39 @@ describe("PostgreSQL Run persistence", () => {
       routedProviderName: "Fake Upstream",
     });
 
+    const repeat = await executePersistedProviderRun({
+      repository,
+      blobStore,
+      adapter,
+      transport,
+      credentials: { resolve: async () => "unused" },
+      signer: { keyId: "integration-key", privateKey },
+      attestationPublicKeyPem: publicKey
+        .export({ type: "spki", format: "pem" })
+        .toString(),
+      request: {
+        model: "fake-model",
+        messages: [
+          { role: "user", content: [{ type: "text", text: "hello" }] },
+        ],
+      },
+      run: {
+        testCaseId,
+        modelId,
+        snapshotId,
+        providerId,
+        runnerBuild: "integration-test-repeat",
+      },
+      collector: "modelapse-integration-test",
+    });
+
+    await seedPool.query(
+      `INSERT INTO modelapse.run_relations
+        (from_run_id, to_run_id, relation_type)
+       VALUES ($1, $2, 'repeat_of')`,
+      [repeat.run.id, result.run.id],
+    );
+
     const archived = await archive.getRun(result.run.id);
     expect(archived).not.toBeNull();
     expect(archived?.requestBlob).toMatchObject({
@@ -301,15 +334,40 @@ describe("PostgreSQL Run persistence", () => {
         algorithm: "Ed25519",
       },
     });
+    expect(archived?.relations).toMatchObject([
+      {
+        direction: "incoming",
+        relationType: "repeat_of",
+        relatedRunId: repeat.run.id,
+      },
+    ]);
+
+    const repeatHistory = await archive.getRunHistory({
+      modelId,
+      testCaseId,
+      limit: 20,
+    });
+    expect(repeatHistory).not.toBeNull();
+    expect(repeatHistory?.runs.map((run) => run.id)).toEqual([
+      result.run.id,
+      repeat.run.id,
+    ]);
+    expect(repeatHistory?.relations).toMatchObject([
+      {
+        fromRunId: repeat.run.id,
+        toRunId: result.run.id,
+        relationType: "repeat_of",
+      },
+    ]);
 
     const archivedModel = await archive.getModel(modelId);
     expect(archivedModel).toMatchObject({
       id: modelId,
       family: { displayName: "Integration Models" },
       track: { displayName: "Main" },
-      runCount: 1,
+      runCount: 2,
       snapshots: [{ id: snapshotId }],
-      testCoverage: [{ testCaseId, runCount: 1 }],
+      testCoverage: [{ testCaseId, runCount: 2 }],
     });
     expect(
       archivedModel?.relations.some(
@@ -328,10 +386,10 @@ describe("PostgreSQL Run persistence", () => {
     expect(archivedTest).toMatchObject({
       testCaseId,
       origin: "modelapse",
-      runCount: 1,
-      modelCoverage: [{ modelId, runCount: 1 }],
+      runCount: 2,
+      modelCoverage: [{ modelId, runCount: 2 }],
     });
-    expect(archivedTest?.recentRuns[0]?.id).toBe(result.run.id);
+    expect(archivedTest?.recentRuns[0]?.id).toBe(repeat.run.id);
 
     const comparison = await archive.compareLatest({
       modelIds: [modelId, relatedModelId],
@@ -341,7 +399,7 @@ describe("PostgreSQL Run persistence", () => {
     expect(comparison?.rows).toHaveLength(2);
     expect(comparison?.rows[0]).toMatchObject({
       model: { id: modelId },
-      latestRun: { id: result.run.id },
+      latestRun: { id: repeat.run.id },
     });
     expect(comparison?.rows[1]).toMatchObject({
       model: { id: relatedModelId },
