@@ -18,7 +18,8 @@
     "@modelapse/persistence": "*",
     "@modelapse/provider-adapter": "*",
     "@modelapse/provider-openai": "*",
-    "@modelapse/provider-deepseek": "*"
+    "@modelapse/provider-deepseek": "*",
+    "@modelapse/evaluation": "*"
   },
   "devDependencies": {
     "@types/pg": "8.23.1",
