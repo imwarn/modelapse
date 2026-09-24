@@ -249,6 +249,11 @@ function apiErrorMessage(payload: unknown, status: number): string {
   return `Modelapse API request failed with HTTP ${status}`;
 }
 
+function serializeArchiveMetadata(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  return JSON.stringify(value, null, 2) ?? null;
+}
+
 function controlAuthDiagnostic(payload: unknown): string | null {
   if (!isRecord(payload)) return null;
 
@@ -436,9 +441,9 @@ export const getArchiveRun = createServerFn({ method: "POST" })
       const { config, usage, timing, ...run } = result.run;
       return {
         ...run,
-        configJson: config === null ? null : JSON.stringify(config, null, 2),
-        usageJson: usage === null ? null : JSON.stringify(usage, null, 2),
-        timingJson: timing === null ? null : JSON.stringify(timing, null, 2),
+        configJson: serializeArchiveMetadata(config),
+        usageJson: serializeArchiveMetadata(usage),
+        timingJson: serializeArchiveMetadata(timing),
       };
     } catch (error) {
       if (error instanceof ApiRequestError && error.status === 404) {
