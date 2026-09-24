@@ -46,13 +46,10 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Validate PostgreSQL migrations
+      - name: Apply PostgreSQL migrations
         run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
-          for migration in packages/database/migrations/*.sql; do
-            psql -h 127.0.0.1 -U modelapse -d modelapse -v ON_ERROR_STOP=1 -f "$migration"
-          done
+          npm run migrate -w @modelapse/database
+          npm run migrate -w @modelapse/database
 
       - name: Persistence integration tests
         run: npm run test:integration -w @modelapse/persistence

@@ -4,6 +4,7 @@ WORKDIR /app
 COPY package.json tsconfig.base.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/runner/package.json apps/runner/package.json
+COPY packages/database/package.json packages/database/package.json
 COPY packages/domain/package.json packages/domain/package.json
 COPY packages/provider-adapter/package.json packages/provider-adapter/package.json
 COPY packages/evidence-transport/package.json packages/evidence-transport/package.json
@@ -29,11 +30,15 @@ ARG MODELAPSE_BUILD=dev
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV MODELAPSE_BUILD=$MODELAPSE_BUILD
+ENV MODELAPSE_MIGRATIONS_DIR=/app/packages/database/migrations
 
 COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/apps/api/package.json ./apps/api/package.json
 COPY --from=build /app/apps/api/dist ./apps/api/dist
+COPY --from=build /app/packages/database/package.json ./packages/database/package.json
+COPY --from=build /app/packages/database/dist ./packages/database/dist
+COPY --from=build /app/packages/database/migrations ./packages/database/migrations
 COPY --from=build /app/packages/domain/package.json ./packages/domain/package.json
 COPY --from=build /app/packages/domain/dist ./packages/domain/dist
 COPY --from=build /app/packages/provider-adapter/package.json ./packages/provider-adapter/package.json
@@ -52,4 +57,4 @@ COPY --from=build /app/packages/control-plane/dist ./packages/control-plane/dist
 USER node
 EXPOSE 3000
 
-CMD ["node", "apps/api/dist/src/index.js"]
+CMD ["sh", "-c", "node packages/database/dist/src/cli.js && exec node apps/api/dist/src/index.js"]
