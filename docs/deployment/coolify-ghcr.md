@@ -76,9 +76,11 @@ Recommended health check:
 Runtime environment:
 
 ```text
-DATABASE_URL=...
+DATABASE_URL=<Coolify PostgreSQL Internal URL>
 MODELAPSE_CONTROL_TOKEN=...
 ```
+
+The API image runs the tracked Modelapse migration runner before starting the HTTP server. Do not point `DATABASE_URL` at a public PostgreSQL endpoint when the resources share a Coolify destination.
 
 `MODELAPSE_BUILD` is already embedded in the image and should normally not be overridden.
 
@@ -109,7 +111,7 @@ Do not expose a public port.
 Required runtime environment:
 
 ```text
-DATABASE_URL=...
+DATABASE_URL=<same Coolify PostgreSQL Internal URL>
 OPENAI_API_KEY=...
 MODELAPSE_ATTESTATION_KEY_ID=...
 MODELAPSE_ATTESTATION_PRIVATE_KEY_PEM=...
@@ -165,14 +167,20 @@ Publish production images
     +--> GHCR runner :main + :sha-<commit>
     |
     v
-POST <COOLIFY_URL>/api/v1/deploy
-    ?uuid=<api-uuid>,<runner-uuid>
+Deploy API resource
+    |
+    +--> API container acquires PostgreSQL migration lock
+    +--> applies pending migrations
+    +--> starts Hono only after migrations succeed
     |
     v
-Coolify pulls the new :main images
+Wait for Coolify API deployment status = finished
+    |
+    v
+Deploy runner resource
 ```
 
-The deployment trigger only runs after both images have been pushed successfully.
+The deployment trigger only runs after both images have been pushed successfully. The runner is not deployed until the API deployment has completed, so a schema migration failure blocks the worker update.
 
 ## Rollback
 
