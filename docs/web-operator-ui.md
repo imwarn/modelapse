@@ -201,6 +201,60 @@ GET /v1/archive/compare?modelIds=<2-4 comma-separated UUIDs>&testCaseId=<UUID>
 
 All three remain outside operator authentication and read only Archive-safe projections.
 
+## Archive v0.4: repeat history, temporal comparison and relation graph
+
+The Archive now treats repeated executions as a first-class time series rather than collapsing a model × Test pair to one latest row.
+
+Public route:
+
+```text
+/history/<model-id>/<test-case-id>
+```
+
+Public API:
+
+```text
+GET /v1/archive/history?modelId=<UUID>&testCaseId=<UUID>&limit=<1-100>
+```
+
+### Repeat-run history
+
+A history record contains the same canonical Model and exact public Test Case plus up to 100 sealed public Runs ordered by capture time.
+
+The projection also includes explicit `run_relations` edges when both endpoints are inside the public returned history. Supported schema relations already include:
+
+```text
+reproduces
+retry_of
+repeat_of
+derived_from
+```
+
+The Run detail page exposes only relations whose opposite endpoint is also sealed and public. A relation can therefore never leak the identifier of a private or unsealed Run.
+
+Repeated Runs do not require an explicit `repeat_of` edge to appear in temporal history: identical model × exact Test Case membership is a factual grouping. Explicit relation edges add stronger lineage semantics when they have actually been recorded.
+
+### Same-Test temporal comparison
+
+The Compare page still shows each selected model's latest sealed Run first, then adds a temporal lane for the same exact Test Case. Each lane preserves capture order and links to the immutable Run records and full pair history.
+
+No slope, winner, quality trend, causal explanation, or cross-Test aggregate is inferred from result changes.
+
+### Model relation visualization
+
+Model Detail renders direct `model_relations` as directed graph rows. The UI preserves the stored edge direction and relation type rather than visually inventing ancestry.
+
+The existing source ID, validity interval, and confidence remain part of the canonical Model relation projection.
+
+### Query indexes
+
+Migration `0006_archive_temporal_indexes.sql` adds:
+
+- a partial sealed-Run index on `(model_id, test_case_id, completed_at, created_at)` for pair history reads;
+- an incoming `run_relations(to_run_id, created_at)` index so Run detail can resolve both relation directions efficiently.
+
+The migration changes indexing only; it does not alter historical records or introduce mutable summary tables.
+
 ## Deliberately deferred
 
 - general user login/session management;
