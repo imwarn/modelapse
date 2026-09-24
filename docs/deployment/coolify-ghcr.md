@@ -36,14 +36,15 @@ Add these **Environment secrets** to that environment:
 COOLIFY_URL=https://coolify.example.com
 COOLIFY_API_UUID=<Coolify API application UUID>
 COOLIFY_RUNNER_UUID=<Coolify runner application UUID>
-COOLIFY_TOKEN=<Coolify API token>
+COOLIFY_TOKEN=<Coolify deploy-only API token>
+COOLIFY_READ_TOKEN=<Coolify read-only API token>
 ```
 
 The deploy job explicitly targets the `production` environment, so these values do not need to be duplicated as repository-level variables or secrets.
 
 If these values are absent, GitHub Actions still publishes both GHCR images but skips the Coolify deployment trigger.
 
-The Coolify API token only needs the permissions required to deploy the two resources.
+Use two least-privilege tokens: `COOLIFY_TOKEN` with `deploy` permission to trigger deployments, and `COOLIFY_READ_TOKEN` with `read` permission to poll deployment status. Do not use a root token for this workflow.
 
 ## Coolify: API application
 

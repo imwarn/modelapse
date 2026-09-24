@@ -97,9 +97,10 @@ jobs:
       COOLIFY_API_UUID: ${{ secrets.COOLIFY_API_UUID }}
       COOLIFY_RUNNER_UUID: ${{ secrets.COOLIFY_RUNNER_UUID }}
       COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+      COOLIFY_READ_TOKEN: ${{ secrets.COOLIFY_READ_TOKEN }}
     steps:
       - name: Deploy API, then runner
-        if: env.COOLIFY_URL != '' && env.COOLIFY_API_UUID != '' && env.COOLIFY_RUNNER_UUID != '' && env.COOLIFY_TOKEN != ''
+        if: env.COOLIFY_URL != '' && env.COOLIFY_API_UUID != '' && env.COOLIFY_RUNNER_UUID != '' && env.COOLIFY_TOKEN != '' && env.COOLIFY_READ_TOKEN != ''
         run: |
           set -euo pipefail
           BASE_URL="${COOLIFY_URL%/}"
@@ -125,7 +126,7 @@ jobs:
               response="$(curl --fail-with-body --silent --show-error \
                 --retry 3 --retry-delay 2 \
                 "${BASE_URL}/api/v1/deployments/${deployment_uuid}" \
-                --header "Authorization: Bearer ${COOLIFY_TOKEN}" \
+                --header "Authorization: Bearer ${COOLIFY_READ_TOKEN}" \
                 --header "Accept: application/json")"
               status="$(echo "$response" | jq -r '.status')"
               echo "Deployment ${deployment_uuid}: ${status}"
@@ -155,8 +156,8 @@ jobs:
           wait_for_deployment "$RUNNER_DEPLOYMENT"
 
       - name: Note missing Coolify configuration
-        if: env.COOLIFY_URL == '' || env.COOLIFY_API_UUID == '' || env.COOLIFY_RUNNER_UUID == '' || env.COOLIFY_TOKEN == ''
+        if: env.COOLIFY_URL == '' || env.COOLIFY_API_UUID == '' || env.COOLIFY_RUNNER_UUID == '' || env.COOLIFY_TOKEN == '' || env.COOLIFY_READ_TOKEN == ''
         run: |
           echo "Images were published to GHCR, but Coolify deployment was skipped."
           echo "Configure production environment secrets COOLIFY_URL, COOLIFY_API_UUID,"
-          echo "COOLIFY_RUNNER_UUID and COOLIFY_TOKEN to enable automatic deployment."
+          echo "COOLIFY_RUNNER_UUID, COOLIFY_TOKEN and COOLIFY_READ_TOKEN to enable automatic deployment."
