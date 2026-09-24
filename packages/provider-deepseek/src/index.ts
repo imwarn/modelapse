@@ -95,7 +95,7 @@ export class DeepSeekResponsesAdapter implements ProviderAdapter {
       auth: { kind: "bearer", credentialName: "DEEPSEEK_API_KEY" },
       body: JSON.stringify(body),
       capture: {
-        responseHeaderAllowlist: ["x-request-id"],
+        responseHeaderAllowlist: ["content-type", "x-request-id"],
       },
     };
   }
