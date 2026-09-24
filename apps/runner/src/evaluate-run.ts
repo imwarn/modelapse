@@ -16,7 +16,7 @@ type EvaluationStore = Pick<
 
 export async function evaluateCompletedRun(input: {
   readonly runId: string;
-  readonly normalized?: NormalizedProviderResponse;
+  readonly normalized: NormalizedProviderResponse | undefined;
   readonly blobStore: BlobStore;
   readonly evaluations: EvaluationStore;
 }): Promise<EvaluationView | null> {
