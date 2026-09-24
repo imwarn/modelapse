@@ -292,6 +292,53 @@ async function ensureVariant(
   return variant.id;
 }
 
+async function ensureExactTextEvaluatorBinding(
+  client: PoolClient,
+  testVersionId: string,
+): Promise<string> {
+  const evaluator = await client.query<{
+    id: string;
+    kind: string;
+    definition_sha256: string;
+  }>(
+    `SELECT id, kind, definition_sha256
+       FROM modelapse.evaluators
+      WHERE slug = 'exact-text'
+        AND version = '1.0.0'`,
+  );
+
+  const row = evaluator.rows[0];
+  if (!row) throw new Error("exact-text evaluator v1.0.0 is not registered");
+  if (
+    row.kind !== "deterministic" ||
+    row.definition_sha256 !==
+      "513621b96e389527409b735499aaa3f5c2d0d6bd438ffc752d3060fba066c7b5"
+  ) {
+    throw new Error("exact-text evaluator definition conflicts with catalog");
+  }
+
+  await client.query(
+    `INSERT INTO modelapse.test_version_evaluators
+      (test_version_id, evaluator_id)
+     VALUES ($1, $2)
+     ON CONFLICT (test_version_id) DO NOTHING`,
+    [testVersionId, row.id],
+  );
+
+  const binding = await client.query<{ evaluator_id: string }>(
+    `SELECT evaluator_id
+       FROM modelapse.test_version_evaluators
+      WHERE test_version_id = $1`,
+    [testVersionId],
+  );
+
+  if (binding.rows[0]?.evaluator_id !== row.id) {
+    throw new Error("Test Version is bound to an incompatible evaluator");
+  }
+
+  return row.id;
+}
+
 async function ensureVersionAndCase(
   client: PoolClient,
   variantId: string,
@@ -393,6 +440,7 @@ async function ensureVersionAndCase(
   }
 
   if (!testCase) throw new Error("Smoke Test Case could not be resolved");
+  await ensureExactTextEvaluatorBinding(client, version.id);
   if (
     testCase.case_type !== "icon" ||
     testCase.visibility !== "public" ||
@@ -706,6 +754,7 @@ async function ensureDirectSmokeVersionAndCase(
   }
 
   if (!testCase) throw new Error("Direct Smoke Test Case could not be resolved");
+  await ensureExactTextEvaluatorBinding(client, version.id);
   if (
     testCase.case_type !== "icon" ||
     testCase.visibility !== "public" ||
