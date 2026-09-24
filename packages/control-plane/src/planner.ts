@@ -32,6 +32,11 @@ export interface RunnableTest {
   readonly caseType: string;
   readonly visibility: "public" | "private";
   readonly artifactType: string;
+  readonly evaluator: {
+    readonly slug: "exact-text";
+    readonly version: "1.0.0";
+    readonly kind: "deterministic";
+  };
 }
 
 export interface RunSelectionRequest {
@@ -165,6 +170,9 @@ export class PgRunPlanner {
       case_type: string;
       visibility: "public" | "private";
       artifact_type: string;
+      evaluator_slug: "exact-text";
+      evaluator_version: "1.0.0";
+      evaluator_kind: "deterministic";
     }>(
       `SELECT
          tc.id AS test_case_id,
@@ -176,12 +184,22 @@ export class PgRunPlanner {
          tc.slug AS case_slug,
          tc.case_type,
          tc.visibility,
-         tvar.artifact_type
+         tvar.artifact_type,
+         e.slug AS evaluator_slug,
+         e.version AS evaluator_version,
+         e.kind AS evaluator_kind
        FROM modelapse.test_cases tc
        JOIN modelapse.test_versions tv ON tv.id = tc.test_version_id
        JOIN modelapse.test_variants tvar ON tvar.id = tv.variant_id
        JOIN modelapse.test_families tf ON tf.id = tvar.family_id
        JOIN modelapse.blobs b ON b.sha256 = tc.prompt_blob_sha256
+       JOIN modelapse.test_version_evaluators tve
+         ON tve.test_version_id = tv.id
+       JOIN modelapse.evaluators e
+         ON e.id = tve.evaluator_id
+        AND e.slug = 'exact-text'
+        AND e.version = '1.0.0'
+        AND e.kind = 'deterministic'
        WHERE tc.status = 'active'
          AND tv.status = 'published'
          AND tvar.artifact_type = 'text'
@@ -201,6 +219,11 @@ export class PgRunPlanner {
       caseType: row.case_type,
       visibility: row.visibility,
       artifactType: row.artifact_type,
+      evaluator: {
+        slug: row.evaluator_slug,
+        version: row.evaluator_version,
+        kind: row.evaluator_kind,
+      },
     }));
   }
 
