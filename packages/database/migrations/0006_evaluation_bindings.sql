@@ -23,7 +23,7 @@ VALUES
   )
 ON CONFLICT (slug, version) DO NOTHING;
 
-DO $
+DO $verify$
 BEGIN
   IF NOT EXISTS (
     SELECT 1
@@ -37,7 +37,7 @@ BEGIN
     RAISE EXCEPTION 'exact-text evaluator v1.0.0 conflicts with catalog';
   END IF;
 END;
-$;
+$verify$;
 
 INSERT INTO test_version_evaluators (test_version_id, evaluator_id)
 SELECT tv.id, e.id
