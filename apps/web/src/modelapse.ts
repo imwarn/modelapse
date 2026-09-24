@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { createServerFn } from "@tanstack/react-start";
 
 const UUID_RE =
@@ -32,6 +32,11 @@ export interface RunnableTest {
     readonly version: string;
     readonly kind: string;
   };
+}
+
+export interface ControlCatalog {
+  readonly models: readonly RunnableModel[];
+  readonly tests: readonly RunnableTest[];
 }
 
 export interface ArchiveModel {
@@ -121,10 +126,7 @@ export interface ControlJob {
 export interface WorkbenchSnapshot {
   readonly build: string;
   readonly control: {
-    readonly available: boolean;
-    readonly error: string | null;
-    readonly models: readonly RunnableModel[];
-    readonly tests: readonly RunnableTest[];
+    readonly configured: boolean;
   };
   readonly archive: {
     readonly models: readonly ArchiveModel[];
@@ -133,14 +135,16 @@ export interface WorkbenchSnapshot {
   };
 }
 
-interface SubmitRunInput {
+interface OperatorInput {
   readonly operatorToken: string;
+}
+
+interface SubmitRunInput extends OperatorInput {
   readonly modelId: string;
   readonly testCaseId: string;
 }
 
-interface ReadJobInput {
-  readonly operatorToken: string;
+interface ReadJobInput extends OperatorInput {
   readonly jobId: string;
 }
 
@@ -236,13 +240,10 @@ async function requestJson<T>(
   return payload as T;
 }
 
-function parseSubmitRunInput(value: unknown): SubmitRunInput {
-  if (!isRecord(value)) throw new Error("Run request must be an object");
+function parseOperatorToken(value: unknown): string {
+  if (!isRecord(value)) throw new Error("Operator request must be an object");
 
   const operatorToken = value.operatorToken;
-  const modelId = value.modelId;
-  const testCaseId = value.testCaseId;
-
   if (
     typeof operatorToken !== "string" ||
     !operatorToken ||
@@ -250,6 +251,20 @@ function parseSubmitRunInput(value: unknown): SubmitRunInput {
   ) {
     throw new Error("Operator token is required");
   }
+  return operatorToken;
+}
+
+function parseOperatorInput(value: unknown): OperatorInput {
+  return { operatorToken: parseOperatorToken(value) };
+}
+
+function parseSubmitRunInput(value: unknown): SubmitRunInput {
+  const operatorToken = parseOperatorToken(value);
+  if (!isRecord(value)) throw new Error("Run request must be an object");
+
+  const modelId = value.modelId;
+  const testCaseId = value.testCaseId;
+
   if (typeof modelId !== "string" || !UUID_RE.test(modelId)) {
     throw new Error("modelId must be a UUID");
   }
@@ -261,18 +276,10 @@ function parseSubmitRunInput(value: unknown): SubmitRunInput {
 }
 
 function parseReadJobInput(value: unknown): ReadJobInput {
+  const operatorToken = parseOperatorToken(value);
   if (!isRecord(value)) throw new Error("Job request must be an object");
 
-  const operatorToken = value.operatorToken;
   const jobId = value.jobId;
-
-  if (
-    typeof operatorToken !== "string" ||
-    !operatorToken ||
-    operatorToken.length > 512
-  ) {
-    throw new Error("Operator token is required");
-  }
   if (typeof jobId !== "string" || !UUID_RE.test(jobId)) {
     throw new Error("jobId must be a UUID");
   }
@@ -304,35 +311,13 @@ export const getWorkbenchSnapshot = createServerFn({ method: "GET" }).handler(
       requestJson<{ runs: readonly ArchiveRun[] }>("/v1/archive/runs?limit=30"),
     ]);
 
-    let models: readonly RunnableModel[] = [];
-    let tests: readonly RunnableTest[] = [];
-    let controlError: string | null = null;
-
-    try {
-      const [modelResult, testResult] = await Promise.all([
-        requestJson<{ models: readonly RunnableModel[] }>(
-          "/v1/control/catalog/models",
-          { control: true },
-        ),
-        requestJson<{ tests: readonly RunnableTest[] }>(
-          "/v1/control/catalog/tests",
-          { control: true },
-        ),
-      ]);
-      models = modelResult.models;
-      tests = testResult.tests;
-    } catch (error) {
-      controlError =
-        error instanceof Error ? error.message : "Control catalog is unavailable";
-    }
-
     return {
       build: process.env.MODELAPSE_BUILD ?? "dev",
       control: {
-        available: controlError === null,
-        error: controlError,
-        models,
-        tests,
+        configured: Boolean(
+          process.env.MODELAPSE_CONTROL_TOKEN &&
+            process.env.MODELAPSE_WEB_OPERATOR_TOKEN,
+        ),
       },
       archive: {
         models: archiveModels.models,
@@ -343,6 +328,28 @@ export const getWorkbenchSnapshot = createServerFn({ method: "GET" }).handler(
   },
 );
 
+export const getControlCatalog = createServerFn({ method: "POST" })
+  .validator(parseOperatorInput)
+  .handler(async ({ data }): Promise<ControlCatalog> => {
+    requireOperator(data.operatorToken);
+
+    const [modelResult, testResult] = await Promise.all([
+      requestJson<{ models: readonly RunnableModel[] }>(
+        "/v1/control/catalog/models",
+        { control: true },
+      ),
+      requestJson<{ tests: readonly RunnableTest[] }>(
+        "/v1/control/catalog/tests",
+        { control: true },
+      ),
+    ]);
+
+    return {
+      models: modelResult.models,
+      tests: testResult.tests,
+    };
+  });
+
 export const submitRun = createServerFn({ method: "POST" })
   .validator(parseSubmitRunInput)
   .handler(async ({ data }) => {
@@ -350,7 +357,10 @@ export const submitRun = createServerFn({ method: "POST" })
 
     return requestJson<{
       selection: {
-        model: Pick<RunnableModel, "id" | "provider" | "marketingName" | "apiModelId">;
+        model: Pick<
+          RunnableModel,
+          "id" | "provider" | "marketingName" | "apiModelId"
+        >;
         test: {
           testCaseId: string;
           familySlug: string;
@@ -368,7 +378,7 @@ export const submitRun = createServerFn({ method: "POST" })
         modelId: data.modelId,
         testCaseId: data.testCaseId,
       },
-      idempotencyKey: `web-${crypto.randomUUID()}`,
+      idempotencyKey: `web-${randomUUID()}`,
     });
   });
 
