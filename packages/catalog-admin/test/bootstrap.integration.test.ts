@@ -51,7 +51,7 @@ describe("production catalog bootstrap", () => {
   afterAll(async () => {
     await runs?.close();
     await catalog?.close();
-    await adminPool.query(`DROP DATABASE IF EXISTS "${databaseName}" WITH (FORCE)`);
+    await adminPool.query(`DROP DATABASE IF EXISTS "${databaseName}"`);
     await adminPool.end();
     if (root) await rm(root, { recursive: true, force: true });
   });
