@@ -240,7 +240,7 @@ function ModelapseHome() {
               disabled={busy}
             />
             <small>
-              Used only for this server action; the API control token stays
+              Sent only to this web server; the API control token stays
               server-side.
             </small>
           </label>
