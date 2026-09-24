@@ -251,6 +251,20 @@ export interface ArchiveRunEvidence {
   } | null;
 }
 
+export interface ArchiveRunRelationEdge {
+  readonly fromRunId: string;
+  readonly toRunId: string;
+  readonly relationType: string;
+  readonly createdAt: string;
+}
+
+export interface ArchiveRunRelation {
+  readonly direction: "outgoing" | "incoming";
+  readonly relationType: string;
+  readonly relatedRunId: string;
+  readonly createdAt: string;
+}
+
 export interface ArchiveRunDetail extends ArchiveRun {
   readonly configJson: string | null;
   readonly requestBlob: ArchiveBlob | null;
@@ -259,6 +273,7 @@ export interface ArchiveRunDetail extends ArchiveRun {
   readonly usageJson: string | null;
   readonly timingJson: string | null;
   readonly evidence: readonly ArchiveRunEvidence[];
+  readonly relations: readonly ArchiveRunRelation[];
 }
 
 interface ArchiveRunDetailWire extends ArchiveRun {
@@ -269,6 +284,23 @@ interface ArchiveRunDetailWire extends ArchiveRun {
   readonly usage: unknown;
   readonly timing: unknown;
   readonly evidence: readonly ArchiveRunEvidence[];
+  readonly relations: readonly ArchiveRunRelation[];
+}
+
+export interface ArchiveRunHistory {
+  readonly model: ArchiveModel;
+  readonly test: ArchiveTest;
+  readonly runs: readonly ArchiveRun[];
+  readonly relations: readonly ArchiveRunRelationEdge[];
+}
+
+export interface ArchiveTemporalComparison {
+  readonly test: ArchiveTest;
+  readonly rows: readonly {
+    readonly model: ArchiveModel;
+    readonly runs: readonly ArchiveRun[];
+    readonly relations: readonly ArchiveRunRelationEdge[];
+  }[];
 }
 
 export interface ControlJob {
@@ -325,6 +357,13 @@ interface CompareArchiveInput {
   readonly modelIds: readonly string[];
   readonly testCaseId: string;
 }
+
+interface ReadArchiveHistoryInput {
+  readonly modelId: string;
+  readonly testCaseId: string;
+  readonly limit?: number;
+}
+
 
 interface ApiOptions {
   readonly method?: "GET" | "POST";
@@ -536,6 +575,36 @@ function parseArchiveTestInput(value: unknown): ReadArchiveTestInput {
   return { testCaseId };
 }
 
+function parseArchiveHistoryInput(value: unknown): ReadArchiveHistoryInput {
+  if (!isRecord(value)) throw new Error("Archive history request must be an object");
+
+  const modelId = value.modelId;
+  const testCaseId = value.testCaseId;
+  const limit = value.limit;
+
+  if (typeof modelId !== "string" || !UUID_RE.test(modelId)) {
+    throw new Error("modelId must be a UUID");
+  }
+  if (typeof testCaseId !== "string" || !UUID_RE.test(testCaseId)) {
+    throw new Error("testCaseId must be a UUID");
+  }
+  if (
+    limit !== undefined &&
+    (typeof limit !== "number" ||
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 100)
+  ) {
+    throw new Error("limit must be an integer between 1 and 100");
+  }
+
+  return {
+    modelId,
+    testCaseId,
+    ...(limit === undefined ? {} : { limit }),
+  };
+}
+
 function parseArchiveComparisonInput(value: unknown): CompareArchiveInput {
   if (!isRecord(value)) throw new Error("Archive comparison request must be an object");
 
@@ -667,6 +736,71 @@ export const getArchiveTest = createServerFn({ method: "POST" })
       }
       throw error;
     }
+  });
+
+export const getArchiveRunHistory = createServerFn({ method: "POST" })
+  .validator(parseArchiveHistoryInput)
+  .handler(async ({ data }): Promise<ArchiveRunHistory | null> => {
+    const params = new URLSearchParams({
+      modelId: data.modelId,
+      testCaseId: data.testCaseId,
+      limit: String(data.limit ?? 50),
+    });
+    try {
+      const result = await requestJson<{ history: ArchiveRunHistory }>(
+        `/v1/archive/history?${params.toString()}`,
+      );
+      return result.history;
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  });
+
+export const compareArchiveHistory = createServerFn({ method: "POST" })
+  .validator(parseArchiveComparisonInput)
+  .handler(async ({ data }): Promise<ArchiveTemporalComparison | null> => {
+    const histories = await Promise.all(
+      data.modelIds.map(async (modelId) => {
+        const params = new URLSearchParams({
+          modelId,
+          testCaseId: data.testCaseId,
+          limit: "20",
+        });
+        try {
+          const result = await requestJson<{ history: ArchiveRunHistory }>(
+            `/v1/archive/history?${params.toString()}`,
+          );
+          return result.history;
+        } catch (error) {
+          if (error instanceof ApiRequestError && error.status === 404) {
+            return null;
+          }
+          throw error;
+        }
+      }),
+    );
+
+    if (histories.some((history) => history === null)) {
+      return null;
+    }
+
+    const complete = histories.filter(
+      (history): history is ArchiveRunHistory => history !== null,
+    );
+    const first = complete[0];
+    if (!first) return null;
+
+    return {
+      test: first.test,
+      rows: complete.map((history) => ({
+        model: history.model,
+        runs: history.runs,
+        relations: history.relations,
+      })),
+    };
   });
 
 export const compareArchive = createServerFn({ method: "POST" })
