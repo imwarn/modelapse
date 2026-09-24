@@ -2,8 +2,7 @@ import type { RunConfig } from "@modelapse/domain";
 
 export type DirectProviderSlug = "openai" | "deepseek";
 
-export interface DirectProviderRunRequest {
-  readonly provider: DirectProviderSlug;
+interface DirectProviderRunBase {
   readonly testCaseId: string;
   readonly model: string;
   readonly config?: Pick<
@@ -16,13 +15,17 @@ export interface DirectProviderRunRequest {
   >;
 }
 
-export type DirectOpenAIRunRequest = DirectProviderRunRequest & {
+export interface DirectOpenAIRunRequest extends DirectProviderRunBase {
   readonly provider: "openai";
-};
+}
 
-export type DirectDeepSeekRunRequest = DirectProviderRunRequest & {
+export interface DirectDeepSeekRunRequest extends DirectProviderRunBase {
   readonly provider: "deepseek";
-};
+}
+
+export type DirectProviderRunRequest =
+  | DirectOpenAIRunRequest
+  | DirectDeepSeekRunRequest;
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
