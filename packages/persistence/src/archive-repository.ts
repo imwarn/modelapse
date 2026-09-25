@@ -1521,11 +1521,28 @@ export class PgArchiveRepository {
       family_name: string;
       origin: string;
       canonical_source_id: string | null;
+      family_source_id: string | null;
+      family_source_type: string | null;
+      family_source_url: string | null;
+      family_source_title: string | null;
+      family_source_author: string | null;
+      family_source_published_at: Date | null;
+      family_source_retrieved_at: Date | null;
+      family_source_content_sha256: string | null;
+      variant_id: string;
       variant_slug: string;
       variant_name: string;
       category: string;
       artifact_type: string;
       version: string;
+      version_source_id: string | null;
+      version_source_type: string | null;
+      version_source_url: string | null;
+      version_source_title: string | null;
+      version_source_author: string | null;
+      version_source_published_at: Date | null;
+      version_source_retrieved_at: Date | null;
+      version_source_content_sha256: string | null;
       version_status: string;
       definition_sha256: string;
       license: string | null;
@@ -1550,11 +1567,28 @@ export class PgArchiveRepository {
          tf.name AS family_name,
          tf.origin,
          tf.canonical_source_id,
+         family_source.id AS family_source_id,
+         family_source.source_type AS family_source_type,
+         family_source.url AS family_source_url,
+         family_source.title AS family_source_title,
+         family_source.author AS family_source_author,
+         family_source.published_at AS family_source_published_at,
+         family_source.retrieved_at AS family_source_retrieved_at,
+         family_source.content_sha256 AS family_source_content_sha256,
+         tvar.id AS variant_id,
          tvar.slug AS variant_slug,
          tvar.name AS variant_name,
          tvar.category,
          tvar.artifact_type,
          tv.version,
+         version_source.id AS version_source_id,
+         version_source.source_type AS version_source_type,
+         version_source.url AS version_source_url,
+         version_source.title AS version_source_title,
+         version_source.author AS version_source_author,
+         version_source.published_at AS version_source_published_at,
+         version_source.retrieved_at AS version_source_retrieved_at,
+         version_source.content_sha256 AS version_source_content_sha256,
          tv.status AS version_status,
          tv.definition_sha256,
          tv.license,
@@ -1581,6 +1615,10 @@ export class PgArchiveRepository {
        JOIN modelapse.test_versions tv ON tv.id = tc.test_version_id
        JOIN modelapse.test_variants tvar ON tvar.id = tv.variant_id
        JOIN modelapse.test_families tf ON tf.id = tvar.family_id
+       LEFT JOIN modelapse.source_records family_source
+         ON family_source.id = tf.canonical_source_id
+       LEFT JOIN modelapse.source_records version_source
+         ON version_source.id = tv.source_id
        LEFT JOIN LATERAL (
          SELECT e.slug, e.version, e.kind, e.definition_sha256
          FROM modelapse.test_version_evaluators tve
@@ -1598,7 +1636,7 @@ export class PgArchiveRepository {
     const row = testResult.rows[0];
     if (!row) return null;
 
-    const [coverageResult, recentRuns] = await Promise.all([
+    const [coverageResult, versionHistoryResult, recentRuns] = await Promise.all([
       this.pool.query<{
         model_id: string;
         canonical_slug: string;
@@ -1623,8 +1661,131 @@ export class PgArchiveRepository {
          ORDER BY MAX(r.completed_at) DESC NULLS LAST, p.slug, m.marketing_name`,
         [testCaseId],
       ),
+      this.pool.query<{
+        id: string;
+        version: string;
+        status: string;
+        definition_sha256: string;
+        license: string | null;
+        published_at: Date | null;
+        created_at: Date;
+        source_id: string | null;
+        source_type: string | null;
+        source_url: string | null;
+        source_title: string | null;
+        source_author: string | null;
+        source_published_at: Date | null;
+        source_retrieved_at: Date | null;
+        source_content_sha256: string | null;
+        evaluator_slug: string | null;
+        evaluator_version: string | null;
+        evaluator_kind: string | null;
+        public_case_count: string;
+        linked_test_case_id: string | null;
+      }>(
+        `SELECT
+           tv.id,
+           tv.version,
+           tv.status,
+           tv.definition_sha256,
+           tv.license,
+           tv.published_at,
+           tv.created_at,
+           source.id AS source_id,
+           source.source_type,
+           source.url AS source_url,
+           source.title AS source_title,
+           source.author AS source_author,
+           source.published_at AS source_published_at,
+           source.retrieved_at AS source_retrieved_at,
+           source.content_sha256 AS source_content_sha256,
+           evaluator.slug AS evaluator_slug,
+           evaluator.version AS evaluator_version,
+           evaluator.kind AS evaluator_kind,
+           (
+             SELECT COUNT(*)::text
+             FROM modelapse.test_cases public_case
+             WHERE public_case.test_version_id = tv.id
+               AND public_case.visibility = 'public'
+           ) AS public_case_count,
+           linked_case.id AS linked_test_case_id
+         FROM modelapse.test_versions tv
+         LEFT JOIN modelapse.source_records source ON source.id = tv.source_id
+         LEFT JOIN LATERAL (
+           SELECT e.slug, e.version, e.kind
+           FROM modelapse.test_version_evaluators tve
+           JOIN modelapse.evaluators e ON e.id = tve.evaluator_id
+           WHERE tve.test_version_id = tv.id
+           ORDER BY e.slug, e.version
+           LIMIT 1
+         ) evaluator ON true
+         LEFT JOIN LATERAL (
+           SELECT public_case.id
+           FROM modelapse.test_cases public_case
+           WHERE public_case.test_version_id = tv.id
+             AND public_case.visibility = 'public'
+             AND public_case.slug = $2
+           ORDER BY public_case.id
+           LIMIT 1
+         ) linked_case ON true
+         WHERE tv.variant_id = $1
+           AND EXISTS (
+             SELECT 1
+             FROM modelapse.test_cases public_case
+             WHERE public_case.test_version_id = tv.id
+               AND public_case.visibility = 'public'
+           )
+         ORDER BY tv.published_at DESC NULLS LAST, tv.created_at DESC, tv.version DESC`,
+        [row.variant_id, row.case_slug],
+      ),
       this.listRuns({ testCaseId, limit: 50 }),
     ]);
+
+    const canonicalSource = archiveSourceView({
+      source_id: row.family_source_id,
+      source_type: row.family_source_type,
+      source_url: row.family_source_url,
+      source_title: row.family_source_title,
+      source_author: row.family_source_author,
+      source_published_at: row.family_source_published_at,
+      source_retrieved_at: row.family_source_retrieved_at,
+      source_content_sha256: row.family_source_content_sha256,
+    });
+
+    const versionSource = archiveSourceView({
+      source_id: row.version_source_id,
+      source_type: row.version_source_type,
+      source_url: row.version_source_url,
+      source_title: row.version_source_title,
+      source_author: row.version_source_author,
+      source_published_at: row.version_source_published_at,
+      source_retrieved_at: row.version_source_retrieved_at,
+      source_content_sha256: row.version_source_content_sha256,
+    });
+
+    const versionHistory: ArchiveTestVersionHistoryView[] =
+      versionHistoryResult.rows.map((version) => ({
+        id: version.id,
+        version: version.version,
+        status: version.status,
+        definitionSha256: version.definition_sha256,
+        license: version.license,
+        publishedAt: version.published_at?.toISOString() ?? null,
+        createdAt: version.created_at.toISOString(),
+        source: archiveSourceView(version),
+        evaluator:
+          version.evaluator_slug &&
+          version.evaluator_version &&
+          version.evaluator_kind
+            ? {
+                slug: version.evaluator_slug,
+                version: version.evaluator_version,
+                kind: version.evaluator_kind,
+              }
+            : null,
+        publicCaseCount: Number(version.public_case_count),
+        linkedTestCaseId: version.linked_test_case_id,
+      }));
 
     return {
       testCaseId: row.test_case_id,
@@ -1647,6 +1808,9 @@ export class PgArchiveRepository {
       runCount: Number(row.run_count),
       origin: row.origin,
       canonicalSourceId: row.canonical_source_id,
+      canonicalSource,
+      versionSource,
+      versionHistory,
       versionStatus: row.version_status,
       definitionSha256: row.definition_sha256,
       license: row.license,
