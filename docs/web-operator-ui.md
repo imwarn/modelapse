@@ -434,7 +434,7 @@ For one canonical Model the observer:
 5. closes and replaces that binding only when endpoint/API-model/Snapshot identity changed;
 6. appends a chronological alias-resolution observation.
 
-The observer serializes updates with a per-Model PostgreSQL advisory transaction lock and rejects ambiguous multiple-current-direct-binding state.
+The observer serializes updates with PostgreSQL advisory transaction locks for both the canonical Model and the Provider alias. That prevents concurrent observations of the same alias from being appended out of chronological order even when the alias moves between canonical Models. It also rejects ambiguous multiple-current-direct-binding state.
 
 An operational CLI wraps the same primitive without adding a catalog-write HTTP endpoint:
 
