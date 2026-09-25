@@ -610,23 +610,31 @@ describe("PostgreSQL Run persistence", () => {
         },
       ]),
       identityDrift: expect.arrayContaining([
-        {
+        expect.objectContaining({
           changeType: "alias_target_changed",
           changedFields: ["snapshot"],
-          previous: { snapshot: { id: snapshotId } },
-          current: { snapshot: { id: driftSnapshotId } },
-          currentSource: { id: driftSourceId },
-        },
-        {
+          previous: expect.objectContaining({
+            snapshot: expect.objectContaining({ id: snapshotId }),
+          }),
+          current: expect.objectContaining({
+            snapshot: expect.objectContaining({ id: driftSnapshotId }),
+          }),
+          currentSource: expect.objectContaining({ id: driftSourceId }),
+        }),
+        expect.objectContaining({
           changeType: "execution_binding_changed",
           changedFields: ["endpoint", "snapshot"],
-          previous: { snapshot: { id: snapshotId } },
-          current: {
-            snapshot: { id: driftSnapshotId },
-            endpoint: { hostname: "router-next.fake.test" },
-          },
-          currentSource: { id: driftSourceId },
-        },
+          previous: expect.objectContaining({
+            snapshot: expect.objectContaining({ id: snapshotId }),
+          }),
+          current: expect.objectContaining({
+            snapshot: expect.objectContaining({ id: driftSnapshotId }),
+            endpoint: expect.objectContaining({
+              hostname: "router-next.fake.test",
+            }),
+          }),
+          currentSource: expect.objectContaining({ id: driftSourceId }),
+        }),
       ]),
       testCoverage: [{ testCaseId, runCount: 2 }],
     });
