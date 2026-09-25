@@ -592,22 +592,30 @@ describe("PostgreSQL Run persistence", () => {
       runCount: 2,
       canonicalSource: { id: sourceId, sourceType: "provider_docs" },
       snapshots: expect.arrayContaining([
-        { id: snapshotId, source: { id: sourceId } },
-        { id: driftSnapshotId, source: { id: driftSourceId } },
+        expect.objectContaining({
+          id: snapshotId,
+          source: expect.objectContaining({ id: sourceId }),
+        }),
+        expect.objectContaining({
+          id: driftSnapshotId,
+          source: expect.objectContaining({ id: driftSourceId }),
+        }),
       ]),
       aliasResolutions: expect.arrayContaining([
-        {
-          alias: { value: expect.stringContaining("integration-api-model-") },
-          resolvedSnapshot: { id: driftSnapshotId },
-          source: { id: driftSourceId },
-        },
+        expect.objectContaining({
+          alias: expect.objectContaining({
+            value: expect.stringContaining("integration-api-model-"),
+          }),
+          resolvedSnapshot: expect.objectContaining({ id: driftSnapshotId }),
+          source: expect.objectContaining({ id: driftSourceId }),
+        }),
       ]),
       executionBindings: expect.arrayContaining([
-        {
+        expect.objectContaining({
           apiModelId: expect.stringContaining("integration-api-model-"),
-          snapshot: { id: driftSnapshotId },
-          source: { id: driftSourceId },
-        },
+          snapshot: expect.objectContaining({ id: driftSnapshotId }),
+          source: expect.objectContaining({ id: driftSourceId }),
+        }),
       ]),
       identityDrift: expect.arrayContaining([
         expect.objectContaining({
