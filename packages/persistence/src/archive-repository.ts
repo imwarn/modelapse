@@ -126,12 +126,97 @@ export interface ArchiveRunDetailView extends ArchiveRunView {
   readonly relations: readonly ArchiveRunRelationView[];
 }
 
+export interface ArchiveSourceView {
+  readonly id: string;
+  readonly sourceType: string;
+  readonly url: string | null;
+  readonly title: string | null;
+  readonly author: string | null;
+  readonly publishedAt: string | null;
+  readonly retrievedAt: string;
+  readonly contentSha256: string | null;
+}
+
+export interface ArchiveModelAliasResolutionView {
+  readonly id: string;
+  readonly alias: {
+    readonly id: string;
+    readonly value: string;
+  };
+  readonly observedAt: string;
+  readonly sourceType: string;
+  readonly confidence: number;
+  readonly resolvedModelId: string | null;
+  readonly resolvedSnapshot: {
+    readonly id: string;
+    readonly providerSnapshotId: string;
+  } | null;
+  readonly source: ArchiveSourceView | null;
+}
+
+export interface ArchiveModelExecutionBindingView {
+  readonly id: string;
+  readonly apiModelId: string;
+  readonly validFrom: string;
+  readonly validTo: string | null;
+  readonly createdAt: string;
+  readonly endpoint: {
+    readonly id: string;
+    readonly path: string;
+    readonly baseUrl: string;
+    readonly hostname: string;
+    readonly source: ArchiveSourceView | null;
+  };
+  readonly snapshot: {
+    readonly id: string;
+    readonly providerSnapshotId: string;
+  } | null;
+  readonly source: ArchiveSourceView;
+}
+
+export interface ArchiveIdentityTimelineEventView {
+  readonly id: string;
+  readonly kind:
+    | "canonical_source"
+    | "alias_resolution"
+    | "binding_started"
+    | "binding_ended"
+    | "snapshot_started"
+    | "snapshot_ended";
+  readonly occurredAt: string;
+  readonly title: string;
+  readonly description: string;
+  readonly source: ArchiveSourceView | null;
+  readonly aliasId: string | null;
+  readonly bindingId: string | null;
+  readonly snapshotId: string | null;
+}
+
+export interface ArchiveTestVersionHistoryView {
+  readonly id: string;
+  readonly version: string;
+  readonly status: string;
+  readonly definitionSha256: string;
+  readonly license: string | null;
+  readonly publishedAt: string | null;
+  readonly createdAt: string;
+  readonly source: ArchiveSourceView | null;
+  readonly evaluator: {
+    readonly slug: string;
+    readonly version: string;
+    readonly kind: string;
+  } | null;
+  readonly publicCaseCount: number;
+  readonly linkedTestCaseId: string | null;
+}
+
 export interface ArchiveModelSnapshotView {
   readonly id: string;
   readonly providerSnapshotId: string;
   readonly validFrom: string | null;
   readonly validTo: string | null;
   readonly sourceId: string | null;
+  readonly source: ArchiveSourceView | null;
 }
 
 export interface ArchiveModelRelationView {
@@ -147,6 +232,7 @@ export interface ArchiveModelRelationView {
   readonly validFrom: string | null;
   readonly validTo: string | null;
   readonly sourceId: string | null;
+  readonly source: ArchiveSourceView | null;
   readonly confidence: number;
 }
 
@@ -202,8 +288,12 @@ export interface ArchiveModelDetailView extends ArchiveModelView {
   readonly releasedAt: string | null;
   readonly retiredAt: string | null;
   readonly canonicalSourceId: string | null;
+  readonly canonicalSource: ArchiveSourceView | null;
   readonly snapshots: readonly ArchiveModelSnapshotView[];
   readonly relations: readonly ArchiveModelRelationView[];
+  readonly aliasResolutions: readonly ArchiveModelAliasResolutionView[];
+  readonly executionBindings: readonly ArchiveModelExecutionBindingView[];
+  readonly identityTimeline: readonly ArchiveIdentityTimelineEventView[];
   readonly testCoverage: readonly ArchiveTestCoverageView[];
   readonly recentRuns: readonly ArchiveRunView[];
   readonly timeline: readonly ArchiveTimelineEventView[];
@@ -212,6 +302,9 @@ export interface ArchiveModelDetailView extends ArchiveModelView {
 export interface ArchiveTestDetailView extends ArchiveTestView {
   readonly origin: string;
   readonly canonicalSourceId: string | null;
+  readonly canonicalSource: ArchiveSourceView | null;
+  readonly versionSource: ArchiveSourceView | null;
+  readonly versionHistory: readonly ArchiveTestVersionHistoryView[];
   readonly versionStatus: string;
   readonly definitionSha256: string;
   readonly license: string | null;
@@ -243,6 +336,31 @@ export interface ArchiveRunHistoryView {
   readonly relations: readonly ArchiveRunRelationEdgeView[];
 }
 
+
+function archiveSourceView(row: {
+  source_id: string | null;
+  source_type: string | null;
+  source_url: string | null;
+  source_title: string | null;
+  source_author: string | null;
+  source_published_at: Date | null;
+  source_retrieved_at: Date | null;
+  source_content_sha256: string | null;
+}): ArchiveSourceView | null {
+  if (!row.source_id || !row.source_type || !row.source_retrieved_at) {
+    return null;
+  }
+  return {
+    id: row.source_id,
+    sourceType: row.source_type,
+    url: row.source_url,
+    title: row.source_title,
+    author: row.source_author,
+    publishedAt: row.source_published_at?.toISOString() ?? null,
+    retrievedAt: row.source_retrieved_at.toISOString(),
+    contentSha256: row.source_content_sha256,
+  };
+}
 
 interface ArchiveRunRow {
   id: string;
