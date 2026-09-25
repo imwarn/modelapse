@@ -591,7 +591,10 @@ describe("PostgreSQL Run persistence", () => {
       track: { displayName: "Main" },
       runCount: 2,
       canonicalSource: { id: sourceId, sourceType: "provider_docs" },
-      snapshots: expect.arrayContaining([
+      testCoverage: [{ testCaseId, runCount: 2 }],
+    });
+    expect(archivedModel?.snapshots).toEqual(
+      expect.arrayContaining([
         expect.objectContaining({
           id: snapshotId,
           source: expect.objectContaining({ id: sourceId }),
@@ -601,7 +604,9 @@ describe("PostgreSQL Run persistence", () => {
           source: expect.objectContaining({ id: driftSourceId }),
         }),
       ]),
-      aliasResolutions: expect.arrayContaining([
+    );
+    expect(archivedModel?.aliasResolutions).toEqual(
+      expect.arrayContaining([
         expect.objectContaining({
           alias: expect.objectContaining({
             value: expect.stringContaining("integration-api-model-"),
@@ -610,14 +615,18 @@ describe("PostgreSQL Run persistence", () => {
           source: expect.objectContaining({ id: driftSourceId }),
         }),
       ]),
-      executionBindings: expect.arrayContaining([
+    );
+    expect(archivedModel?.executionBindings).toEqual(
+      expect.arrayContaining([
         expect.objectContaining({
           apiModelId: expect.stringContaining("integration-api-model-"),
           snapshot: expect.objectContaining({ id: driftSnapshotId }),
           source: expect.objectContaining({ id: driftSourceId }),
         }),
       ]),
-      identityDrift: expect.arrayContaining([
+    );
+    expect(archivedModel?.identityDrift).toEqual(
+      expect.arrayContaining([
         expect.objectContaining({
           changeType: "alias_target_changed",
           changedFields: ["snapshot"],
@@ -644,8 +653,7 @@ describe("PostgreSQL Run persistence", () => {
           currentSource: expect.objectContaining({ id: driftSourceId }),
         }),
       ]),
-      testCoverage: [{ testCaseId, runCount: 2 }],
-    });
+    );
     expect(
       archivedModel?.relations.some(
         (relation) =>
