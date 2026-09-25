@@ -7,7 +7,7 @@ BEFORE UPDATE OR DELETE ON alias_resolution_events
 FOR EACH ROW EXECUTE FUNCTION prevent_append_only_mutation();
 
 CREATE OR REPLACE FUNCTION validate_alias_resolution_identity()
-RETURNS trigger LANGUAGE plpgsql AS $
+RETURNS trigger LANGUAGE plpgsql AS $validate_alias$
 DECLARE
   alias_provider uuid;
   resolved_model_provider uuid;
@@ -53,14 +53,14 @@ BEGIN
 
   RETURN NEW;
 END;
-$;
+$validate_alias$;
 
 CREATE TRIGGER alias_resolution_events_validate_identity
 BEFORE INSERT ON alias_resolution_events
 FOR EACH ROW EXECUTE FUNCTION validate_alias_resolution_identity();
 
 CREATE OR REPLACE FUNCTION protect_model_execution_binding_history()
-RETURNS trigger LANGUAGE plpgsql AS $$
+RETURNS trigger LANGUAGE plpgsql AS $binding_history$
 BEGIN
   IF TG_OP = 'DELETE' THEN
     RAISE EXCEPTION 'model execution bindings cannot be deleted';
@@ -96,7 +96,7 @@ BEGIN
 
   RAISE EXCEPTION 'model execution binding may only be closed once';
 END;
-$$;
+$binding_history$;
 
 CREATE TRIGGER model_execution_bindings_history_guard
 BEFORE UPDATE OR DELETE ON model_execution_bindings
