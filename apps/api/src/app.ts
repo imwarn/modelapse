@@ -16,6 +16,7 @@ import type {
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PROVIDER_SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 type RunApiRepository = Pick<RunRepository, "ping" | "getRun">;
 type ControlQueue = Pick<PgRunJobQueue, "ping" | "enqueue" | "get">;
@@ -29,6 +30,7 @@ type ArchiveRepository = Pick<
   | "listModels"
   | "listTests"
   | "listRuns"
+  | "listCatalogChanges"
   | "getRun"
   | "getModel"
   | "getTest"
@@ -162,6 +164,39 @@ export function createApp(deps: AppDependencies) {
       return c.json({ error: "archive_unavailable" }, 503);
     }
     return c.json({ tests: await deps.archive.listTests() });
+  });
+
+  app.get("/v1/archive/changes", async (c) => {
+    if (!deps.archive) {
+      return c.json({ error: "archive_unavailable" }, 503);
+    }
+
+    const modelId = c.req.query("modelId");
+    const provider = c.req.query("provider");
+    const rawLimit = c.req.query("limit");
+
+    if (modelId && !UUID_RE.test(modelId)) {
+      return c.json({ error: "invalid_model_id" }, 400);
+    }
+    if (provider && !PROVIDER_SLUG_RE.test(provider)) {
+      return c.json({ error: "invalid_provider" }, 400);
+    }
+
+    const limit = rawLimit === undefined ? undefined : Number(rawLimit);
+    if (
+      limit !== undefined &&
+      (!Number.isInteger(limit) || limit < 1 || limit > 100)
+    ) {
+      return c.json({ error: "invalid_limit" }, 400);
+    }
+
+    return c.json({
+      changes: await deps.archive.listCatalogChanges({
+        ...(modelId ? { modelId } : {}),
+        ...(provider ? { providerSlug: provider } : {}),
+        ...(limit !== undefined ? { limit } : {}),
+      }),
+    });
   });
 
   app.get("/v1/archive/models/:modelId", async (c) => {

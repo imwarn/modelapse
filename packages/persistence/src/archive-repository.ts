@@ -137,6 +137,47 @@ export interface ArchiveSourceView {
   readonly contentSha256: string | null;
 }
 
+export interface ArchiveCatalogIdentityStateView {
+  readonly model: {
+    readonly id: string;
+    readonly canonicalSlug: string;
+    readonly marketingName: string;
+  } | null;
+  readonly snapshot: {
+    readonly id: string;
+    readonly providerSnapshotId: string;
+  } | null;
+  readonly endpoint: {
+    readonly id: string;
+    readonly path: string;
+    readonly baseUrl: string;
+    readonly hostname: string;
+  } | null;
+  readonly apiModelId: string | null;
+}
+
+export interface ArchiveCatalogChangeView {
+  readonly id: string;
+  readonly changeType: "alias_target_changed" | "execution_binding_changed";
+  readonly occurredAt: string;
+  readonly provider: {
+    readonly id: string;
+    readonly slug: string;
+    readonly name: string;
+  };
+  readonly alias: {
+    readonly id: string;
+    readonly value: string;
+  } | null;
+  readonly changedFields: readonly string[];
+  readonly previous: ArchiveCatalogIdentityStateView;
+  readonly current: ArchiveCatalogIdentityStateView;
+  readonly previousRecordId: string;
+  readonly currentRecordId: string;
+  readonly previousSource: ArchiveSourceView | null;
+  readonly currentSource: ArchiveSourceView;
+}
+
 export interface ArchiveModelAliasResolutionView {
   readonly id: string;
   readonly alias: {
@@ -294,6 +335,7 @@ export interface ArchiveModelDetailView extends ArchiveModelView {
   readonly aliasResolutions: readonly ArchiveModelAliasResolutionView[];
   readonly executionBindings: readonly ArchiveModelExecutionBindingView[];
   readonly identityTimeline: readonly ArchiveIdentityTimelineEventView[];
+  readonly identityDrift: readonly ArchiveCatalogChangeView[];
   readonly testCoverage: readonly ArchiveTestCoverageView[];
   readonly recentRuns: readonly ArchiveRunView[];
   readonly timeline: readonly ArchiveTimelineEventView[];
@@ -643,6 +685,253 @@ export class PgArchiveRepository {
     }));
   }
 
+  async listCatalogChanges(input: {
+    readonly modelId?: string;
+    readonly providerSlug?: string;
+    readonly limit?: number;
+  } = {}): Promise<readonly ArchiveCatalogChangeView[]> {
+    const limit = input.limit ?? 50;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      throw new Error(
+        "Archive catalog-change limit must be an integer between 1 and 100",
+      );
+    }
+
+    const result = await this.pool.query<{
+      event_id: string;
+      change_type: "alias_target_changed" | "execution_binding_changed";
+      occurred_at: Date;
+      provider_id: string;
+      provider_slug: string;
+      provider_name: string;
+      alias_id: string | null;
+      alias_value: string | null;
+      changed_fields: string[];
+      previous_record_id: string;
+      current_record_id: string;
+      previous_model_id: string | null;
+      previous_canonical_slug: string | null;
+      previous_marketing_name: string | null;
+      current_model_id: string | null;
+      current_canonical_slug: string | null;
+      current_marketing_name: string | null;
+      previous_snapshot_id: string | null;
+      previous_snapshot_value: string | null;
+      current_snapshot_id: string | null;
+      current_snapshot_value: string | null;
+      previous_endpoint_id: string | null;
+      previous_endpoint_path: string | null;
+      previous_endpoint_base_url: string | null;
+      previous_endpoint_hostname: string | null;
+      current_endpoint_id: string | null;
+      current_endpoint_path: string | null;
+      current_endpoint_base_url: string | null;
+      current_endpoint_hostname: string | null;
+      previous_api_model_id: string | null;
+      current_api_model_id: string | null;
+      previous_source_id: string | null;
+      previous_source_type: string | null;
+      previous_source_url: string | null;
+      previous_source_title: string | null;
+      previous_source_author: string | null;
+      previous_source_published_at: Date | null;
+      previous_source_retrieved_at: Date | null;
+      previous_source_content_sha256: string | null;
+      current_source_id: string;
+      current_source_type: string;
+      current_source_url: string | null;
+      current_source_title: string | null;
+      current_source_author: string | null;
+      current_source_published_at: Date | null;
+      current_source_retrieved_at: Date;
+      current_source_content_sha256: string | null;
+    }>(
+      `SELECT
+         drift.event_id,
+         drift.change_type,
+         drift.occurred_at,
+         p.id AS provider_id,
+         p.slug AS provider_slug,
+         p.name AS provider_name,
+         drift.alias_id,
+         drift.alias AS alias_value,
+         drift.changed_fields,
+         drift.previous_record_id,
+         drift.current_record_id,
+         previous_model.id AS previous_model_id,
+         previous_model.canonical_slug AS previous_canonical_slug,
+         previous_model.marketing_name AS previous_marketing_name,
+         current_model.id AS current_model_id,
+         current_model.canonical_slug AS current_canonical_slug,
+         current_model.marketing_name AS current_marketing_name,
+         previous_snapshot.id AS previous_snapshot_id,
+         previous_snapshot.provider_snapshot_id AS previous_snapshot_value,
+         current_snapshot.id AS current_snapshot_id,
+         current_snapshot.provider_snapshot_id AS current_snapshot_value,
+         previous_endpoint.id AS previous_endpoint_id,
+         previous_endpoint.path AS previous_endpoint_path,
+         previous_endpoint.base_url AS previous_endpoint_base_url,
+         previous_endpoint.hostname AS previous_endpoint_hostname,
+         current_endpoint.id AS current_endpoint_id,
+         current_endpoint.path AS current_endpoint_path,
+         current_endpoint.base_url AS current_endpoint_base_url,
+         current_endpoint.hostname AS current_endpoint_hostname,
+         drift.previous_api_model_id,
+         drift.current_api_model_id,
+         previous_source.id AS previous_source_id,
+         previous_source.source_type AS previous_source_type,
+         previous_source.url AS previous_source_url,
+         previous_source.title AS previous_source_title,
+         previous_source.author AS previous_source_author,
+         previous_source.published_at AS previous_source_published_at,
+         previous_source.retrieved_at AS previous_source_retrieved_at,
+         previous_source.content_sha256 AS previous_source_content_sha256,
+         current_source.id AS current_source_id,
+         current_source.source_type AS current_source_type,
+         current_source.url AS current_source_url,
+         current_source.title AS current_source_title,
+         current_source.author AS current_source_author,
+         current_source.published_at AS current_source_published_at,
+         current_source.retrieved_at AS current_source_retrieved_at,
+         current_source.content_sha256 AS current_source_content_sha256
+       FROM modelapse.catalog_identity_drift_events drift
+       JOIN modelapse.providers p ON p.id = drift.provider_id
+       LEFT JOIN modelapse.models previous_model
+         ON previous_model.id = drift.previous_model_id
+       LEFT JOIN modelapse.models current_model
+         ON current_model.id = drift.current_model_id
+       LEFT JOIN modelapse.model_snapshots previous_snapshot
+         ON previous_snapshot.id = drift.previous_snapshot_id
+       LEFT JOIN modelapse.model_snapshots current_snapshot
+         ON current_snapshot.id = drift.current_snapshot_id
+       LEFT JOIN modelapse.provider_endpoints previous_endpoint
+         ON previous_endpoint.id = drift.previous_endpoint_id
+       LEFT JOIN modelapse.provider_endpoints current_endpoint
+         ON current_endpoint.id = drift.current_endpoint_id
+       LEFT JOIN modelapse.source_records previous_source
+         ON previous_source.id = drift.previous_source_id
+       JOIN modelapse.source_records current_source
+         ON current_source.id = drift.current_source_id
+       WHERE (
+         $1::uuid IS NULL
+         OR drift.previous_model_id = $1
+         OR drift.current_model_id = $1
+       )
+         AND ($2::text IS NULL OR p.slug = $2)
+       ORDER BY drift.occurred_at DESC, drift.event_id DESC
+       LIMIT $3`,
+      [input.modelId ?? null, input.providerSlug ?? null, limit],
+    );
+
+    const modelState = (
+      id: string | null,
+      canonicalSlug: string | null,
+      marketingName: string | null,
+    ) =>
+      id && canonicalSlug && marketingName
+        ? { id, canonicalSlug, marketingName }
+        : null;
+
+    const snapshotState = (
+      id: string | null,
+      providerSnapshotId: string | null,
+    ) =>
+      id && providerSnapshotId
+        ? { id, providerSnapshotId }
+        : null;
+
+    const endpointState = (
+      id: string | null,
+      path: string | null,
+      baseUrl: string | null,
+      hostname: string | null,
+    ) =>
+      id && path && baseUrl && hostname
+        ? { id, path, baseUrl, hostname }
+        : null;
+
+    return result.rows.map((row) => {
+      const currentSource = archiveSourceView({
+        source_id: row.current_source_id,
+        source_type: row.current_source_type,
+        source_url: row.current_source_url,
+        source_title: row.current_source_title,
+        source_author: row.current_source_author,
+        source_published_at: row.current_source_published_at,
+        source_retrieved_at: row.current_source_retrieved_at,
+        source_content_sha256: row.current_source_content_sha256,
+      });
+      if (!currentSource) {
+        throw new Error("Catalog drift event is missing its current source");
+      }
+
+      return {
+        id: row.event_id,
+        changeType: row.change_type,
+        occurredAt: row.occurred_at.toISOString(),
+        provider: {
+          id: row.provider_id,
+          slug: row.provider_slug,
+          name: row.provider_name,
+        },
+        alias:
+          row.alias_id && row.alias_value
+            ? { id: row.alias_id, value: row.alias_value }
+            : null,
+        changedFields: row.changed_fields,
+        previous: {
+          model: modelState(
+            row.previous_model_id,
+            row.previous_canonical_slug,
+            row.previous_marketing_name,
+          ),
+          snapshot: snapshotState(
+            row.previous_snapshot_id,
+            row.previous_snapshot_value,
+          ),
+          endpoint: endpointState(
+            row.previous_endpoint_id,
+            row.previous_endpoint_path,
+            row.previous_endpoint_base_url,
+            row.previous_endpoint_hostname,
+          ),
+          apiModelId: row.previous_api_model_id,
+        },
+        current: {
+          model: modelState(
+            row.current_model_id,
+            row.current_canonical_slug,
+            row.current_marketing_name,
+          ),
+          snapshot: snapshotState(
+            row.current_snapshot_id,
+            row.current_snapshot_value,
+          ),
+          endpoint: endpointState(
+            row.current_endpoint_id,
+            row.current_endpoint_path,
+            row.current_endpoint_base_url,
+            row.current_endpoint_hostname,
+          ),
+          apiModelId: row.current_api_model_id,
+        },
+        previousRecordId: row.previous_record_id,
+        currentRecordId: row.current_record_id,
+        previousSource: archiveSourceView({
+          source_id: row.previous_source_id,
+          source_type: row.previous_source_type,
+          source_url: row.previous_source_url,
+          source_title: row.previous_source_title,
+          source_author: row.previous_source_author,
+          source_published_at: row.previous_source_published_at,
+          source_retrieved_at: row.previous_source_retrieved_at,
+          source_content_sha256: row.previous_source_content_sha256,
+        }),
+        currentSource,
+      };
+    });
+  }
+
   async listRuns(input: {
     readonly modelId?: string;
     readonly testCaseId?: string;
@@ -941,6 +1230,7 @@ export class PgArchiveRepository {
       relationResult,
       aliasResult,
       bindingResult,
+      identityDrift,
       coverageResult,
       allRuns,
     ] = await Promise.all([
@@ -1143,6 +1433,7 @@ export class PgArchiveRepository {
            ORDER BY meb.valid_from DESC, meb.created_at DESC`,
           [modelId],
         ),
+        this.listCatalogChanges({ modelId, limit: 100 }),
         this.pool.query<{
           test_case_id: string;
           family_slug: string;
@@ -1500,6 +1791,7 @@ export class PgArchiveRepository {
       aliasResolutions,
       executionBindings,
       identityTimeline,
+      identityDrift,
       testCoverage: coverageResult.rows.map((coverage) => ({
         testCaseId: coverage.test_case_id,
         familySlug: coverage.family_slug,

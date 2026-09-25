@@ -113,6 +113,93 @@ describe("production catalog bootstrap", () => {
     }
   });
 
+  it("records source-backed identity drift without rewriting prior observations", async () => {
+    await catalog!.bootstrapDeepSeekSmoke({
+      runnerBuild: "deepseek-drift-prerequisite",
+    });
+    const registered = await modelCatalog!.bootstrapDeepSeekFlash();
+
+    const first = await modelCatalog!.observeFirstPartyIdentity({
+      providerSlug: "deepseek",
+      canonicalSlug: "deepseek-flash",
+      apiModelId: "deepseek-flash",
+      providerSnapshotId: "deepseek-flash-drift-a",
+      sourceUrl: "https://api-docs.deepseek.com/guides/responses_api/",
+      sourceTitle: "DeepSeek Responses API guide",
+      observedAt: "2099-01-01T00:00:00.000Z",
+    });
+    const same = await modelCatalog!.observeFirstPartyIdentity({
+      providerSlug: "deepseek",
+      canonicalSlug: "deepseek-flash",
+      apiModelId: "deepseek-flash",
+      providerSnapshotId: "deepseek-flash-drift-a",
+      sourceUrl: "https://api-docs.deepseek.com/guides/responses_api/",
+      sourceTitle: "DeepSeek Responses API guide",
+      observedAt: "2099-01-02T00:00:00.000Z",
+    });
+    const second = await modelCatalog!.observeFirstPartyIdentity({
+      providerSlug: "deepseek",
+      canonicalSlug: "deepseek-flash",
+      apiModelId: "deepseek-flash",
+      providerSnapshotId: "deepseek-flash-drift-b",
+      sourceUrl: "https://api-docs.deepseek.com/guides/responses_api/",
+      sourceTitle: "DeepSeek Responses API guide",
+      observedAt: "2099-01-03T00:00:00.000Z",
+    });
+
+    expect(first.bindingChanged).toBe(true);
+    expect(same.bindingChanged).toBe(false);
+    expect(second.bindingChanged).toBe(true);
+    expect(new Set([first.sourceId, same.sourceId, second.sourceId]).size).toBe(3);
+
+    const verification = new Pool({ connectionString: isolatedDatabaseUrl });
+    try {
+      const drift = await verification.query<{
+        change_type: string;
+        changed_fields: string[];
+        current_snapshot_id: string | null;
+      }>(
+        `SELECT change_type, changed_fields, current_snapshot_id
+           FROM modelapse.catalog_identity_drift_events
+          WHERE previous_model_id = $1 OR current_model_id = $1
+          ORDER BY occurred_at, change_type`,
+        [registered.modelId],
+      );
+
+      expect(drift.rows).toHaveLength(4);
+      expect(
+        drift.rows.filter((row) => row.change_type === "alias_target_changed"),
+      ).toHaveLength(2);
+      expect(
+        drift.rows.filter((row) => row.change_type === "execution_binding_changed"),
+      ).toHaveLength(2);
+      expect(drift.rows.every((row) => row.changed_fields.includes("snapshot"))).toBe(true);
+      expect(
+        drift.rows.some((row) => row.current_snapshot_id === second.snapshotId),
+      ).toBe(true);
+
+      await expect(
+        verification.query(
+          `UPDATE modelapse.alias_resolution_events
+              SET confidence = 0.5
+            WHERE id = $1`,
+          [first.aliasObservationId],
+        ),
+      ).rejects.toThrow(/append-only/);
+
+      await expect(
+        verification.query(
+          `UPDATE modelapse.model_execution_bindings
+              SET api_model_id = 'rewritten'
+            WHERE id = $1`,
+          [second.bindingId],
+        ),
+      ).rejects.toThrow(/identity is immutable/);
+    } finally {
+      await verification.end();
+    }
+  });
+
   it("bootstraps DeepSeek idempotently and resolves its sourced direct target", async () => {
     const first = await catalog!.bootstrapDeepSeekSmoke({
       runnerBuild: "deepseek-build-a",

@@ -22,6 +22,49 @@ const archiveSource = {
   contentSha256: null,
 } as const;
 
+const archiveCatalogChange = {
+  id: `alias:${ALIAS_EVENT_ID}`,
+  changeType: "alias_target_changed",
+  occurredAt: "2026-09-02T00:00:00.000Z",
+  provider: {
+    id: "00000000-0000-4000-8000-000000000024",
+    slug: "deepseek",
+    name: "DeepSeek",
+  },
+  alias: {
+    id: ALIAS_ID,
+    value: "deepseek-flash",
+  },
+  changedFields: ["snapshot"],
+  previous: {
+    model: {
+      id: MODEL_ID,
+      canonicalSlug: "deepseek-flash",
+      marketingName: "DeepSeek Flash",
+    },
+    snapshot: null,
+    endpoint: null,
+    apiModelId: null,
+  },
+  current: {
+    model: {
+      id: MODEL_ID,
+      canonicalSlug: "deepseek-flash",
+      marketingName: "DeepSeek Flash",
+    },
+    snapshot: {
+      id: "00000000-0000-4000-8000-000000000034",
+      providerSnapshotId: "deepseek-flash-202609",
+    },
+    endpoint: null,
+    apiModelId: null,
+  },
+  previousRecordId: "00000000-0000-4000-8000-000000000042",
+  currentRecordId: ALIAS_EVENT_ID,
+  previousSource: archiveSource,
+  currentSource: archiveSource,
+} as const;
+
 
 function baseRuns() {
   return {
@@ -259,6 +302,7 @@ const archiveModelDetail = {
       snapshotId: null,
     },
   ],
+  identityDrift: [archiveCatalogChange],
   testCoverage: [
     {
       testCaseId: TEST_CASE_ID,
@@ -444,6 +488,7 @@ describe("Archive read API", () => {
           },
         ],
         listRuns: async () => [archiveRun],
+        listCatalogChanges: async () => [archiveCatalogChange],
         getRun: async (runId) => (runId === RUN_ID ? archiveRun : null),
         getModel: async (modelId) =>
           modelId === MODEL_ID ? archiveModelDetail : null,
@@ -467,6 +512,22 @@ describe("Archive read API", () => {
         {
           testCaseId: TEST_CASE_ID,
           evaluator: { slug: "exact-text" },
+        },
+      ],
+    });
+
+    const changes = await app.request(
+      `/v1/archive/changes?modelId=${MODEL_ID}&provider=deepseek&limit=10`,
+    );
+    expect(changes.status).toBe(200);
+    await expect(changes.json()).resolves.toMatchObject({
+      changes: [
+        {
+          changeType: "alias_target_changed",
+          changedFields: ["snapshot"],
+          current: {
+            snapshot: { providerSnapshotId: "deepseek-flash-202609" },
+          },
         },
       ],
     });
@@ -530,6 +591,7 @@ describe("Archive read API", () => {
         listModels: async () => [],
         listTests: async () => [],
         listRuns: async () => [],
+        listCatalogChanges: async () => [],
         getRun: async () => null,
         getModel: async () => null,
         getTest: async () => null,
@@ -543,6 +605,15 @@ describe("Archive read API", () => {
     ).toBe(400);
     expect(
       (await app.request("/v1/archive/runs?limit=101")).status,
+    ).toBe(400);
+    expect(
+      (await app.request("/v1/archive/changes?modelId=nope")).status,
+    ).toBe(400);
+    expect(
+      (await app.request("/v1/archive/changes?provider=Bad.Provider")).status,
+    ).toBe(400);
+    expect(
+      (await app.request("/v1/archive/changes?limit=101")).status,
     ).toBe(400);
     expect(
       (await app.request("/v1/archive/models/nope")).status,

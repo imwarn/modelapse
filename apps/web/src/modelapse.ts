@@ -82,6 +82,47 @@ export interface ArchiveSource {
   readonly contentSha256: string | null;
 }
 
+export interface ArchiveCatalogIdentityState {
+  readonly model: {
+    readonly id: string;
+    readonly canonicalSlug: string;
+    readonly marketingName: string;
+  } | null;
+  readonly snapshot: {
+    readonly id: string;
+    readonly providerSnapshotId: string;
+  } | null;
+  readonly endpoint: {
+    readonly id: string;
+    readonly path: string;
+    readonly baseUrl: string;
+    readonly hostname: string;
+  } | null;
+  readonly apiModelId: string | null;
+}
+
+export interface ArchiveCatalogChange {
+  readonly id: string;
+  readonly changeType: "alias_target_changed" | "execution_binding_changed";
+  readonly occurredAt: string;
+  readonly provider: {
+    readonly id: string;
+    readonly slug: string;
+    readonly name: string;
+  };
+  readonly alias: {
+    readonly id: string;
+    readonly value: string;
+  } | null;
+  readonly changedFields: readonly string[];
+  readonly previous: ArchiveCatalogIdentityState;
+  readonly current: ArchiveCatalogIdentityState;
+  readonly previousRecordId: string;
+  readonly currentRecordId: string;
+  readonly previousSource: ArchiveSource | null;
+  readonly currentSource: ArchiveSource;
+}
+
 export interface ArchiveModelAliasResolution {
   readonly id: string;
   readonly alias: {
@@ -220,6 +261,7 @@ export interface ArchiveModelDetail extends ArchiveModel {
   readonly aliasResolutions: readonly ArchiveModelAliasResolution[];
   readonly executionBindings: readonly ArchiveModelExecutionBinding[];
   readonly identityTimeline: readonly ArchiveIdentityTimelineEvent[];
+  readonly identityDrift: readonly ArchiveCatalogChange[];
   readonly testCoverage: readonly {
     readonly testCaseId: string;
     readonly familySlug: string;
@@ -785,6 +827,15 @@ export const getArchiveRun = createServerFn({ method: "POST" })
       throw error;
     }
   });
+
+export const getArchiveCatalogChanges = createServerFn({ method: "GET" }).handler(
+  async (): Promise<readonly ArchiveCatalogChange[]> => {
+    const result = await requestJson<{ changes: readonly ArchiveCatalogChange[] }>(
+      "/v1/archive/changes?limit=100",
+    );
+    return result.changes;
+  },
+);
 
 export const getArchiveCatalog = createServerFn({ method: "GET" }).handler(
   async (): Promise<ArchiveCatalog> => {

@@ -393,9 +393,14 @@ function ModelapseHome() {
             <h2>Recent sealed runs</h2>
           </div>
           <div className="archive-tools">
-            <a className="header-link archive-compare-link" href="/compare">
-              Compare models →
-            </a>
+            <div className="archive-primary-links">
+              <a className="header-link archive-compare-link" href="/compare">
+                Compare models →
+              </a>
+              <a className="header-link archive-compare-link" href="/changes">
+                Catalog changes →
+              </a>
+            </div>
             <div className="archive-filters">
             <select
               aria-label="Filter Archive by model"
