@@ -441,30 +441,43 @@ export class PgModelCatalogAdmin {
 
       const currentBinding = await client.query<{
         id: string;
+        endpoint_id: string;
         api_model_id: string;
         snapshot_id: string | null;
         valid_from: Date;
       }>(
-        `SELECT id, api_model_id, snapshot_id, valid_from
-           FROM modelapse.model_execution_bindings
-          WHERE model_id = $1
-            AND endpoint_id = $2
-            AND valid_to IS NULL
-          ORDER BY valid_from DESC, created_at DESC
-          LIMIT 1
-          FOR UPDATE`,
-        [modelId, endpointId],
+        `SELECT
+           meb.id,
+           meb.endpoint_id,
+           meb.api_model_id,
+           meb.snapshot_id,
+           meb.valid_from
+         FROM modelapse.model_execution_bindings meb
+         JOIN modelapse.provider_endpoints pe ON pe.id = meb.endpoint_id
+         WHERE meb.model_id = $1
+           AND pe.path = 'first_party_direct'
+           AND meb.valid_to IS NULL
+         ORDER BY meb.valid_from DESC, meb.created_at DESC
+         FOR UPDATE`,
+        [modelId],
       );
 
+      if (currentBinding.rows.length > 1) {
+        throw new Error(
+          "Canonical model has multiple current first-party direct bindings",
+        );
+      }
+
       const current = currentBinding.rows[0];
-      let bindingId = current?.id;
+      let bindingId =
+        current?.endpoint_id === endpointId &&
+        current.api_model_id === apiModelId &&
+        current.snapshot_id === snapshotId
+          ? current.id
+          : undefined;
       let bindingChanged = false;
 
-      if (
-        current &&
-        (current.api_model_id !== apiModelId ||
-          current.snapshot_id !== snapshotId)
-      ) {
+      if (current && !bindingId) {
         if (new Date(observedAt) <= current.valid_from) {
           throw new Error(
             "Identity observations must advance beyond the current binding validFrom",
