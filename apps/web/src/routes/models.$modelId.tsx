@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
   getArchiveModel,
+  type ArchiveCatalogIdentityState,
   type ArchiveRun,
   type ArchiveTimelineEvent,
 } from "../modelapse";
@@ -36,6 +37,16 @@ function shortHash(value: string | null): string {
   if (!value) return "—";
   if (value.length <= 28) return value;
   return `${value.slice(0, 14)}…${value.slice(-8)}`;
+}
+
+function driftStateLabel(state: ArchiveCatalogIdentityState): string {
+  const parts = [
+    state.model?.canonicalSlug ?? null,
+    state.apiModelId,
+    state.snapshot?.providerSnapshotId ?? null,
+    state.endpoint?.hostname ?? null,
+  ].filter((value): value is string => Boolean(value));
+  return parts.length ? parts.join(" · ") : "—";
 }
 
 function evaluationLabel(run: ArchiveRun): string {
@@ -96,6 +107,7 @@ function ArchiveModelPage() {
         <nav className="header-nav">
           <a className="header-link" href="/#archive">Archive</a>
           <a className="header-link" href="/compare">Compare</a>
+          <a className="header-link" href="/changes">Changes</a>
         </nav>
       </header>
 
@@ -302,6 +314,71 @@ function ArchiveModelPage() {
               <p>No sourced execution binding archived.</p>
             ) : null}
           </div>
+        </div>
+      </section>
+
+      <section className="section entity-section drift-section">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">IDENTITY DRIFT</p>
+            <h2>Detected catalog transitions</h2>
+          </div>
+          <div className="section-note">
+            Derived from consecutive source-backed observations.{" "}
+            <a className="text-link" href="/changes">Open global change feed →</a>
+          </div>
+        </div>
+
+        <div className="drift-feed drift-feed-compact">
+          {model.identityDrift.map((change) => {
+            const sourceHref = safeSourceHref(change.currentSource.url);
+            return (
+              <article className="drift-event" key={change.id}>
+                <div className="drift-event-meta">
+                  <span className="badge">{change.changeType.replaceAll("_", " ")}</span>
+                  <strong>{change.alias ? `alias ${change.alias.value}` : model.canonicalSlug}</strong>
+                  <small>{formatTimestamp(change.occurredAt)}</small>
+                  <div className="drift-fields">
+                    {change.changedFields.map((field) => (
+                      <span className="badge" key={field}>{field.replaceAll("_", " ")}</span>
+                    ))}
+                  </div>
+                </div>
+                <div className="drift-state drift-state-before">
+                  <span>Before</span>
+                  <strong>{driftStateLabel(change.previous)}</strong>
+                </div>
+                <div className="drift-arrow" aria-hidden="true">→</div>
+                <div className="drift-state drift-state-after">
+                  <span>After</span>
+                  <strong>{driftStateLabel(change.current)}</strong>
+                </div>
+                <div className="drift-source">
+                  <span>Current source</span>
+                  <strong>
+                    {change.currentSource.title ??
+                      change.currentSource.url ??
+                      change.currentSource.sourceType}
+                  </strong>
+                  {sourceHref ? (
+                    <a
+                      className="text-link"
+                      href={sourceHref}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Source ↗
+                    </a>
+                  ) : null}
+                </div>
+              </article>
+            );
+          })}
+          {model.identityDrift.length === 0 ? (
+            <div className="empty-state">
+              No source-backed identity transition has been detected for this model.
+            </div>
+          ) : null}
         </div>
       </section>
 
