@@ -22,6 +22,18 @@ function shortHash(value: string | null): string {
   return `${value.slice(0, 16)}…${value.slice(-10)}`;
 }
 
+function safeSourceHref(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" || parsed.protocol === "http:"
+      ? parsed.toString()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function evaluationLabel(run: ArchiveRun): string {
   if (!run.evaluation) return "not evaluated";
   if (run.evaluation.exactMatch === true) return "exact match";
@@ -174,6 +186,134 @@ function ArchiveTestPage() {
             <dd>{test.canonicalSourceId ?? "—"}</dd>
           </div>
         </dl>
+      </section>
+
+      <section className="section entity-section test-provenance-section">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">SOURCE PROVENANCE</p>
+            <h2>Definition lineage</h2>
+          </div>
+          <p className="section-note">
+            Public source summaries expose citation metadata only; source-record metadata
+            and private blob locations remain outside the Archive contract.
+          </p>
+        </div>
+
+        <div className="provenance-summary">
+          <article className="provenance-card provenance-card-primary">
+            <span>Test family source</span>
+            <strong>{test.canonicalSource?.title ?? test.canonicalSource?.sourceType ?? "—"}</strong>
+            <small>
+              retrieved {formatTimestamp(test.canonicalSource?.retrievedAt ?? null)}
+            </small>
+            <small>SHA-256 {shortHash(test.canonicalSource?.contentSha256 ?? null)}</small>
+            {safeSourceHref(test.canonicalSource?.url ?? null) ? (
+              <a
+                className="text-link"
+                href={safeSourceHref(test.canonicalSource?.url ?? null) ?? undefined}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open family source ↗
+              </a>
+            ) : null}
+          </article>
+
+          <article className="provenance-card">
+            <span>Current version source</span>
+            <strong>{test.versionSource?.title ?? test.versionSource?.sourceType ?? "—"}</strong>
+            <small>v{test.version} · {test.versionStatus}</small>
+            {safeSourceHref(test.versionSource?.url ?? null) ? (
+              <a
+                className="text-link"
+                href={safeSourceHref(test.versionSource?.url ?? null) ?? undefined}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open version source ↗
+              </a>
+            ) : null}
+          </article>
+
+          <article className="provenance-card">
+            <span>Public version records</span>
+            <strong>{test.versionHistory.length}</strong>
+            <small>{test.variantName} · {test.variantSlug}</small>
+          </article>
+        </div>
+      </section>
+
+      <section className="section entity-section">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">TEST VERSION HISTORY</p>
+            <h2>Immutable definitions over time</h2>
+          </div>
+          <p className="section-note">
+            Only versions with at least one public Test Case appear here. Matching case slugs
+            link across versions when that public case exists.
+          </p>
+        </div>
+
+        <div className="version-history">
+          {test.versionHistory.map((version) => {
+            const sourceHref = safeSourceHref(version.source?.url ?? null);
+            const current = version.version === test.version;
+            return (
+              <article
+                className={current ? "version-history-row version-history-current" : "version-history-row"}
+                key={version.id}
+              >
+                <div className="version-history-id">
+                  <span className={current ? "badge badge-pass" : "badge"}>
+                    {current ? "current" : version.status}
+                  </span>
+                  <strong>v{version.version}</strong>
+                  <small>{formatTimestamp(version.publishedAt ?? version.createdAt)}</small>
+                </div>
+                <div className="version-history-definition">
+                  <span>Definition SHA-256</span>
+                  <strong title={version.definitionSha256}>{shortHash(version.definitionSha256)}</strong>
+                  <small>{version.publicCaseCount} public case(s) · {version.license ?? "no license"}</small>
+                </div>
+                <div className="version-history-definition">
+                  <span>Evaluator</span>
+                  <strong>
+                    {version.evaluator
+                      ? `${version.evaluator.slug}@${version.evaluator.version}`
+                      : "—"}
+                  </strong>
+                  <small>{version.evaluator?.kind ?? "no evaluator binding"}</small>
+                </div>
+                <div className="version-history-source">
+                  <span>Source</span>
+                  <strong>{version.source?.title ?? version.source?.sourceType ?? "—"}</strong>
+                  <div className="version-history-actions">
+                    {version.linkedTestCaseId && version.linkedTestCaseId !== test.testCaseId ? (
+                      <a className="text-link" href={`/tests/${version.linkedTestCaseId}`}>
+                        Same case in v{version.version} →
+                      </a>
+                    ) : null}
+                    {sourceHref ? (
+                      <a
+                        className="text-link"
+                        href={sourceHref}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Source ↗
+                      </a>
+                    ) : null}
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+          {test.versionHistory.length === 0 ? (
+            <div className="empty-state">No public Test version history is archived yet.</div>
+          ) : null}
+        </div>
       </section>
 
       <section className="section entity-section">

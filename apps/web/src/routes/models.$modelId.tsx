@@ -20,6 +20,24 @@ function formatTimestamp(value: string | null): string {
   return new Date(value).toISOString().replace("T", " ").replace(".000Z", "Z");
 }
 
+function safeSourceHref(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" || parsed.protocol === "http:"
+      ? parsed.toString()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function shortHash(value: string | null): string {
+  if (!value) return "—";
+  if (value.length <= 28) return value;
+  return `${value.slice(0, 14)}…${value.slice(-8)}`;
+}
+
 function evaluationLabel(run: ArchiveRun): string {
   if (!run.evaluation) return "not evaluated";
   if (run.evaluation.exactMatch === true) return "exact match";
@@ -125,6 +143,168 @@ function ArchiveModelPage() {
         </dl>
       </section>
 
+      <section className="section entity-section identity-section">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">SOURCE & IDENTITY TIMELINE</p>
+            <h2>What this model ID meant, when, and why</h2>
+          </div>
+          <p className="section-note">
+            Alias observations, execution bindings and snapshots are shown only from stored
+            catalog facts. Source metadata excludes raw observation payloads.
+          </p>
+        </div>
+
+        <div className="provenance-summary">
+          <article className="provenance-card provenance-card-primary">
+            <span>Canonical identity source</span>
+            <strong>{model.canonicalSource?.title ?? model.canonicalSource?.sourceType ?? "—"}</strong>
+            <small>
+              retrieved {formatTimestamp(model.canonicalSource?.retrievedAt ?? null)}
+            </small>
+            {model.canonicalSource ? (
+              <>
+                <small>SHA-256 {shortHash(model.canonicalSource.contentSha256)}</small>
+                {safeSourceHref(model.canonicalSource.url) ? (
+                  <a
+                    className="text-link"
+                    href={safeSourceHref(model.canonicalSource.url) ?? undefined}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open source ↗
+                  </a>
+                ) : null}
+              </>
+            ) : (
+              <small>No canonical source record is attached.</small>
+            )}
+          </article>
+
+          <article className="provenance-card">
+            <span>Observed aliases</span>
+            <strong>{model.aliasResolutions.length}</strong>
+            <small>
+              {model.aliasResolutions.length
+                ? `${new Set(model.aliasResolutions.map((item) => item.alias.value)).size} unique alias(es)`
+                : "No alias observation archived"}
+            </small>
+          </article>
+
+          <article className="provenance-card">
+            <span>Execution bindings</span>
+            <strong>{model.executionBindings.length}</strong>
+            <small>
+              {model.executionBindings.filter((binding) => !binding.validTo).length} current
+            </small>
+          </article>
+        </div>
+
+        <div className="identity-timeline">
+          {model.identityTimeline.map((event) => {
+            const sourceHref = safeSourceHref(event.source?.url ?? null);
+            return (
+              <article className="identity-event" key={event.id}>
+                <div className="identity-event-time">{formatTimestamp(event.occurredAt)}</div>
+                <div className="identity-event-body">
+                  <span className="badge">{event.kind.replaceAll("_", " ")}</span>
+                  <strong>{event.title}</strong>
+                  <small>{event.description}</small>
+                </div>
+                <div className="identity-event-source">
+                  <span>{event.source?.sourceType ?? "no source"}</span>
+                  <strong>{event.source?.title ?? event.source?.url ?? "—"}</strong>
+                  {sourceHref ? (
+                    <a
+                      className="text-link"
+                      href={sourceHref}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Source ↗
+                    </a>
+                  ) : null}
+                </div>
+              </article>
+            );
+          })}
+          {model.identityTimeline.length === 0 ? (
+            <div className="empty-state">No dated identity observations are archived yet.</div>
+          ) : null}
+        </div>
+
+        <div className="identity-ledger-grid">
+          <div className="identity-ledger">
+            <h3>Alias resolution history</h3>
+            {model.aliasResolutions.map((resolution) => (
+              <article className="identity-ledger-row" key={resolution.id}>
+                <div>
+                  <span className="badge">{resolution.alias.value}</span>
+                  <strong>
+                    {resolution.resolvedSnapshot
+                      ? resolution.resolvedSnapshot.providerSnapshotId
+                      : model.canonicalSlug}
+                  </strong>
+                </div>
+                <small>
+                  {formatTimestamp(resolution.observedAt)} · {resolution.sourceType} · confidence{" "}
+                  {resolution.confidence}
+                </small>
+                {safeSourceHref(resolution.source?.url ?? null) ? (
+                  <a
+                    className="text-link"
+                    href={safeSourceHref(resolution.source?.url ?? null) ?? undefined}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Evidence source ↗
+                  </a>
+                ) : null}
+              </article>
+            ))}
+            {model.aliasResolutions.length === 0 ? (
+              <p>No alias-resolution observations archived.</p>
+            ) : null}
+          </div>
+
+          <div className="identity-ledger">
+            <h3>Execution binding history</h3>
+            {model.executionBindings.map((binding) => (
+              <article className="identity-ledger-row" key={binding.id}>
+                <div>
+                  <span className={binding.validTo ? "badge" : "badge badge-pass"}>
+                    {binding.validTo ? "historical" : "current"}
+                  </span>
+                  <strong>{binding.apiModelId}</strong>
+                </div>
+                <small>
+                  {binding.endpoint.path} · {binding.endpoint.hostname}
+                </small>
+                <small>
+                  {formatTimestamp(binding.validFrom)} → {formatTimestamp(binding.validTo)}
+                </small>
+                <small>
+                  snapshot {binding.snapshot?.providerSnapshotId ?? "—"}
+                </small>
+                {safeSourceHref(binding.source.url) ? (
+                  <a
+                    className="text-link"
+                    href={safeSourceHref(binding.source.url) ?? undefined}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Binding source ↗
+                  </a>
+                ) : null}
+              </article>
+            ))}
+            {model.executionBindings.length === 0 ? (
+              <p>No sourced execution binding archived.</p>
+            ) : null}
+          </div>
+        </div>
+      </section>
+
       <section className="section entity-section">
         <div className="section-heading">
           <div>
@@ -228,7 +408,19 @@ function ArchiveModelPage() {
                 <small>
                   {formatTimestamp(snapshot.validFrom)} → {formatTimestamp(snapshot.validTo)}
                 </small>
-                <small>source {snapshot.sourceId ?? "—"}</small>
+                <small>
+                  source {snapshot.source?.title ?? snapshot.source?.sourceType ?? snapshot.sourceId ?? "—"}
+                </small>
+                {safeSourceHref(snapshot.source?.url ?? null) ? (
+                  <a
+                    className="text-link"
+                    href={safeSourceHref(snapshot.source?.url ?? null) ?? undefined}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Source ↗
+                  </a>
+                ) : null}
               </div>
             ))}
             {model.snapshots.length === 0 ? <p>No snapshots archived.</p> : null}
@@ -244,6 +436,9 @@ function ArchiveModelPage() {
                 </a>
                 <small>
                   {relation.direction} · confidence {relation.confidence}
+                </small>
+                <small>
+                  source {relation.source?.title ?? relation.source?.sourceType ?? relation.sourceId ?? "—"}
                 </small>
               </div>
             ))}

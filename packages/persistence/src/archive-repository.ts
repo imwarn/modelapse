@@ -126,12 +126,97 @@ export interface ArchiveRunDetailView extends ArchiveRunView {
   readonly relations: readonly ArchiveRunRelationView[];
 }
 
+export interface ArchiveSourceView {
+  readonly id: string;
+  readonly sourceType: string;
+  readonly url: string | null;
+  readonly title: string | null;
+  readonly author: string | null;
+  readonly publishedAt: string | null;
+  readonly retrievedAt: string;
+  readonly contentSha256: string | null;
+}
+
+export interface ArchiveModelAliasResolutionView {
+  readonly id: string;
+  readonly alias: {
+    readonly id: string;
+    readonly value: string;
+  };
+  readonly observedAt: string;
+  readonly sourceType: string;
+  readonly confidence: number;
+  readonly resolvedModelId: string | null;
+  readonly resolvedSnapshot: {
+    readonly id: string;
+    readonly providerSnapshotId: string;
+  } | null;
+  readonly source: ArchiveSourceView | null;
+}
+
+export interface ArchiveModelExecutionBindingView {
+  readonly id: string;
+  readonly apiModelId: string;
+  readonly validFrom: string;
+  readonly validTo: string | null;
+  readonly createdAt: string;
+  readonly endpoint: {
+    readonly id: string;
+    readonly path: string;
+    readonly baseUrl: string;
+    readonly hostname: string;
+    readonly source: ArchiveSourceView | null;
+  };
+  readonly snapshot: {
+    readonly id: string;
+    readonly providerSnapshotId: string;
+  } | null;
+  readonly source: ArchiveSourceView;
+}
+
+export interface ArchiveIdentityTimelineEventView {
+  readonly id: string;
+  readonly kind:
+    | "canonical_source"
+    | "alias_resolution"
+    | "binding_started"
+    | "binding_ended"
+    | "snapshot_started"
+    | "snapshot_ended";
+  readonly occurredAt: string;
+  readonly title: string;
+  readonly description: string;
+  readonly source: ArchiveSourceView | null;
+  readonly aliasId: string | null;
+  readonly bindingId: string | null;
+  readonly snapshotId: string | null;
+}
+
+export interface ArchiveTestVersionHistoryView {
+  readonly id: string;
+  readonly version: string;
+  readonly status: string;
+  readonly definitionSha256: string;
+  readonly license: string | null;
+  readonly publishedAt: string | null;
+  readonly createdAt: string;
+  readonly source: ArchiveSourceView | null;
+  readonly evaluator: {
+    readonly slug: string;
+    readonly version: string;
+    readonly kind: string;
+  } | null;
+  readonly publicCaseCount: number;
+  readonly linkedTestCaseId: string | null;
+}
+
 export interface ArchiveModelSnapshotView {
   readonly id: string;
   readonly providerSnapshotId: string;
   readonly validFrom: string | null;
   readonly validTo: string | null;
   readonly sourceId: string | null;
+  readonly source: ArchiveSourceView | null;
 }
 
 export interface ArchiveModelRelationView {
@@ -147,6 +232,7 @@ export interface ArchiveModelRelationView {
   readonly validFrom: string | null;
   readonly validTo: string | null;
   readonly sourceId: string | null;
+  readonly source: ArchiveSourceView | null;
   readonly confidence: number;
 }
 
@@ -202,8 +288,12 @@ export interface ArchiveModelDetailView extends ArchiveModelView {
   readonly releasedAt: string | null;
   readonly retiredAt: string | null;
   readonly canonicalSourceId: string | null;
+  readonly canonicalSource: ArchiveSourceView | null;
   readonly snapshots: readonly ArchiveModelSnapshotView[];
   readonly relations: readonly ArchiveModelRelationView[];
+  readonly aliasResolutions: readonly ArchiveModelAliasResolutionView[];
+  readonly executionBindings: readonly ArchiveModelExecutionBindingView[];
+  readonly identityTimeline: readonly ArchiveIdentityTimelineEventView[];
   readonly testCoverage: readonly ArchiveTestCoverageView[];
   readonly recentRuns: readonly ArchiveRunView[];
   readonly timeline: readonly ArchiveTimelineEventView[];
@@ -212,6 +302,9 @@ export interface ArchiveModelDetailView extends ArchiveModelView {
 export interface ArchiveTestDetailView extends ArchiveTestView {
   readonly origin: string;
   readonly canonicalSourceId: string | null;
+  readonly canonicalSource: ArchiveSourceView | null;
+  readonly versionSource: ArchiveSourceView | null;
+  readonly versionHistory: readonly ArchiveTestVersionHistoryView[];
   readonly versionStatus: string;
   readonly definitionSha256: string;
   readonly license: string | null;
@@ -243,6 +336,31 @@ export interface ArchiveRunHistoryView {
   readonly relations: readonly ArchiveRunRelationEdgeView[];
 }
 
+
+function archiveSourceView(row: {
+  source_id: string | null;
+  source_type: string | null;
+  source_url: string | null;
+  source_title: string | null;
+  source_author: string | null;
+  source_published_at: Date | null;
+  source_retrieved_at: Date | null;
+  source_content_sha256: string | null;
+}): ArchiveSourceView | null {
+  if (!row.source_id || !row.source_type || !row.source_retrieved_at) {
+    return null;
+  }
+  return {
+    id: row.source_id,
+    sourceType: row.source_type,
+    url: row.source_url,
+    title: row.source_title,
+    author: row.source_author,
+    publishedAt: row.source_published_at?.toISOString() ?? null,
+    retrievedAt: row.source_retrieved_at.toISOString(),
+    contentSha256: row.source_content_sha256,
+  };
+}
 
 interface ArchiveRunRow {
   id: string;
@@ -744,6 +862,14 @@ export class PgArchiveRepository {
       released_at: Date | null;
       retired_at: Date | null;
       canonical_source_id: string | null;
+      source_id: string | null;
+      source_type: string | null;
+      source_url: string | null;
+      source_title: string | null;
+      source_author: string | null;
+      source_published_at: Date | null;
+      source_retrieved_at: Date | null;
+      source_content_sha256: string | null;
       family_id: string | null;
       family_slug: string | null;
       family_name: string | null;
@@ -765,6 +891,14 @@ export class PgArchiveRepository {
          m.released_at,
          m.retired_at,
          m.canonical_source_id,
+         canonical_source.id AS source_id,
+         canonical_source.source_type,
+         canonical_source.url AS source_url,
+         canonical_source.title AS source_title,
+         canonical_source.author AS source_author,
+         canonical_source.published_at AS source_published_at,
+         canonical_source.retrieved_at AS source_retrieved_at,
+         canonical_source.content_sha256 AS source_content_sha256,
          mf.id AS family_id,
          mf.slug AS family_slug,
          mf.display_name AS family_name,
@@ -790,6 +924,8 @@ export class PgArchiveRepository {
          ) AS latest_run_at
        FROM modelapse.models m
        JOIN modelapse.providers p ON p.id = m.provider_id
+       LEFT JOIN modelapse.source_records canonical_source
+         ON canonical_source.id = m.canonical_source_id
        LEFT JOIN modelapse.model_families mf ON mf.id = m.family_id
        LEFT JOIN modelapse.model_tracks mt ON mt.id = m.track_id
        WHERE m.id = $1
@@ -800,19 +936,45 @@ export class PgArchiveRepository {
     const row = modelResult.rows[0];
     if (!row) return null;
 
-    const [snapshotResult, relationResult, coverageResult, allRuns] =
-      await Promise.all([
+    const [
+      snapshotResult,
+      relationResult,
+      aliasResult,
+      bindingResult,
+      coverageResult,
+      allRuns,
+    ] = await Promise.all([
         this.pool.query<{
           id: string;
           provider_snapshot_id: string;
           valid_from: Date | null;
           valid_to: Date | null;
           source_id: string | null;
+          source_type: string | null;
+          source_url: string | null;
+          source_title: string | null;
+          source_author: string | null;
+          source_published_at: Date | null;
+          source_retrieved_at: Date | null;
+          source_content_sha256: string | null;
         }>(
-          `SELECT id, provider_snapshot_id, valid_from, valid_to, source_id
-           FROM modelapse.model_snapshots
-           WHERE model_id = $1
-           ORDER BY valid_from DESC NULLS LAST, provider_snapshot_id`,
+          `SELECT
+             ms.id,
+             ms.provider_snapshot_id,
+             ms.valid_from,
+             ms.valid_to,
+             ms.source_id,
+             source.source_type,
+             source.url AS source_url,
+             source.title AS source_title,
+             source.author AS source_author,
+             source.published_at AS source_published_at,
+             source.retrieved_at AS source_retrieved_at,
+             source.content_sha256 AS source_content_sha256
+           FROM modelapse.model_snapshots ms
+           LEFT JOIN modelapse.source_records source ON source.id = ms.source_id
+           WHERE ms.model_id = $1
+           ORDER BY ms.valid_from DESC NULLS LAST, ms.provider_snapshot_id`,
           [modelId],
         ),
         this.pool.query<{
@@ -826,6 +988,13 @@ export class PgArchiveRepository {
           valid_from: Date | null;
           valid_to: Date | null;
           source_id: string | null;
+          source_type: string | null;
+          source_url: string | null;
+          source_title: string | null;
+          source_author: string | null;
+          source_published_at: Date | null;
+          source_retrieved_at: Date | null;
+          source_content_sha256: string | null;
           confidence: string;
         }>(
           `SELECT
@@ -842,6 +1011,13 @@ export class PgArchiveRepository {
              mr.valid_from,
              mr.valid_to,
              mr.source_id,
+             source.source_type,
+             source.url AS source_url,
+             source.title AS source_title,
+             source.author AS source_author,
+             source.published_at AS source_published_at,
+             source.retrieved_at AS source_retrieved_at,
+             source.content_sha256 AS source_content_sha256,
              mr.confidence::text AS confidence
            FROM modelapse.model_relations mr
            JOIN modelapse.models related
@@ -850,8 +1026,121 @@ export class PgArchiveRepository {
                ELSE mr.from_model_id
              END
            JOIN modelapse.providers rp ON rp.id = related.provider_id
+           LEFT JOIN modelapse.source_records source ON source.id = mr.source_id
            WHERE mr.from_model_id = $1 OR mr.to_model_id = $1
            ORDER BY mr.valid_from DESC NULLS LAST, mr.relation_type`,
+          [modelId],
+        ),
+        this.pool.query<{
+          id: string;
+          alias_id: string;
+          alias_value: string;
+          observed_at: Date;
+          source_type_observed: string;
+          confidence: string;
+          resolved_model_id: string | null;
+          resolved_snapshot_id: string | null;
+          provider_snapshot_id: string | null;
+          source_id: string | null;
+          source_type: string | null;
+          source_url: string | null;
+          source_title: string | null;
+          source_author: string | null;
+          source_published_at: Date | null;
+          source_retrieved_at: Date | null;
+          source_content_sha256: string | null;
+        }>(
+          `SELECT
+             are.id,
+             ma.id AS alias_id,
+             ma.alias AS alias_value,
+             are.observed_at,
+             are.source_type AS source_type_observed,
+             are.confidence::text AS confidence,
+             are.resolved_model_id,
+             are.resolved_snapshot_id,
+             ms.provider_snapshot_id,
+             source.id AS source_id,
+             source.source_type,
+             source.url AS source_url,
+             source.title AS source_title,
+             source.author AS source_author,
+             source.published_at AS source_published_at,
+             source.retrieved_at AS source_retrieved_at,
+             source.content_sha256 AS source_content_sha256
+           FROM modelapse.alias_resolution_events are
+           JOIN modelapse.model_aliases ma ON ma.id = are.alias_id
+           LEFT JOIN modelapse.model_snapshots ms ON ms.id = are.resolved_snapshot_id
+           LEFT JOIN modelapse.source_records source ON source.id = are.source_id
+           WHERE are.resolved_model_id = $1
+              OR ms.model_id = $1
+           ORDER BY are.observed_at DESC, are.id`,
+          [modelId],
+        ),
+        this.pool.query<{
+          id: string;
+          api_model_id: string;
+          valid_from: Date;
+          valid_to: Date | null;
+          created_at: Date;
+          endpoint_id: string;
+          endpoint_path: string;
+          endpoint_base_url: string;
+          endpoint_hostname: string;
+          endpoint_source_id: string | null;
+          endpoint_source_type: string | null;
+          endpoint_source_url: string | null;
+          endpoint_source_title: string | null;
+          endpoint_source_author: string | null;
+          endpoint_source_published_at: Date | null;
+          endpoint_source_retrieved_at: Date | null;
+          endpoint_source_content_sha256: string | null;
+          snapshot_id: string | null;
+          provider_snapshot_id: string | null;
+          source_id: string;
+          source_type: string;
+          source_url: string | null;
+          source_title: string | null;
+          source_author: string | null;
+          source_published_at: Date | null;
+          source_retrieved_at: Date;
+          source_content_sha256: string | null;
+        }>(
+          `SELECT
+             meb.id,
+             meb.api_model_id,
+             meb.valid_from,
+             meb.valid_to,
+             meb.created_at,
+             pe.id AS endpoint_id,
+             pe.path AS endpoint_path,
+             pe.base_url AS endpoint_base_url,
+             pe.hostname AS endpoint_hostname,
+             endpoint_source.id AS endpoint_source_id,
+             endpoint_source.source_type AS endpoint_source_type,
+             endpoint_source.url AS endpoint_source_url,
+             endpoint_source.title AS endpoint_source_title,
+             endpoint_source.author AS endpoint_source_author,
+             endpoint_source.published_at AS endpoint_source_published_at,
+             endpoint_source.retrieved_at AS endpoint_source_retrieved_at,
+             endpoint_source.content_sha256 AS endpoint_source_content_sha256,
+             ms.id AS snapshot_id,
+             ms.provider_snapshot_id,
+             source.id AS source_id,
+             source.source_type,
+             source.url AS source_url,
+             source.title AS source_title,
+             source.author AS source_author,
+             source.published_at AS source_published_at,
+             source.retrieved_at AS source_retrieved_at,
+             source.content_sha256 AS source_content_sha256
+           FROM modelapse.model_execution_bindings meb
+           JOIN modelapse.provider_endpoints pe ON pe.id = meb.endpoint_id
+           JOIN modelapse.source_records source ON source.id = meb.source_id
+           LEFT JOIN modelapse.source_records endpoint_source ON endpoint_source.id = pe.source_id
+           LEFT JOIN modelapse.model_snapshots ms ON ms.id = meb.snapshot_id
+           WHERE meb.model_id = $1
+           ORDER BY meb.valid_from DESC, meb.created_at DESC`,
           [modelId],
         ),
         this.pool.query<{
@@ -893,6 +1182,7 @@ export class PgArchiveRepository {
         validFrom: snapshot.valid_from?.toISOString() ?? null,
         validTo: snapshot.valid_to?.toISOString() ?? null,
         sourceId: snapshot.source_id,
+        source: archiveSourceView(snapshot),
       }),
     );
 
@@ -910,8 +1200,168 @@ export class PgArchiveRepository {
         validFrom: relation.valid_from?.toISOString() ?? null,
         validTo: relation.valid_to?.toISOString() ?? null,
         sourceId: relation.source_id,
+        source: archiveSourceView(relation),
         confidence: Number(relation.confidence),
       }),
+    );
+
+    const canonicalSource = archiveSourceView(row);
+
+    const aliasResolutions: ArchiveModelAliasResolutionView[] =
+      aliasResult.rows.map((alias) => ({
+        id: alias.id,
+        alias: {
+          id: alias.alias_id,
+          value: alias.alias_value,
+        },
+        observedAt: alias.observed_at.toISOString(),
+        sourceType: alias.source_type_observed,
+        confidence: Number(alias.confidence),
+        resolvedModelId: alias.resolved_model_id,
+        resolvedSnapshot:
+          alias.resolved_snapshot_id && alias.provider_snapshot_id
+            ? {
+                id: alias.resolved_snapshot_id,
+                providerSnapshotId: alias.provider_snapshot_id,
+              }
+            : null,
+        source: archiveSourceView(alias),
+      }));
+
+    const executionBindings: ArchiveModelExecutionBindingView[] =
+      bindingResult.rows.map((binding) => {
+        const endpointSource = archiveSourceView({
+          source_id: binding.endpoint_source_id,
+          source_type: binding.endpoint_source_type,
+          source_url: binding.endpoint_source_url,
+          source_title: binding.endpoint_source_title,
+          source_author: binding.endpoint_source_author,
+          source_published_at: binding.endpoint_source_published_at,
+          source_retrieved_at: binding.endpoint_source_retrieved_at,
+          source_content_sha256: binding.endpoint_source_content_sha256,
+        });
+        const bindingSource = archiveSourceView(binding);
+        if (!bindingSource) {
+          throw new Error(
+            "Model execution binding is missing its required source record",
+          );
+        }
+        return {
+          id: binding.id,
+          apiModelId: binding.api_model_id,
+          validFrom: binding.valid_from.toISOString(),
+          validTo: binding.valid_to?.toISOString() ?? null,
+          createdAt: binding.created_at.toISOString(),
+          endpoint: {
+            id: binding.endpoint_id,
+            path: binding.endpoint_path,
+            baseUrl: binding.endpoint_base_url,
+            hostname: binding.endpoint_hostname,
+            source: endpointSource,
+          },
+          snapshot:
+            binding.snapshot_id && binding.provider_snapshot_id
+              ? {
+                  id: binding.snapshot_id,
+                  providerSnapshotId: binding.provider_snapshot_id,
+                }
+              : null,
+          source: bindingSource,
+        };
+      });
+
+    const identityTimeline: ArchiveIdentityTimelineEventView[] = [];
+
+    if (canonicalSource) {
+      identityTimeline.push({
+        id: `source:${canonicalSource.id}:canonical`,
+        kind: "canonical_source",
+        occurredAt: canonicalSource.retrievedAt,
+        title: "Canonical identity source recorded",
+        description:
+          canonicalSource.title ?? canonicalSource.url ?? canonicalSource.sourceType,
+        source: canonicalSource,
+        aliasId: null,
+        bindingId: null,
+        snapshotId: null,
+      });
+    }
+
+    for (const alias of aliasResolutions) {
+      identityTimeline.push({
+        id: `alias-resolution:${alias.id}`,
+        kind: "alias_resolution",
+        occurredAt: alias.observedAt,
+        title: `Alias observed · ${alias.alias.value}`,
+        description: alias.resolvedSnapshot
+          ? `resolved to snapshot ${alias.resolvedSnapshot.providerSnapshotId}`
+          : `resolved to canonical model ${row.canonical_slug}`,
+        source: alias.source,
+        aliasId: alias.alias.id,
+        bindingId: null,
+        snapshotId: alias.resolvedSnapshot?.id ?? null,
+      });
+    }
+
+    for (const binding of executionBindings) {
+      identityTimeline.push({
+        id: `binding:${binding.id}:start`,
+        kind: "binding_started",
+        occurredAt: binding.validFrom,
+        title: "Execution binding became valid",
+        description: `${binding.apiModelId} · ${binding.endpoint.hostname}`,
+        source: binding.source,
+        aliasId: null,
+        bindingId: binding.id,
+        snapshotId: binding.snapshot?.id ?? null,
+      });
+      if (binding.validTo) {
+        identityTimeline.push({
+          id: `binding:${binding.id}:end`,
+          kind: "binding_ended",
+          occurredAt: binding.validTo,
+          title: "Execution binding validity ended",
+          description: `${binding.apiModelId} · ${binding.endpoint.hostname}`,
+          source: binding.source,
+          aliasId: null,
+          bindingId: binding.id,
+          snapshotId: binding.snapshot?.id ?? null,
+        });
+      }
+    }
+
+    for (const snapshot of snapshots) {
+      if (snapshot.validFrom) {
+        identityTimeline.push({
+          id: `identity-snapshot:${snapshot.id}:start`,
+          kind: "snapshot_started",
+          occurredAt: snapshot.validFrom,
+          title: "Provider snapshot became valid",
+          description: snapshot.providerSnapshotId,
+          source: snapshot.source,
+          aliasId: null,
+          bindingId: null,
+          snapshotId: snapshot.id,
+        });
+      }
+      if (snapshot.validTo) {
+        identityTimeline.push({
+          id: `identity-snapshot:${snapshot.id}:end`,
+          kind: "snapshot_ended",
+          occurredAt: snapshot.validTo,
+          title: "Provider snapshot validity ended",
+          description: snapshot.providerSnapshotId,
+          source: snapshot.source,
+          aliasId: null,
+          bindingId: null,
+          snapshotId: snapshot.id,
+        });
+      }
+    }
+
+    identityTimeline.sort(
+      (left, right) =>
+        Date.parse(right.occurredAt) - Date.parse(left.occurredAt),
     );
 
     const timeline: ArchiveTimelineEventView[] = [];
@@ -1044,8 +1494,12 @@ export class PgArchiveRepository {
       releasedAt: row.released_at?.toISOString() ?? null,
       retiredAt: row.retired_at?.toISOString() ?? null,
       canonicalSourceId: row.canonical_source_id,
+      canonicalSource,
       snapshots,
       relations,
+      aliasResolutions,
+      executionBindings,
+      identityTimeline,
       testCoverage: coverageResult.rows.map((coverage) => ({
         testCaseId: coverage.test_case_id,
         familySlug: coverage.family_slug,
@@ -1067,11 +1521,28 @@ export class PgArchiveRepository {
       family_name: string;
       origin: string;
       canonical_source_id: string | null;
+      family_source_id: string | null;
+      family_source_type: string | null;
+      family_source_url: string | null;
+      family_source_title: string | null;
+      family_source_author: string | null;
+      family_source_published_at: Date | null;
+      family_source_retrieved_at: Date | null;
+      family_source_content_sha256: string | null;
+      variant_id: string;
       variant_slug: string;
       variant_name: string;
       category: string;
       artifact_type: string;
       version: string;
+      version_source_id: string | null;
+      version_source_type: string | null;
+      version_source_url: string | null;
+      version_source_title: string | null;
+      version_source_author: string | null;
+      version_source_published_at: Date | null;
+      version_source_retrieved_at: Date | null;
+      version_source_content_sha256: string | null;
       version_status: string;
       definition_sha256: string;
       license: string | null;
@@ -1096,11 +1567,28 @@ export class PgArchiveRepository {
          tf.name AS family_name,
          tf.origin,
          tf.canonical_source_id,
+         family_source.id AS family_source_id,
+         family_source.source_type AS family_source_type,
+         family_source.url AS family_source_url,
+         family_source.title AS family_source_title,
+         family_source.author AS family_source_author,
+         family_source.published_at AS family_source_published_at,
+         family_source.retrieved_at AS family_source_retrieved_at,
+         family_source.content_sha256 AS family_source_content_sha256,
+         tvar.id AS variant_id,
          tvar.slug AS variant_slug,
          tvar.name AS variant_name,
          tvar.category,
          tvar.artifact_type,
          tv.version,
+         version_source.id AS version_source_id,
+         version_source.source_type AS version_source_type,
+         version_source.url AS version_source_url,
+         version_source.title AS version_source_title,
+         version_source.author AS version_source_author,
+         version_source.published_at AS version_source_published_at,
+         version_source.retrieved_at AS version_source_retrieved_at,
+         version_source.content_sha256 AS version_source_content_sha256,
          tv.status AS version_status,
          tv.definition_sha256,
          tv.license,
@@ -1127,6 +1615,10 @@ export class PgArchiveRepository {
        JOIN modelapse.test_versions tv ON tv.id = tc.test_version_id
        JOIN modelapse.test_variants tvar ON tvar.id = tv.variant_id
        JOIN modelapse.test_families tf ON tf.id = tvar.family_id
+       LEFT JOIN modelapse.source_records family_source
+         ON family_source.id = tf.canonical_source_id
+       LEFT JOIN modelapse.source_records version_source
+         ON version_source.id = tv.source_id
        LEFT JOIN LATERAL (
          SELECT e.slug, e.version, e.kind, e.definition_sha256
          FROM modelapse.test_version_evaluators tve
@@ -1144,7 +1636,7 @@ export class PgArchiveRepository {
     const row = testResult.rows[0];
     if (!row) return null;
 
-    const [coverageResult, recentRuns] = await Promise.all([
+    const [coverageResult, versionHistoryResult, recentRuns] = await Promise.all([
       this.pool.query<{
         model_id: string;
         canonical_slug: string;
@@ -1169,8 +1661,131 @@ export class PgArchiveRepository {
          ORDER BY MAX(r.completed_at) DESC NULLS LAST, p.slug, m.marketing_name`,
         [testCaseId],
       ),
+      this.pool.query<{
+        id: string;
+        version: string;
+        status: string;
+        definition_sha256: string;
+        license: string | null;
+        published_at: Date | null;
+        created_at: Date;
+        source_id: string | null;
+        source_type: string | null;
+        source_url: string | null;
+        source_title: string | null;
+        source_author: string | null;
+        source_published_at: Date | null;
+        source_retrieved_at: Date | null;
+        source_content_sha256: string | null;
+        evaluator_slug: string | null;
+        evaluator_version: string | null;
+        evaluator_kind: string | null;
+        public_case_count: string;
+        linked_test_case_id: string | null;
+      }>(
+        `SELECT
+           tv.id,
+           tv.version,
+           tv.status,
+           tv.definition_sha256,
+           tv.license,
+           tv.published_at,
+           tv.created_at,
+           source.id AS source_id,
+           source.source_type,
+           source.url AS source_url,
+           source.title AS source_title,
+           source.author AS source_author,
+           source.published_at AS source_published_at,
+           source.retrieved_at AS source_retrieved_at,
+           source.content_sha256 AS source_content_sha256,
+           evaluator.slug AS evaluator_slug,
+           evaluator.version AS evaluator_version,
+           evaluator.kind AS evaluator_kind,
+           (
+             SELECT COUNT(*)::text
+             FROM modelapse.test_cases public_case
+             WHERE public_case.test_version_id = tv.id
+               AND public_case.visibility = 'public'
+           ) AS public_case_count,
+           linked_case.id AS linked_test_case_id
+         FROM modelapse.test_versions tv
+         LEFT JOIN modelapse.source_records source ON source.id = tv.source_id
+         LEFT JOIN LATERAL (
+           SELECT e.slug, e.version, e.kind
+           FROM modelapse.test_version_evaluators tve
+           JOIN modelapse.evaluators e ON e.id = tve.evaluator_id
+           WHERE tve.test_version_id = tv.id
+           ORDER BY e.slug, e.version
+           LIMIT 1
+         ) evaluator ON true
+         LEFT JOIN LATERAL (
+           SELECT public_case.id
+           FROM modelapse.test_cases public_case
+           WHERE public_case.test_version_id = tv.id
+             AND public_case.visibility = 'public'
+             AND public_case.slug = $2
+           ORDER BY public_case.id
+           LIMIT 1
+         ) linked_case ON true
+         WHERE tv.variant_id = $1
+           AND EXISTS (
+             SELECT 1
+             FROM modelapse.test_cases public_case
+             WHERE public_case.test_version_id = tv.id
+               AND public_case.visibility = 'public'
+           )
+         ORDER BY tv.published_at DESC NULLS LAST, tv.created_at DESC, tv.version DESC`,
+        [row.variant_id, row.case_slug],
+      ),
       this.listRuns({ testCaseId, limit: 50 }),
     ]);
+
+    const canonicalSource = archiveSourceView({
+      source_id: row.family_source_id,
+      source_type: row.family_source_type,
+      source_url: row.family_source_url,
+      source_title: row.family_source_title,
+      source_author: row.family_source_author,
+      source_published_at: row.family_source_published_at,
+      source_retrieved_at: row.family_source_retrieved_at,
+      source_content_sha256: row.family_source_content_sha256,
+    });
+
+    const versionSource = archiveSourceView({
+      source_id: row.version_source_id,
+      source_type: row.version_source_type,
+      source_url: row.version_source_url,
+      source_title: row.version_source_title,
+      source_author: row.version_source_author,
+      source_published_at: row.version_source_published_at,
+      source_retrieved_at: row.version_source_retrieved_at,
+      source_content_sha256: row.version_source_content_sha256,
+    });
+
+    const versionHistory: ArchiveTestVersionHistoryView[] =
+      versionHistoryResult.rows.map((version) => ({
+        id: version.id,
+        version: version.version,
+        status: version.status,
+        definitionSha256: version.definition_sha256,
+        license: version.license,
+        publishedAt: version.published_at?.toISOString() ?? null,
+        createdAt: version.created_at.toISOString(),
+        source: archiveSourceView(version),
+        evaluator:
+          version.evaluator_slug &&
+          version.evaluator_version &&
+          version.evaluator_kind
+            ? {
+                slug: version.evaluator_slug,
+                version: version.evaluator_version,
+                kind: version.evaluator_kind,
+              }
+            : null,
+        publicCaseCount: Number(version.public_case_count),
+        linkedTestCaseId: version.linked_test_case_id,
+      }));
 
     return {
       testCaseId: row.test_case_id,
@@ -1193,6 +1808,9 @@ export class PgArchiveRepository {
       runCount: Number(row.run_count),
       origin: row.origin,
       canonicalSourceId: row.canonical_source_id,
+      canonicalSource,
+      versionSource,
+      versionHistory,
       versionStatus: row.version_status,
       definitionSha256: row.definition_sha256,
       license: row.license,
