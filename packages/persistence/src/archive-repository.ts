@@ -862,6 +862,14 @@ export class PgArchiveRepository {
       released_at: Date | null;
       retired_at: Date | null;
       canonical_source_id: string | null;
+      source_id: string | null;
+      source_type: string | null;
+      source_url: string | null;
+      source_title: string | null;
+      source_author: string | null;
+      source_published_at: Date | null;
+      source_retrieved_at: Date | null;
+      source_content_sha256: string | null;
       family_id: string | null;
       family_slug: string | null;
       family_name: string | null;
@@ -883,6 +891,14 @@ export class PgArchiveRepository {
          m.released_at,
          m.retired_at,
          m.canonical_source_id,
+         canonical_source.id AS source_id,
+         canonical_source.source_type,
+         canonical_source.url AS source_url,
+         canonical_source.title AS source_title,
+         canonical_source.author AS source_author,
+         canonical_source.published_at AS source_published_at,
+         canonical_source.retrieved_at AS source_retrieved_at,
+         canonical_source.content_sha256 AS source_content_sha256,
          mf.id AS family_id,
          mf.slug AS family_slug,
          mf.display_name AS family_name,
@@ -908,6 +924,8 @@ export class PgArchiveRepository {
          ) AS latest_run_at
        FROM modelapse.models m
        JOIN modelapse.providers p ON p.id = m.provider_id
+       LEFT JOIN modelapse.source_records canonical_source
+         ON canonical_source.id = m.canonical_source_id
        LEFT JOIN modelapse.model_families mf ON mf.id = m.family_id
        LEFT JOIN modelapse.model_tracks mt ON mt.id = m.track_id
        WHERE m.id = $1
@@ -918,19 +936,45 @@ export class PgArchiveRepository {
     const row = modelResult.rows[0];
     if (!row) return null;
 
-    const [snapshotResult, relationResult, coverageResult, allRuns] =
-      await Promise.all([
+    const [
+      snapshotResult,
+      relationResult,
+      aliasResult,
+      bindingResult,
+      coverageResult,
+      allRuns,
+    ] = await Promise.all([
         this.pool.query<{
           id: string;
           provider_snapshot_id: string;
           valid_from: Date | null;
           valid_to: Date | null;
           source_id: string | null;
+          source_type: string | null;
+          source_url: string | null;
+          source_title: string | null;
+          source_author: string | null;
+          source_published_at: Date | null;
+          source_retrieved_at: Date | null;
+          source_content_sha256: string | null;
         }>(
-          `SELECT id, provider_snapshot_id, valid_from, valid_to, source_id
-           FROM modelapse.model_snapshots
-           WHERE model_id = $1
-           ORDER BY valid_from DESC NULLS LAST, provider_snapshot_id`,
+          `SELECT
+             ms.id,
+             ms.provider_snapshot_id,
+             ms.valid_from,
+             ms.valid_to,
+             ms.source_id,
+             source.source_type,
+             source.url AS source_url,
+             source.title AS source_title,
+             source.author AS source_author,
+             source.published_at AS source_published_at,
+             source.retrieved_at AS source_retrieved_at,
+             source.content_sha256 AS source_content_sha256
+           FROM modelapse.model_snapshots ms
+           LEFT JOIN modelapse.source_records source ON source.id = ms.source_id
+           WHERE ms.model_id = $1
+           ORDER BY ms.valid_from DESC NULLS LAST, ms.provider_snapshot_id`,
           [modelId],
         ),
         this.pool.query<{
@@ -944,6 +988,13 @@ export class PgArchiveRepository {
           valid_from: Date | null;
           valid_to: Date | null;
           source_id: string | null;
+          source_type: string | null;
+          source_url: string | null;
+          source_title: string | null;
+          source_author: string | null;
+          source_published_at: Date | null;
+          source_retrieved_at: Date | null;
+          source_content_sha256: string | null;
           confidence: string;
         }>(
           `SELECT
@@ -960,6 +1011,13 @@ export class PgArchiveRepository {
              mr.valid_from,
              mr.valid_to,
              mr.source_id,
+             source.source_type,
+             source.url AS source_url,
+             source.title AS source_title,
+             source.author AS source_author,
+             source.published_at AS source_published_at,
+             source.retrieved_at AS source_retrieved_at,
+             source.content_sha256 AS source_content_sha256,
              mr.confidence::text AS confidence
            FROM modelapse.model_relations mr
            JOIN modelapse.models related
@@ -968,8 +1026,121 @@ export class PgArchiveRepository {
                ELSE mr.from_model_id
              END
            JOIN modelapse.providers rp ON rp.id = related.provider_id
+           LEFT JOIN modelapse.source_records source ON source.id = mr.source_id
            WHERE mr.from_model_id = $1 OR mr.to_model_id = $1
            ORDER BY mr.valid_from DESC NULLS LAST, mr.relation_type`,
+          [modelId],
+        ),
+        this.pool.query<{
+          id: string;
+          alias_id: string;
+          alias_value: string;
+          observed_at: Date;
+          source_type_observed: string;
+          confidence: string;
+          resolved_model_id: string | null;
+          resolved_snapshot_id: string | null;
+          provider_snapshot_id: string | null;
+          source_id: string | null;
+          source_type: string | null;
+          source_url: string | null;
+          source_title: string | null;
+          source_author: string | null;
+          source_published_at: Date | null;
+          source_retrieved_at: Date | null;
+          source_content_sha256: string | null;
+        }>(
+          `SELECT
+             are.id,
+             ma.id AS alias_id,
+             ma.alias AS alias_value,
+             are.observed_at,
+             are.source_type AS source_type_observed,
+             are.confidence::text AS confidence,
+             are.resolved_model_id,
+             are.resolved_snapshot_id,
+             ms.provider_snapshot_id,
+             source.id AS source_id,
+             source.source_type,
+             source.url AS source_url,
+             source.title AS source_title,
+             source.author AS source_author,
+             source.published_at AS source_published_at,
+             source.retrieved_at AS source_retrieved_at,
+             source.content_sha256 AS source_content_sha256
+           FROM modelapse.alias_resolution_events are
+           JOIN modelapse.model_aliases ma ON ma.id = are.alias_id
+           LEFT JOIN modelapse.model_snapshots ms ON ms.id = are.resolved_snapshot_id
+           LEFT JOIN modelapse.source_records source ON source.id = are.source_id
+           WHERE are.resolved_model_id = $1
+              OR ms.model_id = $1
+           ORDER BY are.observed_at DESC, are.id`,
+          [modelId],
+        ),
+        this.pool.query<{
+          id: string;
+          api_model_id: string;
+          valid_from: Date;
+          valid_to: Date | null;
+          created_at: Date;
+          endpoint_id: string;
+          endpoint_path: string;
+          endpoint_base_url: string;
+          endpoint_hostname: string;
+          endpoint_source_id: string | null;
+          endpoint_source_type: string | null;
+          endpoint_source_url: string | null;
+          endpoint_source_title: string | null;
+          endpoint_source_author: string | null;
+          endpoint_source_published_at: Date | null;
+          endpoint_source_retrieved_at: Date | null;
+          endpoint_source_content_sha256: string | null;
+          snapshot_id: string | null;
+          provider_snapshot_id: string | null;
+          source_id: string;
+          source_type: string;
+          source_url: string | null;
+          source_title: string | null;
+          source_author: string | null;
+          source_published_at: Date | null;
+          source_retrieved_at: Date;
+          source_content_sha256: string | null;
+        }>(
+          `SELECT
+             meb.id,
+             meb.api_model_id,
+             meb.valid_from,
+             meb.valid_to,
+             meb.created_at,
+             pe.id AS endpoint_id,
+             pe.path AS endpoint_path,
+             pe.base_url AS endpoint_base_url,
+             pe.hostname AS endpoint_hostname,
+             endpoint_source.id AS endpoint_source_id,
+             endpoint_source.source_type AS endpoint_source_type,
+             endpoint_source.url AS endpoint_source_url,
+             endpoint_source.title AS endpoint_source_title,
+             endpoint_source.author AS endpoint_source_author,
+             endpoint_source.published_at AS endpoint_source_published_at,
+             endpoint_source.retrieved_at AS endpoint_source_retrieved_at,
+             endpoint_source.content_sha256 AS endpoint_source_content_sha256,
+             ms.id AS snapshot_id,
+             ms.provider_snapshot_id,
+             source.id AS source_id,
+             source.source_type,
+             source.url AS source_url,
+             source.title AS source_title,
+             source.author AS source_author,
+             source.published_at AS source_published_at,
+             source.retrieved_at AS source_retrieved_at,
+             source.content_sha256 AS source_content_sha256
+           FROM modelapse.model_execution_bindings meb
+           JOIN modelapse.provider_endpoints pe ON pe.id = meb.endpoint_id
+           JOIN modelapse.source_records source ON source.id = meb.source_id
+           LEFT JOIN modelapse.source_records endpoint_source ON endpoint_source.id = pe.source_id
+           LEFT JOIN modelapse.model_snapshots ms ON ms.id = meb.snapshot_id
+           WHERE meb.model_id = $1
+           ORDER BY meb.valid_from DESC, meb.created_at DESC`,
           [modelId],
         ),
         this.pool.query<{
