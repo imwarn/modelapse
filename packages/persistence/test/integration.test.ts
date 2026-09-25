@@ -246,17 +246,11 @@ describe("PostgreSQL Run persistence", () => {
           version,
           status,
           definition_sha256,
-          published_at,
           source_id
         )
-       VALUES ($1, '0.9.0', 'published', $2, $3, $4)
+       VALUES ($1, '0.9.0', 'draft', $2, $3)
        RETURNING id`,
-      [
-        variant.rows[0]!.id,
-        previousDefinitionHash,
-        "2026-08-15T00:00:00.000Z",
-        sourceId,
-      ],
+      [variant.rows[0]!.id, previousDefinitionHash, sourceId],
     );
 
     const previousCase = await seedPool.query<{ id: string }>(
@@ -267,6 +261,14 @@ describe("PostgreSQL Run persistence", () => {
       [previousVersion.rows[0]!.id, promptHash],
     );
     previousTestCaseId = previousCase.rows[0]!.id;
+
+    await seedPool.query(
+      `UPDATE modelapse.test_versions
+          SET status = 'published',
+              published_at = $2
+        WHERE id = $1`,
+      [previousVersion.rows[0]!.id, "2026-08-15T00:00:00.000Z"],
+    );
 
     const version = await seedPool.query<{ id: string }>(
       `INSERT INTO modelapse.test_versions
