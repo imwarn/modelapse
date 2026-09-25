@@ -337,6 +337,156 @@ Run evidence
 
 A sourced alias or binding does not upgrade Run Evidence level, and a sealed Run does not by itself rewrite canonical catalog identity.
 
+## Archive v0.6: Catalog Change Detection / Identity Drift
+
+v0.6 turns the sourced identity history introduced in v0.5 into an explicit change feed.
+
+The guiding rule is:
+
+```text
+observation != change
+change = a sourced chronological transition between two different identity states
+```
+
+Repeated observations of the same alias target are retained as provenance, but they do not become drift events. A drift event appears only when consecutive comparable records differ.
+
+### Derived, not authoritative
+
+Catalog drift is intentionally a derived Archive view rather than a mutable event ledger.
+
+Migration `0008_catalog_identity_drift.sql` creates:
+
+```text
+modelapse.catalog_identity_drift_events
+```
+
+from the underlying temporal records with windowed predecessor comparisons.
+
+This keeps the dependency direction explicit:
+
+```text
+source record
+  -> alias observation / execution binding
+  -> derived drift event
+```
+
+and never:
+
+```text
+drift event
+  -> rewrite canonical identity
+```
+
+If historical source-backed catalog facts are backfilled before later observations, the derived view can be recomputed from those facts instead of leaving a stale copied change record behind.
+
+### Alias target drift
+
+Alias history is compared independently for each provider alias.
+
+A public `alias_target_changed` event is emitted when a later sourced observation changes one or both of:
+
+```text
+resolved canonical Model
+resolved provider Snapshot
+```
+
+A repeated observation of the same Model + Snapshot produces no drift event.
+
+Alias observations become append-only in v0.6. New inserts are also checked for provider consistency:
+
+- the alias provider must match the resolved Model provider;
+- a resolved Snapshot must belong to a Model from that provider;
+- when both Model and Snapshot are present, the Snapshot must belong to that exact Model.
+
+### Execution-binding drift
+
+Execution bindings are compared as temporal routes for the same canonical Model and execution-path class.
+
+A public `execution_binding_changed` event can report changes to:
+
+```text
+endpoint
+api_model
+snapshot
+```
+
+The view only treats a binding as a replacement when the predecessor is explicitly closed and its `valid_to` is not later than the successor's `valid_from`. Parallel routes are therefore not automatically interpreted as a replacement.
+
+v0.6 also protects execution-binding history:
+
+- binding identity fields are immutable after insert;
+- a current binding may be closed once by setting `valid_to`;
+- a closed binding cannot be reopened or rewritten;
+- bindings cannot be deleted.
+
+### First-party identity observer
+
+`PgModelCatalogAdmin.observeFirstPartyIdentity(...)` is the first ingestion primitive intended for repeated catalog observations rather than one-time bootstrap.
+
+Each invocation records a fresh `source_records` row for that retrieval. This is deliberate: two retrievals of the same provider documentation URL are distinct observations even when their human-readable title is unchanged.
+
+For one canonical Model the observer:
+
+1. resolves the sourced first-party direct endpoint valid at the observation time;
+2. records a fresh source observation;
+3. resolves or creates the observed provider Snapshot;
+4. compares the current logical first-party-direct execution binding;
+5. closes and replaces that binding only when endpoint/API-model/Snapshot identity changed;
+6. appends a chronological alias-resolution observation.
+
+The observer serializes updates with a per-Model PostgreSQL advisory transaction lock and rejects ambiguous multiple-current-direct-binding state.
+
+### Public change feed
+
+Public API:
+
+```text
+GET /v1/archive/changes
+GET /v1/archive/changes?modelId=<UUID>
+GET /v1/archive/changes?provider=<provider-slug>
+GET /v1/archive/changes?limit=<1-100>
+```
+
+The response exposes only Archive-safe identity states and source summaries.
+
+Each event contains:
+
+```text
+changeType
+occurredAt
+provider
+alias (when applicable)
+changedFields
+previous identity state
+current identity state
+previous source summary
+current source summary
+```
+
+The underlying `raw_observation` and `source_records.metadata` remain outside the public contract.
+
+### Archive UI
+
+The public `/changes` route presents the latest detected identity transitions with client-side Provider / Model / change-type filters.
+
+Model Detail also embeds the changes touching that canonical Model under **Identity Drift**.
+
+The UI renders explicit **Before → After** states. It does not assign severity, infer intent, claim that a provider silently changed a model, or turn catalog drift into a model-quality judgment.
+
+### Drift vs Run behavior
+
+Identity drift and model-output changes remain separate dimensions:
+
+```text
+Catalog drift
+  = provider/catalog identity facts changed
+
+Run variation
+  = two executions produced different captured/evaluated results
+```
+
+A catalog drift event does not prove a behavioral regression or improvement. A changed Run result does not prove that the provider alias or execution binding changed.
+
 ## Deliberately deferred
 
 - general user login/session management;
