@@ -29,11 +29,14 @@ describe("PostgreSQL Run persistence", () => {
   let modelId = "";
   let relatedModelId = "";
   let snapshotId = "";
+  let sourceId = "";
+  let previousTestCaseId = "";
 
   beforeAll(async () => {
     root = await mkdtemp(join(tmpdir(), "modelapse-integration-"));
     const suffix = randomUUID().slice(0, 8);
     const definitionHash = randomBytes(32).toString("hex");
+    const previousDefinitionHash = randomBytes(32).toString("hex");
     const promptHash = randomBytes(32).toString("hex");
 
     await seedPool.query(
@@ -50,6 +53,25 @@ describe("PostgreSQL Run persistence", () => {
       [`integration-router-${suffix}`, "Integration Router"],
     );
     providerId = provider.rows[0]!.id;
+
+    const source = await seedPool.query<{ id: string }>(
+      `INSERT INTO modelapse.source_records
+        (source_type, url, title, published_at, retrieved_at, content_sha256)
+       VALUES (
+         'provider_docs',
+         $1,
+         'Integration provider identity source',
+         '2026-08-31T00:00:00.000Z',
+         '2026-09-01T00:00:00.000Z',
+         $2
+       )
+       RETURNING id`,
+      [
+        `https://router.fake.test/docs/${suffix}`,
+        randomBytes(32).toString("hex"),
+      ],
+    );
+    sourceId = source.rows[0]!.id;
 
     const modelFamily = await seedPool.query<{ id: string }>(
       `INSERT INTO modelapse.model_families
@@ -76,9 +98,10 @@ describe("PostgreSQL Run persistence", () => {
           canonical_slug,
           marketing_name,
           released_at,
-          status
+          status,
+          canonical_source_id
         )
-       VALUES ($1, $2, $3, $4, 'Integration Model', $5, 'active')
+       VALUES ($1, $2, $3, $4, 'Integration Model', $5, 'active', $6)
        RETURNING id`,
       [
         providerId,
@@ -86,6 +109,7 @@ describe("PostgreSQL Run persistence", () => {
         modelTrack.rows[0]!.id,
         `integration-model-${suffix}`,
         "2026-09-01T00:00:00.000Z",
+        sourceId,
       ],
     );
     modelId = model.rows[0]!.id;
@@ -115,25 +139,96 @@ describe("PostgreSQL Run persistence", () => {
 
     const snapshot = await seedPool.query<{ id: string }>(
       `INSERT INTO modelapse.model_snapshots
-        (model_id, provider_snapshot_id, valid_from)
-       VALUES ($1, $2, $3)
+        (model_id, provider_snapshot_id, valid_from, source_id)
+       VALUES ($1, $2, $3, $4)
        RETURNING id`,
-      [modelId, `integration-snapshot-${suffix}`, "2026-09-01T00:00:00.000Z"],
+      [
+        modelId,
+        `integration-snapshot-${suffix}`,
+        "2026-09-01T00:00:00.000Z",
+        sourceId,
+      ],
     );
     snapshotId = snapshot.rows[0]!.id;
 
     await seedPool.query(
       `INSERT INTO modelapse.model_relations
-        (from_model_id, to_model_id, relation_type, valid_from, confidence)
-       VALUES ($1, $2, 'successor_of', $3, 1.0)`,
-      [relatedModelId, modelId, "2026-09-20T00:00:00.000Z"],
+        (from_model_id, to_model_id, relation_type, valid_from, source_id, confidence)
+       VALUES ($1, $2, 'successor_of', $3, $4, 1.0)`,
+      [relatedModelId, modelId, "2026-09-20T00:00:00.000Z", sourceId],
+    );
+
+    const endpoint = await seedPool.query<{ id: string }>(
+      `INSERT INTO modelapse.provider_endpoints
+        (provider_id, path, base_url, hostname, valid_from, source_id)
+       VALUES ($1, 'routed_provider', $2, 'router.fake.test', $3, $4)
+       RETURNING id`,
+      [
+        providerId,
+        `https://router.fake.test/${suffix}`,
+        "2026-09-01T00:00:00.000Z",
+        sourceId,
+      ],
+    );
+
+    await seedPool.query(
+      `INSERT INTO modelapse.model_execution_bindings
+        (
+          model_id,
+          endpoint_id,
+          api_model_id,
+          snapshot_id,
+          valid_from,
+          source_id
+        )
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        modelId,
+        endpoint.rows[0]!.id,
+        `integration-api-model-${suffix}`,
+        snapshotId,
+        "2026-09-01T00:00:00.000Z",
+        sourceId,
+      ],
+    );
+
+    const alias = await seedPool.query<{ id: string }>(
+      `INSERT INTO modelapse.model_aliases
+        (provider_id, alias)
+       VALUES ($1, $2)
+       RETURNING id`,
+      [providerId, `integration-api-model-${suffix}`],
+    );
+
+    await seedPool.query(
+      `INSERT INTO modelapse.alias_resolution_events
+        (
+          alias_id,
+          resolved_model_id,
+          resolved_snapshot_id,
+          observed_at,
+          source_type,
+          source_id,
+          confidence,
+          raw_observation
+        )
+       VALUES ($1, $2, $3, $4, 'provider_docs', $5, 1.0, $6::jsonb)`,
+      [
+        alias.rows[0]!.id,
+        modelId,
+        snapshotId,
+        "2026-09-02T00:00:00.000Z",
+        sourceId,
+        JSON.stringify({ privateNote: "must-not-leak" }),
+      ],
     );
 
     const family = await seedPool.query<{ id: string }>(
-      `INSERT INTO modelapse.test_families (slug, name, origin)
-       VALUES ($1, $2, 'modelapse')
+      `INSERT INTO modelapse.test_families
+        (slug, name, origin, canonical_source_id)
+       VALUES ($1, $2, 'modelapse', $3)
        RETURNING id`,
-      [`integration-${suffix}`, "Integration Test"],
+      [`integration-${suffix}`, "Integration Test", sourceId],
     );
 
     const variant = await seedPool.query<{ id: string }>(
@@ -144,12 +239,41 @@ describe("PostgreSQL Run persistence", () => {
       [family.rows[0]!.id],
     );
 
+    const previousVersion = await seedPool.query<{ id: string }>(
+      `INSERT INTO modelapse.test_versions
+        (
+          variant_id,
+          version,
+          status,
+          definition_sha256,
+          published_at,
+          source_id
+        )
+       VALUES ($1, '0.9.0', 'published', $2, $3, $4)
+       RETURNING id`,
+      [
+        variant.rows[0]!.id,
+        previousDefinitionHash,
+        "2026-08-15T00:00:00.000Z",
+        sourceId,
+      ],
+    );
+
+    const previousCase = await seedPool.query<{ id: string }>(
+      `INSERT INTO modelapse.test_cases
+        (test_version_id, slug, case_type, visibility, prompt_blob_sha256)
+       VALUES ($1, 'icon', 'icon', 'public', $2)
+       RETURNING id`,
+      [previousVersion.rows[0]!.id, promptHash],
+    );
+    previousTestCaseId = previousCase.rows[0]!.id;
+
     const version = await seedPool.query<{ id: string }>(
       `INSERT INTO modelapse.test_versions
-        (variant_id, version, status, definition_sha256)
-       VALUES ($1, '1.0.0', 'draft', $2)
+        (variant_id, version, status, definition_sha256, source_id)
+       VALUES ($1, '1.0.0', 'draft', $2, $3)
        RETURNING id`,
-      [variant.rows[0]!.id, definitionHash],
+      [variant.rows[0]!.id, definitionHash, sourceId],
     );
 
     const testCase = await seedPool.query<{ id: string }>(
@@ -366,7 +490,22 @@ describe("PostgreSQL Run persistence", () => {
       family: { displayName: "Integration Models" },
       track: { displayName: "Main" },
       runCount: 2,
-      snapshots: [{ id: snapshotId }],
+      canonicalSource: { id: sourceId, sourceType: "provider_docs" },
+      snapshots: [{ id: snapshotId, source: { id: sourceId } }],
+      aliasResolutions: [
+        {
+          alias: { value: expect.stringContaining("integration-api-model-") },
+          resolvedSnapshot: { id: snapshotId },
+          source: { id: sourceId },
+        },
+      ],
+      executionBindings: [
+        {
+          apiModelId: expect.stringContaining("integration-api-model-"),
+          snapshot: { id: snapshotId },
+          source: { id: sourceId },
+        },
+      ],
       testCoverage: [{ testCaseId, runCount: 2 }],
     });
     expect(
@@ -381,12 +520,42 @@ describe("PostgreSQL Run persistence", () => {
         (event) => event.kind === "run" && event.runId === result.run.id,
       ),
     ).toBe(true);
+    expect(
+      archivedModel?.identityTimeline.some(
+        (event) =>
+          event.kind === "alias_resolution" &&
+          event.snapshotId === snapshotId &&
+          event.source?.id === sourceId,
+      ),
+    ).toBe(true);
+    expect(
+      archivedModel?.identityTimeline.some(
+        (event) =>
+          event.kind === "binding_started" &&
+          event.source?.id === sourceId,
+      ),
+    ).toBe(true);
+
 
     const archivedTest = await archive.getTest(testCaseId);
     expect(archivedTest).toMatchObject({
       testCaseId,
       origin: "modelapse",
       runCount: 2,
+      canonicalSource: { id: sourceId },
+      versionSource: { id: sourceId },
+      versionHistory: [
+        {
+          version: "1.0.0",
+          source: { id: sourceId },
+          linkedTestCaseId: testCaseId,
+        },
+        {
+          version: "0.9.0",
+          source: { id: sourceId },
+          linkedTestCaseId: previousTestCaseId,
+        },
+      ],
       modelCoverage: [{ modelId, runCount: 2 }],
     });
     expect(archivedTest?.recentRuns[0]?.id).toBe(repeat.run.id);
