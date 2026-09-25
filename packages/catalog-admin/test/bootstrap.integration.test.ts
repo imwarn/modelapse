@@ -160,11 +160,13 @@ describe("production catalog bootstrap", () => {
         version_status: string;
         endpoint_source_id: string | null;
         family_source_id: string | null;
+        version_source_id: string | null;
       }>(
         `SELECT
            tv.status AS version_status,
            pe.source_id AS endpoint_source_id,
-           tf.canonical_source_id AS family_source_id
+           tf.canonical_source_id AS family_source_id,
+           tv.source_id AS version_source_id
          FROM modelapse.test_cases tc
          JOIN modelapse.test_versions tv ON tv.id = tc.test_version_id
          JOIN modelapse.test_variants tvar ON tvar.id = tv.variant_id
@@ -182,6 +184,7 @@ describe("production catalog bootstrap", () => {
         version_status: "published",
         endpoint_source_id: first.providerSourceId,
         family_source_id: first.definitionSourceId,
+        version_source_id: first.definitionSourceId,
       });
     } finally {
       await verification.end();
