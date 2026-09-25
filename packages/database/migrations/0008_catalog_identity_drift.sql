@@ -6,6 +6,59 @@ CREATE TRIGGER alias_resolution_events_append_only
 BEFORE UPDATE OR DELETE ON alias_resolution_events
 FOR EACH ROW EXECUTE FUNCTION prevent_append_only_mutation();
 
+CREATE OR REPLACE FUNCTION validate_alias_resolution_identity()
+RETURNS trigger LANGUAGE plpgsql AS $
+DECLARE
+  alias_provider uuid;
+  resolved_model_provider uuid;
+  snapshot_model uuid;
+  snapshot_provider uuid;
+BEGIN
+  SELECT provider_id INTO alias_provider
+  FROM model_aliases
+  WHERE id = NEW.alias_id;
+
+  IF alias_provider IS NULL THEN
+    RAISE EXCEPTION 'alias resolution references a missing alias';
+  END IF;
+
+  IF NEW.resolved_model_id IS NOT NULL THEN
+    SELECT provider_id INTO resolved_model_provider
+    FROM models
+    WHERE id = NEW.resolved_model_id;
+
+    IF resolved_model_provider IS NULL
+       OR resolved_model_provider <> alias_provider THEN
+      RAISE EXCEPTION 'alias resolution model provider mismatch';
+    END IF;
+  END IF;
+
+  IF NEW.resolved_snapshot_id IS NOT NULL THEN
+    SELECT ms.model_id, m.provider_id
+      INTO snapshot_model, snapshot_provider
+    FROM model_snapshots ms
+    JOIN models m ON m.id = ms.model_id
+    WHERE ms.id = NEW.resolved_snapshot_id;
+
+    IF snapshot_model IS NULL
+       OR snapshot_provider <> alias_provider THEN
+      RAISE EXCEPTION 'alias resolution snapshot provider mismatch';
+    END IF;
+
+    IF NEW.resolved_model_id IS NOT NULL
+       AND NEW.resolved_model_id <> snapshot_model THEN
+      RAISE EXCEPTION 'alias resolution model/snapshot mismatch';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$;
+
+CREATE TRIGGER alias_resolution_events_validate_identity
+BEFORE INSERT ON alias_resolution_events
+FOR EACH ROW EXECUTE FUNCTION validate_alias_resolution_identity();
+
 CREATE OR REPLACE FUNCTION protect_model_execution_binding_history()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
