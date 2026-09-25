@@ -255,6 +255,88 @@ Migration `0006_archive_temporal_indexes.sql` adds:
 
 The migration changes indexing only; it does not alter historical records or introduce mutable summary tables.
 
+## Archive v0.5: source and identity timeline
+
+Modelapse now treats catalog identity itself as a time-varying, sourced Archive record.
+
+No new privileged browser surface is introduced. The existing public Model and Test detail APIs return additional Archive-safe provenance projections.
+
+### Model identity timeline
+
+`GET /v1/archive/models/:modelId` now includes:
+
+- the canonical Model source record;
+- provider snapshot sources;
+- Model relation sources;
+- alias-resolution observations that resolved to the Model or one of its snapshots;
+- execution-binding history for provider endpoint + API model ID + optional snapshot;
+- a dedicated identity timeline composed from canonical-source retrieval, alias observations, binding validity and snapshot validity.
+
+A public source summary contains only:
+
+```text
+id
+sourceType
+url
+title
+author
+publishedAt
+retrievedAt
+contentSha256
+```
+
+The public projection deliberately excludes `source_records.metadata` and `alias_resolution_events.raw_observation`.
+
+This lets the Archive answer questions such as:
+
+```text
+At time T, what did provider alias A resolve to?
+Which provider endpoint/API model ID was bound to canonical Model M?
+Which source record supports that identity claim?
+Was the binding tied to a provider snapshot?
+```
+
+without exposing internal observation payloads.
+
+### Test version history
+
+`GET /v1/archive/tests/:testCaseId` now includes:
+
+- Test Family canonical source;
+- current Test Version source;
+- version history for the same Test Variant;
+- immutable definition hash, publication/creation time, license and evaluator identity per version;
+- the number of public Test Cases in each version;
+- a linkable public Test Case ID when the current case slug also exists in another version.
+
+Only Test Versions that contain at least one public Test Case are included in public history. Private-only or case-less draft versions are not surfaced through this projection.
+
+### Version-level provenance
+
+Migration `0007_identity_provenance.sql` adds a nullable `test_versions.source_id` foreign key to `source_records`.
+
+Existing Test Versions are backfilled from their Test Family canonical source when one is available. Catalog bootstrap now writes version provenance directly for new Test definitions.
+
+The same migration adds indexes for:
+
+- alias observations resolved by canonical Model;
+- alias observations resolved by provider snapshot;
+- Test Variant version-history reads.
+
+### Identity vs execution evidence
+
+v0.5 keeps two provenance questions separate:
+
+```text
+Catalog identity provenance
+  = why Modelapse says this alias/binding/snapshot identifies this Model
+
+Run evidence
+  = what happened during one actual model execution
+```
+
+A sourced alias or binding does not upgrade Run Evidence level, and a sealed Run does not by itself rewrite canonical catalog identity.
+
 ## Deliberately deferred
 
 - general user login/session management;
