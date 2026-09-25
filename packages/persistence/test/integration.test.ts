@@ -29,7 +29,9 @@ describe("PostgreSQL Run persistence", () => {
   let modelId = "";
   let relatedModelId = "";
   let snapshotId = "";
+  let driftSnapshotId = "";
   let sourceId = "";
+  let driftSourceId = "";
   let previousTestCaseId = "";
 
   beforeAll(async () => {
@@ -171,7 +173,7 @@ describe("PostgreSQL Run persistence", () => {
       ],
     );
 
-    await seedPool.query(
+    const initialBinding = await seedPool.query<{ id: string }>(
       `INSERT INTO modelapse.model_execution_bindings
         (
           model_id,
@@ -181,7 +183,8 @@ describe("PostgreSQL Run persistence", () => {
           valid_from,
           source_id
         )
-       VALUES ($1, $2, $3, $4, $5, $6)`,
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id`,
       [
         modelId,
         endpoint.rows[0]!.id,
@@ -220,6 +223,82 @@ describe("PostgreSQL Run persistence", () => {
         "2026-09-02T00:00:00.000Z",
         sourceId,
         JSON.stringify({ privateNote: "must-not-leak" }),
+      ],
+    );
+
+    const driftSource = await seedPool.query<{ id: string }>(
+      `INSERT INTO modelapse.source_records
+        (source_type, url, title, retrieved_at, content_sha256)
+       VALUES (
+         'provider_docs',
+         $1,
+         'Integration provider identity source refresh',
+         '2026-09-10T00:00:00.000Z',
+         $2
+       )
+       RETURNING id`,
+      [
+        `https://router.fake.test/docs/${suffix}?revision=2`,
+        randomBytes(32).toString("hex"),
+      ],
+    );
+    driftSourceId = driftSource.rows[0]!.id;
+
+    const driftSnapshot = await seedPool.query<{ id: string }>(
+      `INSERT INTO modelapse.model_snapshots
+        (model_id, provider_snapshot_id, valid_from, source_id)
+       VALUES ($1, $2, '2026-09-10T00:00:00.000Z', $3)
+       RETURNING id`,
+      [modelId, `integration-snapshot-next-${suffix}`, driftSourceId],
+    );
+    driftSnapshotId = driftSnapshot.rows[0]!.id;
+
+    await seedPool.query(
+      `UPDATE modelapse.model_execution_bindings
+          SET valid_to = '2026-09-10T00:00:00.000Z'
+        WHERE id = $1`,
+      [initialBinding.rows[0]!.id],
+    );
+
+    await seedPool.query(
+      `INSERT INTO modelapse.model_execution_bindings
+        (
+          model_id,
+          endpoint_id,
+          api_model_id,
+          snapshot_id,
+          valid_from,
+          source_id
+        )
+       VALUES ($1, $2, $3, $4, '2026-09-10T00:00:00.000Z', $5)`,
+      [
+        modelId,
+        endpoint.rows[0]!.id,
+        `integration-api-model-${suffix}`,
+        driftSnapshotId,
+        driftSourceId,
+      ],
+    );
+
+    await seedPool.query(
+      `INSERT INTO modelapse.alias_resolution_events
+        (
+          alias_id,
+          resolved_model_id,
+          resolved_snapshot_id,
+          observed_at,
+          source_type,
+          source_id,
+          confidence,
+          raw_observation
+        )
+       VALUES ($1, $2, $3, '2026-09-10T00:00:00.000Z', 'provider_docs', $4, 1.0, $5::jsonb)`,
+      [
+        alias.rows[0]!.id,
+        modelId,
+        driftSnapshotId,
+        driftSourceId,
+        JSON.stringify({ privateNote: "must-not-leak-refresh" }),
       ],
     );
 
@@ -493,21 +572,40 @@ describe("PostgreSQL Run persistence", () => {
       track: { displayName: "Main" },
       runCount: 2,
       canonicalSource: { id: sourceId, sourceType: "provider_docs" },
-      snapshots: [{ id: snapshotId, source: { id: sourceId } }],
-      aliasResolutions: [
+      snapshots: expect.arrayContaining([
+        { id: snapshotId, source: { id: sourceId } },
+        { id: driftSnapshotId, source: { id: driftSourceId } },
+      ]),
+      aliasResolutions: expect.arrayContaining([
         {
           alias: { value: expect.stringContaining("integration-api-model-") },
-          resolvedSnapshot: { id: snapshotId },
-          source: { id: sourceId },
+          resolvedSnapshot: { id: driftSnapshotId },
+          source: { id: driftSourceId },
         },
-      ],
-      executionBindings: [
+      ]),
+      executionBindings: expect.arrayContaining([
         {
           apiModelId: expect.stringContaining("integration-api-model-"),
-          snapshot: { id: snapshotId },
-          source: { id: sourceId },
+          snapshot: { id: driftSnapshotId },
+          source: { id: driftSourceId },
         },
-      ],
+      ]),
+      identityDrift: expect.arrayContaining([
+        {
+          changeType: "alias_target_changed",
+          changedFields: ["snapshot"],
+          previous: { snapshot: { id: snapshotId } },
+          current: { snapshot: { id: driftSnapshotId } },
+          currentSource: { id: driftSourceId },
+        },
+        {
+          changeType: "execution_binding_changed",
+          changedFields: ["snapshot"],
+          previous: { snapshot: { id: snapshotId } },
+          current: { snapshot: { id: driftSnapshotId } },
+          currentSource: { id: driftSourceId },
+        },
+      ]),
       testCoverage: [{ testCaseId, runCount: 2 }],
     });
     expect(
@@ -538,6 +636,28 @@ describe("PostgreSQL Run persistence", () => {
       ),
     ).toBe(true);
 
+    const catalogChanges = await archive.listCatalogChanges({
+      modelId,
+      limit: 20,
+    });
+    expect(catalogChanges).toHaveLength(2);
+    expect(catalogChanges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          changeType: "alias_target_changed",
+          changedFields: ["snapshot"],
+          previousSource: expect.objectContaining({ id: sourceId }),
+          currentSource: expect.objectContaining({ id: driftSourceId }),
+        }),
+        expect.objectContaining({
+          changeType: "execution_binding_changed",
+          changedFields: ["snapshot"],
+          previousSource: expect.objectContaining({ id: sourceId }),
+          currentSource: expect.objectContaining({ id: driftSourceId }),
+        }),
+      ]),
+    );
+    expect(JSON.stringify(catalogChanges)).not.toContain("must-not-leak");
 
     const archivedTest = await archive.getTest(testCaseId);
     expect(archivedTest).toMatchObject({
