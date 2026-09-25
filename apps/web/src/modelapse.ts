@@ -71,12 +71,97 @@ export interface ArchiveTest {
   readonly runCount: number;
 }
 
+export interface ArchiveSource {
+  readonly id: string;
+  readonly sourceType: string;
+  readonly url: string | null;
+  readonly title: string | null;
+  readonly author: string | null;
+  readonly publishedAt: string | null;
+  readonly retrievedAt: string;
+  readonly contentSha256: string | null;
+}
+
+export interface ArchiveModelAliasResolution {
+  readonly id: string;
+  readonly alias: {
+    readonly id: string;
+    readonly value: string;
+  };
+  readonly observedAt: string;
+  readonly sourceType: string;
+  readonly confidence: number;
+  readonly resolvedModelId: string | null;
+  readonly resolvedSnapshot: {
+    readonly id: string;
+    readonly providerSnapshotId: string;
+  } | null;
+  readonly source: ArchiveSource | null;
+}
+
+export interface ArchiveModelExecutionBinding {
+  readonly id: string;
+  readonly apiModelId: string;
+  readonly validFrom: string;
+  readonly validTo: string | null;
+  readonly createdAt: string;
+  readonly endpoint: {
+    readonly id: string;
+    readonly path: string;
+    readonly baseUrl: string;
+    readonly hostname: string;
+    readonly source: ArchiveSource | null;
+  };
+  readonly snapshot: {
+    readonly id: string;
+    readonly providerSnapshotId: string;
+  } | null;
+  readonly source: ArchiveSource;
+}
+
+export interface ArchiveIdentityTimelineEvent {
+  readonly id: string;
+  readonly kind:
+    | "canonical_source"
+    | "alias_resolution"
+    | "binding_started"
+    | "binding_ended"
+    | "snapshot_started"
+    | "snapshot_ended";
+  readonly occurredAt: string;
+  readonly title: string;
+  readonly description: string;
+  readonly source: ArchiveSource | null;
+  readonly aliasId: string | null;
+  readonly bindingId: string | null;
+  readonly snapshotId: string | null;
+}
+
+export interface ArchiveTestVersionHistory {
+  readonly id: string;
+  readonly version: string;
+  readonly status: string;
+  readonly definitionSha256: string;
+  readonly license: string | null;
+  readonly publishedAt: string | null;
+  readonly createdAt: string;
+  readonly source: ArchiveSource | null;
+  readonly evaluator: {
+    readonly slug: string;
+    readonly version: string;
+    readonly kind: string;
+  } | null;
+  readonly publicCaseCount: number;
+  readonly linkedTestCaseId: string | null;
+}
+
 export interface ArchiveModelSnapshot {
   readonly id: string;
   readonly providerSnapshotId: string;
   readonly validFrom: string | null;
   readonly validTo: string | null;
   readonly sourceId: string | null;
+  readonly source: ArchiveSource | null;
 }
 
 export interface ArchiveModelRelation {
@@ -92,6 +177,7 @@ export interface ArchiveModelRelation {
   readonly validFrom: string | null;
   readonly validTo: string | null;
   readonly sourceId: string | null;
+  readonly source: ArchiveSource | null;
   readonly confidence: number;
 }
 
@@ -128,8 +214,12 @@ export interface ArchiveModelDetail extends ArchiveModel {
   readonly releasedAt: string | null;
   readonly retiredAt: string | null;
   readonly canonicalSourceId: string | null;
+  readonly canonicalSource: ArchiveSource | null;
   readonly snapshots: readonly ArchiveModelSnapshot[];
   readonly relations: readonly ArchiveModelRelation[];
+  readonly aliasResolutions: readonly ArchiveModelAliasResolution[];
+  readonly executionBindings: readonly ArchiveModelExecutionBinding[];
+  readonly identityTimeline: readonly ArchiveIdentityTimelineEvent[];
   readonly testCoverage: readonly {
     readonly testCaseId: string;
     readonly familySlug: string;
@@ -146,6 +236,9 @@ export interface ArchiveModelDetail extends ArchiveModel {
 export interface ArchiveTestDetail extends ArchiveTest {
   readonly origin: string;
   readonly canonicalSourceId: string | null;
+  readonly canonicalSource: ArchiveSource | null;
+  readonly versionSource: ArchiveSource | null;
+  readonly versionHistory: readonly ArchiveTestVersionHistory[];
   readonly versionStatus: string;
   readonly definitionSha256: string;
   readonly license: string | null;
