@@ -369,6 +369,10 @@ export class PgModelCatalogAdmin {
         "SELECT pg_advisory_xact_lock(hashtext($1))",
         ["modelapse:identity:" + providerSlug + ":" + canonicalSlug],
       );
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtext($1))",
+        ["modelapse:alias:" + providerSlug + ":" + apiModelId],
+      );
 
       const resolved = await client.query<{
         provider_id: string;
