@@ -343,6 +343,7 @@ async function ensureVersionAndCase(
   client: PoolClient,
   variantId: string,
   prompt: BlobDescriptor,
+  definitionSourceId: string,
 ): Promise<{ readonly versionId: string; readonly caseId: string }> {
   const definitionSha256 = rawDefinitionSha256();
 
@@ -351,8 +352,9 @@ async function ensureVersionAndCase(
       id: string;
       status: "draft" | "published" | "retired";
       definition_sha256: string;
+      source_id: string | null;
     }>(
-      `SELECT id, status, definition_sha256
+      `SELECT id, status, definition_sha256, source_id
          FROM modelapse.test_versions
         WHERE variant_id = $1
           AND version = $2`,
@@ -365,12 +367,13 @@ async function ensureVersionAndCase(
       id: string;
       status: "draft";
       definition_sha256: string;
+      source_id: string;
     }>(
       `INSERT INTO modelapse.test_versions
-        (variant_id, version, status, definition_sha256, license)
-       VALUES ($1, $2, 'draft', $3, NULL)
-       RETURNING id, status, definition_sha256`,
-      [variantId, OPENAI_SMOKE_VERSION, definitionSha256],
+        (variant_id, version, status, definition_sha256, license, source_id)
+       VALUES ($1, $2, 'draft', $3, NULL, $4)
+       RETURNING id, status, definition_sha256, source_id`,
+      [variantId, OPENAI_SMOKE_VERSION, definitionSha256, definitionSourceId],
     );
     version = inserted.rows[0];
   }
@@ -383,6 +386,17 @@ async function ensureVersionAndCase(
   }
   if (version.status === "retired") {
     throw new Error("Smoke Test Version is retired and cannot be bootstrapped");
+  }
+  if (!version.source_id) {
+    await client.query(
+      `UPDATE modelapse.test_versions
+          SET source_id = $2
+        WHERE id = $1
+          AND source_id IS NULL`,
+      [version.id, definitionSourceId],
+    );
+  } else if (version.source_id !== definitionSourceId) {
+    throw new Error("Smoke Test Version provenance conflicts with existing catalog data");
   }
 
   let testCase = (
@@ -657,6 +671,7 @@ async function ensureDirectSmokeVersionAndCase(
   client: PoolClient,
   variantId: string,
   prompt: BlobDescriptor,
+  definitionSourceId: string,
 ): Promise<{ readonly versionId: string; readonly caseId: string }> {
   const definitionSha256 = directSmokeDefinitionSha256();
 
@@ -665,8 +680,9 @@ async function ensureDirectSmokeVersionAndCase(
       id: string;
       status: "draft" | "published" | "retired";
       definition_sha256: string;
+      source_id: string | null;
     }>(
-      `SELECT id, status, definition_sha256
+      `SELECT id, status, definition_sha256, source_id
          FROM modelapse.test_versions
         WHERE variant_id = $1
           AND version = $2`,
@@ -679,12 +695,13 @@ async function ensureDirectSmokeVersionAndCase(
       id: string;
       status: "draft";
       definition_sha256: string;
+      source_id: string;
     }>(
       `INSERT INTO modelapse.test_versions
-        (variant_id, version, status, definition_sha256, license)
-       VALUES ($1, $2, 'draft', $3, NULL)
-       RETURNING id, status, definition_sha256`,
-      [variantId, DIRECT_SMOKE_VERSION, definitionSha256],
+        (variant_id, version, status, definition_sha256, license, source_id)
+       VALUES ($1, $2, 'draft', $3, NULL, $4)
+       RETURNING id, status, definition_sha256, source_id`,
+      [variantId, DIRECT_SMOKE_VERSION, definitionSha256, definitionSourceId],
     );
     version = inserted.rows[0];
   }
@@ -697,6 +714,19 @@ async function ensureDirectSmokeVersionAndCase(
   }
   if (version.status === "retired") {
     throw new Error("Direct Smoke Test Version is retired");
+  }
+  if (!version.source_id) {
+    await client.query(
+      `UPDATE modelapse.test_versions
+          SET source_id = $2
+        WHERE id = $1
+          AND source_id IS NULL`,
+      [version.id, definitionSourceId],
+    );
+  } else if (version.source_id !== definitionSourceId) {
+    throw new Error(
+      "Direct Smoke Test Version provenance conflicts with existing catalog data",
+    );
   }
 
   let testCase = (
@@ -849,6 +879,7 @@ export class PgCatalogAdmin {
         client,
         testVariantId,
         prompt,
+        definitionSourceId,
       );
 
       await client.query("COMMIT");
@@ -931,6 +962,7 @@ export class PgCatalogAdmin {
         client,
         testVariantId,
         prompt,
+        definitionSourceId,
       );
 
       await client.query("COMMIT");
