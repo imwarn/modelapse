@@ -478,7 +478,7 @@ export class PgModelCatalogAdmin {
       let bindingChanged = false;
 
       if (current && !bindingId) {
-        if (new Date(observedAt) <= current.valid_from) {
+        if (Date.parse(observedAt) <= current.valid_from.getTime()) {
           throw new Error(
             "Identity observations must advance beyond the current binding validFrom",
           );
@@ -542,7 +542,10 @@ export class PgModelCatalogAdmin {
         [aliasId],
       );
       const latestObservedAt = latestAliasObservation.rows[0]?.observed_at;
-      if (latestObservedAt && new Date(observedAt) <= latestObservedAt) {
+      if (
+        latestObservedAt &&
+        Date.parse(observedAt) <= latestObservedAt.getTime()
+      ) {
         throw new Error(
           "Identity observations for an alias must be strictly chronological",
         );
