@@ -436,6 +436,22 @@ For one canonical Model the observer:
 
 The observer serializes updates with a per-Model PostgreSQL advisory transaction lock and rejects ambiguous multiple-current-direct-binding state.
 
+An operational CLI wraps the same primitive without adding a catalog-write HTTP endpoint:
+
+```bash
+MODELAPSE_PROVIDER_SLUG=deepseek \
+MODELAPSE_CANONICAL_MODEL_SLUG=deepseek-flash \
+MODELAPSE_API_MODEL_ID=deepseek-flash \
+MODELAPSE_PROVIDER_SNAPSHOT_ID=<optional-provider-snapshot> \
+MODELAPSE_SOURCE_URL=<provider-source-url> \
+MODELAPSE_SOURCE_TITLE=<provider-source-title> \
+MODELAPSE_SOURCE_CONTENT_SHA256=<optional-lowercase-sha256> \
+MODELAPSE_OBSERVED_AT=<optional-iso8601-time> \
+npm run observe:first-party-identity -w @modelapse/catalog-admin
+```
+
+If `MODELAPSE_OBSERVED_AT` is omitted, the observer uses the current process time. A repeated collector should still capture source bytes/hash upstream when possible so identical URLs with different retrieved content remain distinguishable.
+
 ### Public change feed
 
 Public API:
