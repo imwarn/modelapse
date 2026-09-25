@@ -5,6 +5,23 @@ const RUN_ID = "00000000-0000-4000-8000-000000000021";
 const MODEL_ID = "00000000-0000-4000-8000-000000000022";
 const TEST_CASE_ID = "00000000-0000-4000-8000-000000000023";
 const PREVIOUS_RUN_ID = "00000000-0000-4000-8000-000000000037";
+const SOURCE_ID = "00000000-0000-4000-8000-000000000033";
+const BINDING_ID = "00000000-0000-4000-8000-000000000038";
+const ALIAS_ID = "00000000-0000-4000-8000-000000000039";
+const ALIAS_EVENT_ID = "00000000-0000-4000-8000-000000000040";
+const TEST_VERSION_ID = "00000000-0000-4000-8000-000000000041";
+
+const archiveSource = {
+  id: SOURCE_ID,
+  sourceType: "provider_docs",
+  url: "https://api-docs.deepseek.com/guides/responses_api/",
+  title: "DeepSeek Responses API guide",
+  author: null,
+  publishedAt: null,
+  retrievedAt: "2026-09-01T00:00:00.000Z",
+  contentSha256: null,
+} as const;
+
 
 function baseRuns() {
   return {
@@ -183,17 +200,65 @@ const archiveModelDetail = {
   },
   releasedAt: "2026-09-01T00:00:00.000Z",
   retiredAt: null,
-  canonicalSourceId: "00000000-0000-4000-8000-000000000033",
+  canonicalSourceId: SOURCE_ID,
+  canonicalSource: archiveSource,
   snapshots: [
     {
       id: "00000000-0000-4000-8000-000000000034",
       providerSnapshotId: "deepseek-flash-202609",
       validFrom: "2026-09-01T00:00:00.000Z",
       validTo: null,
-      sourceId: "00000000-0000-4000-8000-000000000033",
+      sourceId: SOURCE_ID,
+      source: archiveSource,
     },
   ],
   relations: [],
+  aliasResolutions: [
+    {
+      id: ALIAS_EVENT_ID,
+      alias: {
+        id: ALIAS_ID,
+        value: "deepseek-flash",
+      },
+      observedAt: "2026-09-01T00:00:00.000Z",
+      sourceType: "provider_docs",
+      confidence: 1,
+      resolvedModelId: MODEL_ID,
+      resolvedSnapshot: null,
+      source: archiveSource,
+    },
+  ],
+  executionBindings: [
+    {
+      id: BINDING_ID,
+      apiModelId: "deepseek-flash",
+      validFrom: "2026-09-01T00:00:00.000Z",
+      validTo: null,
+      createdAt: "2026-09-01T00:00:00.000Z",
+      endpoint: {
+        id: archiveRun.provider.id,
+        path: "first_party_direct",
+        baseUrl: "https://api.deepseek.com",
+        hostname: "api.deepseek.com",
+        source: archiveSource,
+      },
+      snapshot: null,
+      source: archiveSource,
+    },
+  ],
+  identityTimeline: [
+    {
+      id: `alias-resolution:${ALIAS_EVENT_ID}`,
+      kind: "alias_resolution",
+      occurredAt: "2026-09-01T00:00:00.000Z",
+      title: "Alias observed · deepseek-flash",
+      description: "resolved to canonical model deepseek-flash",
+      source: archiveSource,
+      aliasId: ALIAS_ID,
+      bindingId: null,
+      snapshotId: null,
+    },
+  ],
   testCoverage: [
     {
       testCaseId: TEST_CASE_ID,
@@ -238,7 +303,29 @@ const archiveTestDetail = {
   },
   runCount: 1,
   origin: "modelapse",
-  canonicalSourceId: null,
+  canonicalSourceId: SOURCE_ID,
+  canonicalSource: archiveSource,
+  versionSource: archiveSource,
+  versionHistory: [
+    {
+      id: TEST_VERSION_ID,
+      version: "1.0.0",
+      status: "published",
+      definitionSha256:
+        "1111111111111111111111111111111111111111111111111111111111111111",
+      license: "Apache-2.0",
+      publishedAt: "2026-09-01T00:00:00.000Z",
+      createdAt: "2026-08-31T00:00:00.000Z",
+      source: archiveSource,
+      evaluator: {
+        slug: "exact-text",
+        version: "1.0.0",
+        kind: "deterministic",
+      },
+      publicCaseCount: 1,
+      linkedTestCaseId: TEST_CASE_ID,
+    },
+  ],
   versionStatus: "published",
   definitionSha256:
     "1111111111111111111111111111111111111111111111111111111111111111",
@@ -389,6 +476,9 @@ describe("Archive read API", () => {
     await expect(model.json()).resolves.toMatchObject({
       model: {
         id: MODEL_ID,
+        canonicalSource: { id: SOURCE_ID },
+        aliasResolutions: [{ alias: { value: "deepseek-flash" } }],
+        executionBindings: [{ apiModelId: "deepseek-flash" }],
         timeline: [{ kind: "run", runId: RUN_ID }],
       },
     });
@@ -399,6 +489,8 @@ describe("Archive read API", () => {
       test: {
         testCaseId: TEST_CASE_ID,
         definitionSha256: archiveTestDetail.definitionSha256,
+        canonicalSource: { id: SOURCE_ID },
+        versionHistory: [{ version: "1.0.0", linkedTestCaseId: TEST_CASE_ID }],
       },
     });
 
