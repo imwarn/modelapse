@@ -253,6 +253,25 @@ describe("PostgreSQL Run persistence", () => {
     );
     driftSnapshotId = driftSnapshot.rows[0]!.id;
 
+    const driftEndpoint = await seedPool.query<{ id: string }>(
+      `INSERT INTO modelapse.provider_endpoints
+        (provider_id, path, base_url, hostname, valid_from, source_id)
+       VALUES (
+         $1,
+         'routed_provider',
+         $2,
+         'router-next.fake.test',
+         '2026-09-10T00:00:00.000Z',
+         $3
+       )
+       RETURNING id`,
+      [
+        providerId,
+        `https://router-next.fake.test/${suffix}`,
+        driftSourceId,
+      ],
+    );
+
     await seedPool.query(
       `UPDATE modelapse.model_execution_bindings
           SET valid_to = '2026-09-10T00:00:00.000Z'
@@ -273,7 +292,7 @@ describe("PostgreSQL Run persistence", () => {
        VALUES ($1, $2, $3, $4, '2026-09-10T00:00:00.000Z', $5)`,
       [
         modelId,
-        endpoint.rows[0]!.id,
+        driftEndpoint.rows[0]!.id,
         `integration-api-model-${suffix}`,
         driftSnapshotId,
         driftSourceId,
@@ -600,9 +619,12 @@ describe("PostgreSQL Run persistence", () => {
         },
         {
           changeType: "execution_binding_changed",
-          changedFields: ["snapshot"],
+          changedFields: ["endpoint", "snapshot"],
           previous: { snapshot: { id: snapshotId } },
-          current: { snapshot: { id: driftSnapshotId } },
+          current: {
+            snapshot: { id: driftSnapshotId },
+            endpoint: { hostname: "router-next.fake.test" },
+          },
           currentSource: { id: driftSourceId },
         },
       ]),
@@ -651,7 +673,7 @@ describe("PostgreSQL Run persistence", () => {
         }),
         expect.objectContaining({
           changeType: "execution_binding_changed",
-          changedFields: ["snapshot"],
+          changedFields: ["endpoint", "snapshot"],
           previousSource: expect.objectContaining({ id: sourceId }),
           currentSource: expect.objectContaining({ id: driftSourceId }),
         }),
