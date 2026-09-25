@@ -1182,6 +1182,7 @@ export class PgArchiveRepository {
         validFrom: snapshot.valid_from?.toISOString() ?? null,
         validTo: snapshot.valid_to?.toISOString() ?? null,
         sourceId: snapshot.source_id,
+        source: archiveSourceView(snapshot),
       }),
     );
 
@@ -1199,8 +1200,168 @@ export class PgArchiveRepository {
         validFrom: relation.valid_from?.toISOString() ?? null,
         validTo: relation.valid_to?.toISOString() ?? null,
         sourceId: relation.source_id,
+        source: archiveSourceView(relation),
         confidence: Number(relation.confidence),
       }),
+    );
+
+    const canonicalSource = archiveSourceView(row);
+
+    const aliasResolutions: ArchiveModelAliasResolutionView[] =
+      aliasResult.rows.map((alias) => ({
+        id: alias.id,
+        alias: {
+          id: alias.alias_id,
+          value: alias.alias_value,
+        },
+        observedAt: alias.observed_at.toISOString(),
+        sourceType: alias.source_type_observed,
+        confidence: Number(alias.confidence),
+        resolvedModelId: alias.resolved_model_id,
+        resolvedSnapshot:
+          alias.resolved_snapshot_id && alias.provider_snapshot_id
+            ? {
+                id: alias.resolved_snapshot_id,
+                providerSnapshotId: alias.provider_snapshot_id,
+              }
+            : null,
+        source: archiveSourceView(alias),
+      }));
+
+    const executionBindings: ArchiveModelExecutionBindingView[] =
+      bindingResult.rows.map((binding) => {
+        const endpointSource = archiveSourceView({
+          source_id: binding.endpoint_source_id,
+          source_type: binding.endpoint_source_type,
+          source_url: binding.endpoint_source_url,
+          source_title: binding.endpoint_source_title,
+          source_author: binding.endpoint_source_author,
+          source_published_at: binding.endpoint_source_published_at,
+          source_retrieved_at: binding.endpoint_source_retrieved_at,
+          source_content_sha256: binding.endpoint_source_content_sha256,
+        });
+        const bindingSource = archiveSourceView(binding);
+        if (!bindingSource) {
+          throw new Error(
+            "Model execution binding is missing its required source record",
+          );
+        }
+        return {
+          id: binding.id,
+          apiModelId: binding.api_model_id,
+          validFrom: binding.valid_from.toISOString(),
+          validTo: binding.valid_to?.toISOString() ?? null,
+          createdAt: binding.created_at.toISOString(),
+          endpoint: {
+            id: binding.endpoint_id,
+            path: binding.endpoint_path,
+            baseUrl: binding.endpoint_base_url,
+            hostname: binding.endpoint_hostname,
+            source: endpointSource,
+          },
+          snapshot:
+            binding.snapshot_id && binding.provider_snapshot_id
+              ? {
+                  id: binding.snapshot_id,
+                  providerSnapshotId: binding.provider_snapshot_id,
+                }
+              : null,
+          source: bindingSource,
+        };
+      });
+
+    const identityTimeline: ArchiveIdentityTimelineEventView[] = [];
+
+    if (canonicalSource) {
+      identityTimeline.push({
+        id: `source:${canonicalSource.id}:canonical`,
+        kind: "canonical_source",
+        occurredAt: canonicalSource.retrievedAt,
+        title: "Canonical identity source recorded",
+        description:
+          canonicalSource.title ?? canonicalSource.url ?? canonicalSource.sourceType,
+        source: canonicalSource,
+        aliasId: null,
+        bindingId: null,
+        snapshotId: null,
+      });
+    }
+
+    for (const alias of aliasResolutions) {
+      identityTimeline.push({
+        id: `alias-resolution:${alias.id}`,
+        kind: "alias_resolution",
+        occurredAt: alias.observedAt,
+        title: `Alias observed · ${alias.alias.value}`,
+        description: alias.resolvedSnapshot
+          ? `resolved to snapshot ${alias.resolvedSnapshot.providerSnapshotId}`
+          : `resolved to canonical model ${row.canonical_slug}`,
+        source: alias.source,
+        aliasId: alias.alias.id,
+        bindingId: null,
+        snapshotId: alias.resolvedSnapshot?.id ?? null,
+      });
+    }
+
+    for (const binding of executionBindings) {
+      identityTimeline.push({
+        id: `binding:${binding.id}:start`,
+        kind: "binding_started",
+        occurredAt: binding.validFrom,
+        title: "Execution binding became valid",
+        description: `${binding.apiModelId} · ${binding.endpoint.hostname}`,
+        source: binding.source,
+        aliasId: null,
+        bindingId: binding.id,
+        snapshotId: binding.snapshot?.id ?? null,
+      });
+      if (binding.validTo) {
+        identityTimeline.push({
+          id: `binding:${binding.id}:end`,
+          kind: "binding_ended",
+          occurredAt: binding.validTo,
+          title: "Execution binding validity ended",
+          description: `${binding.apiModelId} · ${binding.endpoint.hostname}`,
+          source: binding.source,
+          aliasId: null,
+          bindingId: binding.id,
+          snapshotId: binding.snapshot?.id ?? null,
+        });
+      }
+    }
+
+    for (const snapshot of snapshots) {
+      if (snapshot.validFrom) {
+        identityTimeline.push({
+          id: `identity-snapshot:${snapshot.id}:start`,
+          kind: "snapshot_started",
+          occurredAt: snapshot.validFrom,
+          title: "Provider snapshot became valid",
+          description: snapshot.providerSnapshotId,
+          source: snapshot.source,
+          aliasId: null,
+          bindingId: null,
+          snapshotId: snapshot.id,
+        });
+      }
+      if (snapshot.validTo) {
+        identityTimeline.push({
+          id: `identity-snapshot:${snapshot.id}:end`,
+          kind: "snapshot_ended",
+          occurredAt: snapshot.validTo,
+          title: "Provider snapshot validity ended",
+          description: snapshot.providerSnapshotId,
+          source: snapshot.source,
+          aliasId: null,
+          bindingId: null,
+          snapshotId: snapshot.id,
+        });
+      }
+    }
+
+    identityTimeline.sort(
+      (left, right) =>
+        Date.parse(right.occurredAt) - Date.parse(left.occurredAt),
     );
 
     const timeline: ArchiveTimelineEventView[] = [];
@@ -1333,8 +1494,12 @@ export class PgArchiveRepository {
       releasedAt: row.released_at?.toISOString() ?? null,
       retiredAt: row.retired_at?.toISOString() ?? null,
       canonicalSourceId: row.canonical_source_id,
+      canonicalSource,
       snapshots,
       relations,
+      aliasResolutions,
+      executionBindings,
+      identityTimeline,
       testCoverage: coverageResult.rows.map((coverage) => ({
         testCaseId: coverage.test_case_id,
         familySlug: coverage.family_slug,
