@@ -137,7 +137,16 @@ MODELAPSE_JOB_LEASE_SECONDS=300
 MODELAPSE_JOB_POLL_MS=1000
 MODELAPSE_WORKER_ID=...
 MODELAPSE_EVIDENCE_COLLECTOR=...
+
+MODELAPSE_CATALOG_OBSERVER_ENABLED=true
+MODELAPSE_CATALOG_OBSERVER_POLL_MS=60000
+MODELAPSE_CATALOG_OBSERVER_TIMEOUT_MS=30000
+MODELAPSE_CATALOG_OBSERVER_MAX_RESPONSE_BYTES=2000000
 ```
+
+Archive v0.7 enables the Catalog Observer in queue mode by default. The runner only polls PostgreSQL for due observer sources at the configured poll interval; each source owns its longer collection cadence (currently 6 hours for model-list APIs and 24 hours for docs defaults). `FOR UPDATE SKIP LOCKED` coordinates claims across runner processes. Provider API keys configured for execution are reused server-side for authenticated model-list collection. Set `MODELAPSE_CATALOG_OBSERVER_ENABLED=false` to disable scheduled collection without disabling Run execution.
+
+See `docs/catalog-observer.md` for collection, snapshot, and identity-mapping semantics.
 
 Attach persistent storage at:
 

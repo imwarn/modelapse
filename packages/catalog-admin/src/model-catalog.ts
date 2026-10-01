@@ -340,8 +340,11 @@ export class PgModelCatalogAdmin {
     readonly providerSnapshotId?: string;
     readonly sourceUrl: string;
     readonly sourceTitle: string;
+    readonly sourceType?: string;
+    readonly sourceRecordId?: string;
     readonly contentSha256?: string;
     readonly observedAt?: string;
+    readonly collector?: string;
   }): Promise<FirstPartyIdentityObservation> {
     const providerSlug = input.providerSlug.trim();
     const canonicalSlug = input.canonicalSlug.trim();
@@ -349,10 +352,21 @@ export class PgModelCatalogAdmin {
     const providerSnapshotId = input.providerSnapshotId?.trim() || null;
     const sourceUrl = input.sourceUrl.trim();
     const sourceTitle = input.sourceTitle.trim();
+    const sourceType = input.sourceType?.trim() || "provider_docs";
+    const sourceRecordId = input.sourceRecordId?.trim() || null;
     const contentSha256 = input.contentSha256?.trim();
     const observedAt = normalizedObservationTime(input.observedAt);
+    const collector = input.collector?.trim() || "catalog-admin-identity-observer";
 
-    if (!providerSlug || !canonicalSlug || !apiModelId || !sourceUrl || !sourceTitle) {
+    if (
+      !providerSlug ||
+      !canonicalSlug ||
+      !apiModelId ||
+      !sourceUrl ||
+      !sourceTitle ||
+      !sourceType ||
+      !collector
+    ) {
       throw new Error("Identity observation fields must be non-empty");
     }
     if (
@@ -408,13 +422,43 @@ export class PgModelCatalogAdmin {
         );
       }
 
-      const sourceId = await recordSourceObservation(client, {
-        sourceType: "provider_docs",
-        url: sourceUrl,
-        title: sourceTitle,
-        retrievedAt: observedAt,
-        ...(contentSha256 ? { contentSha256 } : {}),
-      });
+      let sourceId = sourceRecordId;
+      if (sourceId) {
+        const existingSource = await client.query<{
+          source_type: string;
+          url: string | null;
+          title: string | null;
+          retrieved_at: Date;
+          content_sha256: string | null;
+        }>(
+          `SELECT source_type, url, title, retrieved_at, content_sha256
+             FROM modelapse.source_records
+            WHERE id = $1`,
+          [sourceId],
+        );
+        const source = existingSource.rows[0];
+        if (
+          !source ||
+          source.source_type !== sourceType ||
+          source.url !== sourceUrl ||
+          source.title !== sourceTitle ||
+          source.retrieved_at.getTime() !== Date.parse(observedAt) ||
+          (contentSha256 !== undefined &&
+            source.content_sha256 !== contentSha256)
+        ) {
+          throw new Error(
+            "Existing source record does not match the identity observation",
+          );
+        }
+      } else {
+        sourceId = await recordSourceObservation(client, {
+          sourceType,
+          url: sourceUrl,
+          title: sourceTitle,
+          retrievedAt: observedAt,
+          ...(contentSha256 ? { contentSha256 } : {}),
+        });
+      }
 
       let snapshotId: string | null = null;
       if (providerSnapshotId) {
@@ -567,19 +611,20 @@ export class PgModelCatalogAdmin {
             confidence,
             raw_observation
           )
-         VALUES ($1, $2, $3, $4, 'provider_docs', $5, 1.0, $6::jsonb)
+         VALUES ($1, $2, $3, $4, $5, $6, 1.0, $7::jsonb)
          RETURNING id`,
         [
           aliasId,
           modelId,
           snapshotId,
           observedAt,
+          sourceType,
           sourceId,
           JSON.stringify({
             apiModelId,
             endpointId,
             providerSnapshotId,
-            collector: "catalog-admin-identity-observer",
+            collector,
           }),
         ],
       );

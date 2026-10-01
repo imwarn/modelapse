@@ -1,5 +1,6 @@
 import { FileSystemContentAddressedBlobStore } from "@modelapse/blob-store";
 import { PgCatalogAdmin } from "./catalog.js";
+import { PgCatalogObserver } from "./catalog-observer.js";
 import { PgModelCatalogAdmin } from "./model-catalog.js";
 
 function requiredEnv(name: string): string {
@@ -13,14 +14,33 @@ if (
   command !== "bootstrap-openai-smoke" &&
   command !== "bootstrap-deepseek-smoke" &&
   command !== "bootstrap-deepseek-flash-model" &&
-  command !== "observe-first-party-identity"
+  command !== "observe-first-party-identity" &&
+  command !== "collect-first-party-catalog"
 ) {
   throw new Error(
-    "Usage: catalog-admin bootstrap-openai-smoke|bootstrap-deepseek-smoke|bootstrap-deepseek-flash-model|observe-first-party-identity",
+    "Usage: catalog-admin bootstrap-openai-smoke|bootstrap-deepseek-smoke|bootstrap-deepseek-flash-model|observe-first-party-identity|collect-first-party-catalog",
   );
 }
 
-if (command === "observe-first-party-identity") {
+if (command === "collect-first-party-catalog") {
+  const observer = PgCatalogObserver.connect(requiredEnv("DATABASE_URL"));
+  try {
+    const providerSlug =
+      process.env.MODELAPSE_PROVIDER_SLUG?.trim() || undefined;
+    const sourceKey =
+      process.env.MODELAPSE_CATALOG_SOURCE_KEY?.trim() || undefined;
+    const result = await observer.collectDue({
+      collectorBuild:
+        process.env.MODELAPSE_BUILD?.trim() || "catalog-admin",
+      force: process.env.MODELAPSE_COLLECT_FORCE === "true",
+      ...(providerSlug ? { providerSlug } : {}),
+      ...(sourceKey ? { sourceKey } : {}),
+    });
+    process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+  } finally {
+    await observer.close();
+  }
+} else if (command === "observe-first-party-identity") {
   const models = PgModelCatalogAdmin.connect(requiredEnv("DATABASE_URL"));
   try {
     const providerSnapshotId =

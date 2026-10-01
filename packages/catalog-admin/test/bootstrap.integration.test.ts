@@ -8,7 +8,11 @@ import { migrateDatabase } from "@modelapse/database";
 import { PgRunRepository } from "@modelapse/persistence";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { PgCatalogAdmin, PgModelCatalogAdmin } from "../src/index.js";
+import {
+  PgCatalogAdmin,
+  PgCatalogObserver,
+  PgModelCatalogAdmin,
+} from "../src/index.js";
 
 const ADMIN_DATABASE_URL =
   process.env.DATABASE_URL ??
@@ -197,6 +201,180 @@ describe("production catalog bootstrap", () => {
       ).rejects.toThrow(/identity is immutable/);
     } finally {
       await verification.end();
+    }
+  });
+
+  it("periodically snapshots a first-party model list and feeds identity drift", async () => {
+    await catalog!.bootstrapDeepSeekSmoke({
+      runnerBuild: "deepseek-observer-prerequisite",
+    });
+    const registered = await modelCatalog!.bootstrapDeepSeekFlash();
+
+    let providerSnapshotId = "deepseek-flash-observer-a";
+    const observer = PgCatalogObserver.connect(isolatedDatabaseUrl, {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            object: "list",
+            data: [
+              {
+                id: "deepseek-flash",
+                provider_snapshot_id: providerSnapshotId,
+              },
+              { id: "unmapped-remote-model" },
+            ],
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              etag: '"observer-test"',
+            },
+          },
+        ),
+      credentialResolver: () => "observer-test-secret",
+    });
+
+    try {
+      const first = await observer.collectDue({
+        collectorBuild: "observer-build-a",
+        providerSlug: "deepseek",
+        sourceKey: "models-api",
+        force: true,
+        now: "2099-02-01T00:00:00.000Z",
+      });
+      providerSnapshotId = "deepseek-flash-observer-b";
+      const second = await observer.collectDue({
+        collectorBuild: "observer-build-b",
+        providerSlug: "deepseek",
+        sourceKey: "models-api",
+        force: true,
+        now: "2099-02-02T00:00:00.000Z",
+      });
+
+      expect(first).toEqual([
+        expect.objectContaining({
+          providerSlug: "deepseek",
+          sourceKey: "models-api",
+          status: "succeeded",
+          itemCount: 2,
+          observationsEmitted: 1,
+        }),
+      ]);
+      expect(second).toEqual([
+        expect.objectContaining({
+          providerSlug: "deepseek",
+          sourceKey: "models-api",
+          status: "succeeded",
+          itemCount: 2,
+          observationsEmitted: 1,
+        }),
+      ]);
+
+      const verification = new Pool({ connectionString: isolatedDatabaseUrl });
+      try {
+        const snapshots = await verification.query<{
+          source_record_id: string;
+          content_sha256: string;
+          response_body: string;
+        }>(
+          `SELECT
+             snapshot.source_record_id,
+             snapshot.content_sha256,
+             snapshot.response_body
+           FROM modelapse.catalog_source_snapshots snapshot
+           JOIN modelapse.catalog_observer_sources source
+             ON source.id = snapshot.observer_source_id
+           JOIN modelapse.providers provider
+             ON provider.id = source.provider_id
+          WHERE provider.slug = 'deepseek'
+            AND source.source_key = 'models-api'
+          ORDER BY snapshot.retrieved_at`,
+        );
+
+        expect(snapshots.rows).toHaveLength(2);
+        expect(
+          new Set(snapshots.rows.map((row) => row.source_record_id)).size,
+        ).toBe(2);
+        expect(
+          snapshots.rows.map((row) => JSON.parse(row.response_body).data[0].provider_snapshot_id),
+        ).toEqual([
+          "deepseek-flash-observer-a",
+          "deepseek-flash-observer-b",
+        ]);
+
+        const observerDrift = await verification.query<{
+          change_type: string;
+          changed_fields: string[];
+          provider_snapshot_id: string | null;
+        }>(
+          `SELECT
+             drift.change_type,
+             drift.changed_fields,
+             current_snapshot.provider_snapshot_id
+           FROM modelapse.catalog_identity_drift_events drift
+           LEFT JOIN modelapse.model_snapshots current_snapshot
+             ON current_snapshot.id = drift.current_snapshot_id
+          WHERE drift.current_model_id = $1
+            AND drift.current_source_id = ANY($2::uuid[])
+          ORDER BY drift.occurred_at, drift.change_type`,
+          [
+            registered.modelId,
+            snapshots.rows.map((row) => row.source_record_id),
+          ],
+        );
+
+        expect(observerDrift.rows).toHaveLength(4);
+        expect(
+          observerDrift.rows.filter(
+            (row) => row.change_type === "alias_target_changed",
+          ),
+        ).toHaveLength(2);
+        expect(
+          observerDrift.rows.filter(
+            (row) => row.change_type === "execution_binding_changed",
+          ),
+        ).toHaveLength(2);
+        expect(
+          observerDrift.rows.every((row) =>
+            row.changed_fields.includes("snapshot"),
+          ),
+        ).toBe(true);
+        expect(
+          observerDrift.rows.some(
+            (row) =>
+              row.provider_snapshot_id === "deepseek-flash-observer-b",
+          ),
+        ).toBe(true);
+
+        const runMetadata = await verification.query<{
+          status: string;
+          metadata: {
+            unmatchedRemoteModelIds?: string[];
+          };
+        }>(
+          `SELECT run.status, run.metadata
+             FROM modelapse.catalog_collection_runs run
+             JOIN modelapse.catalog_observer_sources source
+               ON source.id = run.observer_source_id
+             JOIN modelapse.providers provider
+               ON provider.id = source.provider_id
+            WHERE provider.slug = 'deepseek'
+              AND source.source_key = 'models-api'
+            ORDER BY run.started_at`,
+        );
+        expect(runMetadata.rows).toHaveLength(2);
+        expect(runMetadata.rows[0]).toMatchObject({
+          status: "succeeded",
+          metadata: {
+            unmatchedRemoteModelIds: ["unmapped-remote-model"],
+          },
+        });
+      } finally {
+        await verification.end();
+      }
+    } finally {
+      await observer.close();
     }
   });
 

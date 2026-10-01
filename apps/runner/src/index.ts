@@ -4,6 +4,10 @@ import { hostname } from "node:os";
 import { setTimeout as sleep } from "node:timers/promises";
 import { FileSystemContentAddressedBlobStore } from "@modelapse/blob-store";
 import {
+  PgCatalogObserver,
+  type CatalogCollectionResult,
+} from "@modelapse/catalog-admin";
+import {
   parseDirectProviderRunRequest,
   PgRunJobQueue,
 } from "@modelapse/control-plane";
@@ -57,6 +61,33 @@ function positiveIntegerEnv(name: string, fallback: number): number {
   return value;
 }
 
+function booleanEnv(name: string, fallback: boolean): boolean {
+  const raw = process.env[name]?.trim().toLowerCase();
+  if (!raw) return fallback;
+  if (["1", "true", "yes", "on"].includes(raw)) return true;
+  if (["0", "false", "no", "off"].includes(raw)) return false;
+  throw new Error(name + " must be a boolean");
+}
+
+function reportCatalogCollection(result: CatalogCollectionResult): void {
+  const line = JSON.stringify({
+    catalogObserver: true,
+    provider: result.providerSlug,
+    source: result.sourceKey,
+    status: result.status,
+    httpStatus: result.httpStatus,
+    itemCount: result.itemCount,
+    observationsEmitted: result.observationsEmitted,
+    contentSha256: result.contentSha256,
+    error: result.error,
+  });
+  if (result.status === "failed" || result.status === "partial") {
+    process.stderr.write(line + "\n");
+  } else {
+    process.stdout.write(line + "\n");
+  }
+}
+
 function summary(result: Awaited<ReturnType<typeof runDirectOpenAI>>) {
   return {
     runId: result.run.id,
@@ -77,6 +108,22 @@ const keyId = requiredEnv("MODELAPSE_ATTESTATION_KEY_ID");
 const providerTimeoutMs = positiveIntegerEnv(
   "MODELAPSE_PROVIDER_TIMEOUT_MS",
   120_000,
+);
+const catalogObserverEnabled = booleanEnv(
+  "MODELAPSE_CATALOG_OBSERVER_ENABLED",
+  true,
+);
+const catalogObserverPollMs = positiveIntegerEnv(
+  "MODELAPSE_CATALOG_OBSERVER_POLL_MS",
+  60_000,
+);
+const catalogObserverTimeoutMs = positiveIntegerEnv(
+  "MODELAPSE_CATALOG_OBSERVER_TIMEOUT_MS",
+  30_000,
+);
+const catalogObserverMaxResponseBytes = positiveIntegerEnv(
+  "MODELAPSE_CATALOG_OBSERVER_MAX_RESPONSE_BYTES",
+  2_000_000,
 );
 const privateKey = await privateKeyPem();
 const repository = PgRunRepository.connect(databaseUrl, { max: 2 });
@@ -122,7 +169,50 @@ async function runQueueMode(): Promise<void> {
     );
   }
 
+  const catalogObserver = catalogObserverEnabled
+    ? PgCatalogObserver.connect(databaseUrl, {
+        max: 3,
+        timeoutMs: catalogObserverTimeoutMs,
+        maxResponseBytes: catalogObserverMaxResponseBytes,
+      })
+    : null;
+
   let stopping = false;
+  let catalogObserverTask: Promise<void> | null = null;
+  let nextCatalogObserverAt = 0;
+
+  const maybeCollectCatalog = () => {
+    if (
+      !catalogObserver ||
+      catalogObserverTask ||
+      Date.now() < nextCatalogObserverAt
+    ) {
+      return;
+    }
+
+    nextCatalogObserverAt = Date.now() + catalogObserverPollMs;
+    catalogObserverTask = catalogObserver
+      .collectDue({
+        collectorBuild: runnerBuild,
+        limit: 4,
+      })
+      .then((results) => {
+        for (const result of results) reportCatalogCollection(result);
+      })
+      .catch((error: unknown) => {
+        process.stderr.write(
+          JSON.stringify({
+            catalogObserver: true,
+            status: "loop_failed",
+            error: error instanceof Error ? error.message : String(error),
+          }) + "\n",
+        );
+      })
+      .finally(() => {
+        catalogObserverTask = null;
+      });
+  };
+
   const stop = () => {
     stopping = true;
   };
@@ -131,6 +221,8 @@ async function runQueueMode(): Promise<void> {
 
   try {
     while (!stopping) {
+      maybeCollectCatalog();
+
       const job = await processOneQueuedRunJob({
         queue,
         repository,
@@ -163,7 +255,11 @@ async function runQueueMode(): Promise<void> {
       await sleep(pollMs);
     }
   } finally {
+    if (catalogObserverTask) {
+      await catalogObserverTask;
+    }
     await queue.close();
+    await catalogObserver?.close();
   }
 }
 
