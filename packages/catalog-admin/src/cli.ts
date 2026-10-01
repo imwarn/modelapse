@@ -1,5 +1,10 @@
 import { FileSystemContentAddressedBlobStore } from "@modelapse/blob-store";
 import { PgCatalogAdmin } from "./catalog.js";
+import {
+  PgCatalogDiscovery,
+  type CatalogDiscoveryStatus,
+  type CatalogReconciliationAction,
+} from "./catalog-discovery.js";
 import { PgCatalogObserver } from "./catalog-observer.js";
 import { PgModelCatalogAdmin } from "./model-catalog.js";
 
@@ -15,14 +20,51 @@ if (
   command !== "bootstrap-deepseek-smoke" &&
   command !== "bootstrap-deepseek-flash-model" &&
   command !== "observe-first-party-identity" &&
-  command !== "collect-first-party-catalog"
+  command !== "collect-first-party-catalog" &&
+  command !== "list-catalog-discoveries" &&
+  command !== "reconcile-catalog-candidate"
 ) {
   throw new Error(
-    "Usage: catalog-admin bootstrap-openai-smoke|bootstrap-deepseek-smoke|bootstrap-deepseek-flash-model|observe-first-party-identity|collect-first-party-catalog",
+    "Usage: catalog-admin bootstrap-openai-smoke|bootstrap-deepseek-smoke|bootstrap-deepseek-flash-model|observe-first-party-identity|collect-first-party-catalog|list-catalog-discoveries|reconcile-catalog-candidate",
   );
 }
 
-if (command === "collect-first-party-catalog") {
+if (command === "list-catalog-discoveries") {
+  const discovery = PgCatalogDiscovery.connect(requiredEnv("DATABASE_URL"));
+  try {
+    const providerSlug =
+      process.env.MODELAPSE_PROVIDER_SLUG?.trim() || undefined;
+    const status =
+      process.env.MODELAPSE_CATALOG_DISCOVERY_STATUS?.trim() as
+        | CatalogDiscoveryStatus
+        | undefined;
+    const result = await discovery.listCandidates({
+      ...(providerSlug ? { providerSlug } : {}),
+      ...(status ? { status } : {}),
+    });
+    process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+  } finally {
+    await discovery.close();
+  }
+} else if (command === "reconcile-catalog-candidate") {
+  const discovery = PgCatalogDiscovery.connect(requiredEnv("DATABASE_URL"));
+  try {
+    const resolvedModelId =
+      process.env.MODELAPSE_RESOLVED_MODEL_ID?.trim() || undefined;
+    const note =
+      process.env.MODELAPSE_RECONCILIATION_NOTE?.trim() || undefined;
+    const result = await discovery.reconcileCandidate({
+      candidateId: requiredEnv("MODELAPSE_CATALOG_CANDIDATE_ID"),
+      action: requiredEnv("MODELAPSE_RECONCILIATION_ACTION") as CatalogReconciliationAction,
+      actor: requiredEnv("MODELAPSE_RECONCILIATION_ACTOR"),
+      ...(resolvedModelId ? { resolvedModelId } : {}),
+      ...(note ? { note } : {}),
+    });
+    process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+  } finally {
+    await discovery.close();
+  }
+} else if (command === "collect-first-party-catalog") {
   const observer = PgCatalogObserver.connect(requiredEnv("DATABASE_URL"));
   try {
     const providerSlug =
