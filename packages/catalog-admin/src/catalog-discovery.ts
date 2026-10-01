@@ -523,9 +523,9 @@ export class PgCatalogDiscovery {
     if (candidate.status !== "promotion_ready") {
       throw new Error("Catalog discovery candidate must be promotion_ready");
     }
-    if (candidate.source_type !== "provider_api") {
+    if (candidate.source_type !== "provider_catalog") {
       throw new Error(
-        "Promotion requires a first-party provider_api model-list observation",
+        "Promotion requires a first-party provider_catalog model-list observation",
       );
     }
     if (!candidate.source_url || !candidate.source_title) {
