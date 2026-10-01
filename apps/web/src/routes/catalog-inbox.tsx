@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import {
   getCatalogInbox,
+  getCatalogProviderModels,
   promoteCatalogCandidate,
   reconcileCatalogCandidate,
   type CatalogDiscoveryCandidate,
@@ -40,6 +41,10 @@ function CatalogInbox() {
   const [canonicalSlug, setCanonicalSlug] = useState("");
   const [marketingName, setMarketingName] = useState("");
   const [modelStatus, setModelStatus] = useState<"preview" | "active">("active");
+  const [providerModels, setProviderModels] = useState<
+    readonly { id: string; canonicalSlug: string; marketingName: string; status: string }[]
+  >([]);
+  const [resolvedModelId, setResolvedModelId] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -73,7 +78,7 @@ function CatalogInbox() {
     }
   }
 
-  function selectCandidate(candidate: CatalogDiscoveryCandidate): void {
+  async function selectCandidate(candidate: CatalogDiscoveryCandidate): Promise<void> {
     setSelectedId(candidate.id);
     setCanonicalSlug(suggestedSlug(candidate.remoteModelId));
     setMarketingName(suggestedName(candidate.remoteModelId));
@@ -81,10 +86,19 @@ function CatalogInbox() {
     setNote("");
     setMessage(null);
     setError(null);
+    setResolvedModelId("");
+    try {
+      const models = await getCatalogProviderModels({
+        data: { operatorToken, providerId: candidate.provider.id },
+      });
+      setProviderModels(models);
+    } catch {
+      setProviderModels([]);
+    }
   }
 
   async function reconcile(
-    action: "ignore" | "mark_promotion_ready" | "reopen",
+    action: "match_existing" | "ignore" | "mark_promotion_ready" | "reopen",
   ): Promise<void> {
     if (!selected) return;
     setBusy(true);
@@ -96,6 +110,9 @@ function CatalogInbox() {
           operatorToken,
           candidateId: selected.id,
           action,
+          ...(action === "match_existing" && resolvedModelId
+            ? { resolvedModelId }
+            : {}),
           ...(note ? { note } : {}),
         },
       });
@@ -241,7 +258,7 @@ function CatalogInbox() {
                     ? "inbox-candidate inbox-candidate-selected"
                     : "inbox-candidate"
                 }
-                onClick={() => selectCandidate(candidate)}
+                onClick={() => void selectCandidate(candidate)}
               >
                 <span>
                   <strong>{candidate.remoteModelId}</strong>
@@ -320,6 +337,31 @@ function CatalogInbox() {
                       >
                         Ignore candidate
                       </button>
+                      {providerModels.length ? (
+                        <div className="match-existing-panel">
+                          <select
+                            aria-label="Existing canonical Model"
+                            value={resolvedModelId}
+                            onChange={(event) => setResolvedModelId(event.target.value)}
+                            disabled={busy}
+                          >
+                            <option value="">Match an existing Model…</option>
+                            {providerModels.map((model) => (
+                              <option key={model.id} value={model.id}>
+                                {model.marketingName} · {model.canonicalSlug}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            disabled={busy || !resolvedModelId}
+                            onClick={() => void reconcile("match_existing")}
+                          >
+                            Match existing
+                          </button>
+                        </div>
+                      ) : null}
                     </>
                   ) : null}
                   {selected.status === "ignored" || selected.status === "matched" ? (
