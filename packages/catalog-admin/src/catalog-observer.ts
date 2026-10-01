@@ -8,10 +8,6 @@ import {
 import { PgCatalogDiscovery } from "./catalog-discovery.js";
 import { PgModelCatalogAdmin } from "./model-catalog.js";
 
-export {
-  parseOpenAICompatibleModelList,
-  type ObservedRemoteModel,
-} from "./catalog-adapter.js";
 export type CatalogCollectionStatus =
   | "succeeded"
   | "partial"
