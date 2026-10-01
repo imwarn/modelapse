@@ -400,6 +400,9 @@ function ModelapseHome() {
               <a className="header-link archive-compare-link" href="/changes">
                 Catalog changes →
               </a>
+              <a className="header-link archive-compare-link" href="/catalog-inbox">
+                Catalog Inbox →
+              </a>
             </div>
             <div className="archive-filters">
             <select
