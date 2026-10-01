@@ -155,13 +155,6 @@ async function runStdinMode(): Promise<void> {
 
 async function runQueueMode(): Promise<void> {
   const queue = PgRunJobQueue.connect(databaseUrl, { max: 2 });
-  const catalogObserver = catalogObserverEnabled
-    ? PgCatalogObserver.connect(databaseUrl, {
-        max: 3,
-        timeoutMs: catalogObserverTimeoutMs,
-        maxResponseBytes: catalogObserverMaxResponseBytes,
-      })
-    : null;
   const workerId =
     process.env.MODELAPSE_WORKER_ID ??
     hostname() + "-" + process.pid + "-" + randomUUID().slice(0, 8);
@@ -175,6 +168,14 @@ async function runQueueMode(): Promise<void> {
       "MODELAPSE_JOB_LEASE_SECONDS must be at least provider timeout + 30 seconds",
     );
   }
+
+  const catalogObserver = catalogObserverEnabled
+    ? PgCatalogObserver.connect(databaseUrl, {
+        max: 3,
+        timeoutMs: catalogObserverTimeoutMs,
+        maxResponseBytes: catalogObserverMaxResponseBytes,
+      })
+    : null;
 
   let stopping = false;
   let catalogObserverTask: Promise<void> | null = null;
