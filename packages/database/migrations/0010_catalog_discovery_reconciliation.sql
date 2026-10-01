@@ -110,7 +110,7 @@ CREATE INDEX catalog_discovery_candidates_provider_seen_idx
 CREATE INDEX catalog_discovery_observations_candidate_seen_idx
   ON catalog_discovery_observations (candidate_id, observed_at DESC);
 
-CREATE INDEX catalog_reconciliation_events_candidate_decided_idx
-  ON catalog_reconciliation_events (candidate_id, decided_at DESC, id DESC);
+CREATE INDEX catalog_reconciliation_events_candidate_created_idx
+  ON catalog_reconciliation_events (candidate_id, created_at DESC, id DESC);
 
 COMMIT;
