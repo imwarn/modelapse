@@ -1,19 +1,18 @@
 import { createHash } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
+import {
+  getCatalogSourceAdapter,
+  type CatalogObserverParser,
+  type CatalogObserverSourceKind,
+} from "./catalog-adapter.js";
+import { PgCatalogDiscovery } from "./catalog-discovery.js";
 import { PgModelCatalogAdmin } from "./model-catalog.js";
 
-export type CatalogObserverSourceKind = "model_list" | "docs";
-export type CatalogObserverParser = "openai_models" | "snapshot_only";
 export type CatalogCollectionStatus =
   | "succeeded"
   | "partial"
   | "failed"
   | "skipped";
-
-export interface ObservedRemoteModel {
-  readonly id: string;
-  readonly providerSnapshotId: string | null;
-}
 
 export interface CatalogCollectionResult {
   readonly runId: string;
@@ -90,45 +89,6 @@ const DEFAULT_SOURCES = [
     intervalSeconds: 86400,
   },
 ] as const;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function optionalSnapshotId(value: Record<string, unknown>): string | null {
-  for (const key of [
-    "provider_snapshot_id",
-    "providerSnapshotId",
-    "snapshot",
-    "version",
-    "model_version",
-  ]) {
-    const raw = value[key];
-    if (typeof raw === "string" && raw.trim()) return raw.trim();
-  }
-  return null;
-}
-
-export function parseOpenAICompatibleModelList(
-  input: unknown,
-): readonly ObservedRemoteModel[] {
-  if (!isRecord(input) || !Array.isArray(input.data)) {
-    throw new Error("Model-list payload must contain a data array");
-  }
-
-  const models = new Map<string, ObservedRemoteModel>();
-  for (const item of input.data) {
-    if (!isRecord(item) || typeof item.id !== "string" || !item.id.trim()) {
-      continue;
-    }
-    const id = item.id.trim();
-    models.set(id, {
-      id,
-      providerSnapshotId: optionalSnapshotId(item),
-    });
-  }
-  return [...models.values()].sort((a, b) => a.id.localeCompare(b.id));
-}
 
 function normalizedTimestamp(value: string | undefined): string {
   if (!value) return new Date().toISOString();
@@ -244,6 +204,7 @@ export class PgCatalogObserver {
   private readonly timeoutMs: number;
   private readonly maxResponseBytes: number;
   private readonly modelAdmin: PgModelCatalogAdmin;
+  private readonly discovery: PgCatalogDiscovery;
 
   constructor(
     private readonly pool: Pool,
@@ -268,6 +229,7 @@ export class PgCatalogObserver {
       "Catalog observer maxResponseBytes",
     );
     this.modelAdmin = new PgModelCatalogAdmin(pool);
+    this.discovery = new PgCatalogDiscovery(pool);
   }
 
   static connect(
@@ -596,14 +558,12 @@ export class PgCatalogObserver {
 
     let httpStatus: number | null = null;
     try {
-      const headers: Record<string, string> = {
-        accept:
-          source.sourceKind === "model_list"
-            ? "application/json"
-            : "text/html,application/xhtml+xml,text/plain;q=0.8,*/*;q=0.5",
-        "user-agent": "modelapse-catalog-observer/" + collectorBuild.slice(0, 64),
-      };
-      if (credential) headers.authorization = "Bearer " + credential;
+      const adapter = getCatalogSourceAdapter(source.parser);
+      const headers = adapter.requestHeaders({
+        sourceKind: source.sourceKind,
+        credential,
+        collectorBuild,
+      });
 
       const response = await this.fetchImpl(source.url, {
         method: "GET",
@@ -641,7 +601,8 @@ export class PgCatalogObserver {
         httpStatus: response.status,
       });
 
-      if (source.parser === "snapshot_only") {
+      const remoteModels = adapter.parseModelList(body);
+      if (!remoteModels) {
         await this.pool.query(
           `UPDATE modelapse.catalog_observer_sources
               SET last_succeeded_at = $2,
@@ -669,7 +630,6 @@ export class PgCatalogObserver {
         };
       }
 
-      const remoteModels = parseOpenAICompatibleModelList(JSON.parse(body));
       const remoteById = new Map(remoteModels.map((model) => [model.id, model]));
       const knownBindings = await this.currentBindings(source.providerId);
       const missingKnownApiModelIds: string[] = [];
@@ -710,6 +670,16 @@ export class PgCatalogObserver {
         }
       }
 
+      const allDiscoveryCandidateIds =
+        await this.discovery.recordUnmatchedRemoteModels({
+          providerId: source.providerId,
+          collectionRunId: runId,
+          sourceRecordId,
+          observedAt,
+          remoteModels,
+          matchedRemoteModelIds: matchedApiModelIds,
+        });
+      const discoveryCandidateIds = allDiscoveryCandidateIds.slice(0, 200);
       const unmatchedRemoteModelIds = remoteModels
         .map((model) => model.id)
         .filter((id) => !matchedApiModelIds.has(id))
@@ -740,6 +710,8 @@ export class PgCatalogObserver {
           contentSha256,
           missingKnownApiModelIds,
           unmatchedRemoteModelIds,
+          discoveryCandidateIds,
+          discoveryCandidateCount: allDiscoveryCandidateIds.length,
         },
       });
 

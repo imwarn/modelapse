@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseOpenAICompatibleModelList } from "../src/catalog-observer.js";
+import {
+  getCatalogSourceAdapter,
+  parseOpenAICompatibleModelList,
+} from "../src/catalog-adapter.js";
 
 describe("catalog observer model-list parser", () => {
   it("normalizes and deduplicates OpenAI-compatible model lists", () => {
@@ -17,6 +20,26 @@ describe("catalog observer model-list parser", () => {
       { id: "model-a", providerSnapshotId: "snap-a" },
       { id: "model-b", providerSnapshotId: "2026-10-02" },
     ]);
+  });
+
+
+  it("uses the adapter contract for request headers and snapshot-only sources", () => {
+    const models = getCatalogSourceAdapter("openai_models");
+    expect(
+      models.requestHeaders({
+        sourceKind: "model_list",
+        credential: "secret",
+        collectorBuild: "build-123",
+      }),
+    ).toMatchObject({
+      accept: "application/json",
+      authorization: "Bearer secret",
+    });
+
+    const docs = getCatalogSourceAdapter("snapshot_only");
+    expect(
+      docs.parseModelList("<html>first-party docs</html>"),
+    ).toBeNull();
   });
 
   it("rejects payloads without a data array", () => {

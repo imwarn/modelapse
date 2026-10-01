@@ -16,7 +16,9 @@
     "bootstrap:deepseek-smoke": "node dist/src/cli.js bootstrap-deepseek-smoke",
     "bootstrap:deepseek-flash-model": "node dist/src/cli.js bootstrap-deepseek-flash-model",
     "observe:first-party-identity": "node dist/src/cli.js observe-first-party-identity",
-    "collect:first-party-catalog": "node dist/src/cli.js collect-first-party-catalog"
+    "collect:first-party-catalog": "node dist/src/cli.js collect-first-party-catalog",
+    "list:catalog-discoveries": "node dist/src/cli.js list-catalog-discoveries",
+    "reconcile:catalog-candidate": "node dist/src/cli.js reconcile-catalog-candidate"
   },
   "dependencies": {
     "@modelapse/blob-store": "*",
