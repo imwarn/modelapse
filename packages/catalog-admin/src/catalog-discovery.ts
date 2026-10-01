@@ -456,20 +456,14 @@ export class PgCatalogDiscovery {
     const status = input.status ?? "active";
 
     if (!/^[a-z0-9][a-z0-9-]*$/.test(canonicalSlug)) {
-      throw new Error("canonicalSlug must use lowercase letters, digits, and hyphens");
+      throw new Error(
+        "canonicalSlug must use lowercase letters, digits, and hyphens",
+      );
     }
 
-    const client = await this.pool.connect();
-    try {
-      await client.query("BEGIN");
-      await client.query(
-        "SELECT pg_advisory_xact_lock(hashtext($1))",
-        ["modelapse:catalog-promotion:" + candidateId],
-      );
-
-      const candidateResult = await client.query<{
+    const candidate = (
+      await this.pool.query<{
         id: string;
-        provider_id: string;
         provider_slug: string;
         remote_model_id: string;
         status: CatalogDiscoveryStatus;
@@ -480,7 +474,6 @@ export class PgCatalogDiscovery {
       }>(
         `SELECT
            candidate.id,
-           candidate.provider_id,
            provider.slug AS provider_slug,
            candidate.remote_model_id,
            candidate.status,
@@ -492,54 +485,49 @@ export class PgCatalogDiscovery {
          JOIN modelapse.providers provider ON provider.id = candidate.provider_id
          JOIN modelapse.source_records source
            ON source.id = candidate.last_source_record_id
-        WHERE candidate.id = $1
-        FOR UPDATE OF candidate`,
+        WHERE candidate.id = $1`,
         [candidateId],
+      )
+    ).rows[0];
+
+    if (!candidate) throw new Error("Catalog discovery candidate not found");
+    if (candidate.status !== "promotion_ready") {
+      throw new Error("Catalog discovery candidate must be promotion_ready");
+    }
+    if (candidate.source_type !== "provider_api") {
+      throw new Error(
+        "Promotion requires a first-party provider_api model-list observation",
       );
-      const candidate = candidateResult.rows[0];
-      if (!candidate) throw new Error("Catalog discovery candidate not found");
-      if (candidate.status !== "promotion_ready") {
-        throw new Error("Catalog discovery candidate must be promotion_ready");
-      }
-      if (candidate.source_type !== "provider_api") {
-        throw new Error(
-          "Promotion requires a first-party provider_api model-list observation",
-        );
-      }
-      if (!candidate.source_url || !candidate.source_title) {
-        throw new Error("Promotion requires a URL-backed first-party source");
-      }
+    }
+    if (!candidate.source_url || !candidate.source_title) {
+      throw new Error("Promotion requires a URL-backed first-party source");
+    }
 
-      const priorPromotion = await client.query<{ id: string }>(
-        `SELECT id
-           FROM modelapse.catalog_promotion_events
-          WHERE candidate_id = $1`,
-        [candidateId],
-      );
-      if (priorPromotion.rows[0]) {
-        throw new Error("Catalog discovery candidate has already been promoted");
-      }
+    const priorPromotion = await this.pool.query<{ id: string }>(
+      `SELECT id
+         FROM modelapse.catalog_promotion_events
+        WHERE candidate_id = $1`,
+      [candidateId],
+    );
+    if (priorPromotion.rows[0]) {
+      throw new Error("Catalog discovery candidate has already been promoted");
+    }
 
-      await client.query("COMMIT");
+    const modelAdmin = new PgModelCatalogAdmin(this.pool);
+    const registration = await modelAdmin.registerFirstPartyModel({
+      providerSlug: candidate.provider_slug,
+      canonicalSlug,
+      marketingName,
+      apiModelId: candidate.remote_model_id,
+      status,
+      sourceUrl: candidate.source_url,
+      sourceTitle: candidate.source_title,
+      sourceType: candidate.source_type,
+      sourceRecordId: candidate.last_source_record_id,
+    });
 
-      const modelAdmin = new PgModelCatalogAdmin(this.pool);
-      let registration;
-      try {
-        registration = await modelAdmin.registerFirstPartyModel({
-        providerSlug: candidate.provider_slug,
-        canonicalSlug,
-        marketingName,
-        apiModelId: candidate.remote_model_id,
-        status,
-        sourceUrl: candidate.source_url,
-        sourceTitle: candidate.source_title,
-        sourceType: candidate.source_type,
-        sourceRecordId: candidate.last_source_record_id,
-        });
-      } catch (error) {
-        throw error;
-      }
-
+    const client = await this.pool.connect();
+    try {
       await client.query("BEGIN");
       await client.query(
         "SELECT pg_advisory_xact_lock(hashtext($1))",
@@ -548,6 +536,16 @@ export class PgCatalogDiscovery {
       const locked = await lockCandidate(client, candidateId);
       if (locked.status !== "promotion_ready") {
         throw new Error("Catalog discovery candidate changed during promotion");
+      }
+
+      const alreadyPromoted = await client.query<{ id: string }>(
+        `SELECT id
+           FROM modelapse.catalog_promotion_events
+          WHERE candidate_id = $1`,
+        [candidateId],
+      );
+      if (alreadyPromoted.rows[0]) {
+        throw new Error("Catalog discovery candidate has already been promoted");
       }
 
       const reconciliation = await client.query<{ id: string }>(
@@ -612,7 +610,9 @@ export class PgCatalogDiscovery {
         ],
       );
       const promotionEventId = promotion.rows[0]?.id;
-      if (!promotionEventId) throw new Error("Catalog promotion event insert failed");
+      if (!promotionEventId) {
+        throw new Error("Catalog promotion event insert failed");
+      }
 
       await client.query("COMMIT");
       return {
@@ -622,9 +622,7 @@ export class PgCatalogDiscovery {
         reconciliationEventId,
       };
     } catch (error) {
-      try {
-        await client.query("ROLLBACK");
-      } catch {}
+      await client.query("ROLLBACK");
       throw error;
     } finally {
       client.release();
