@@ -30,7 +30,7 @@ type ControlPlanner = Pick<
 >;
 type CatalogDiscoveryRepository = Pick<
   PgCatalogDiscovery,
-  "listCandidates" | "reconcileCandidate" | "promoteCandidate"
+  "listCandidates" | "listProviderModels" | "reconcileCandidate" | "promoteCandidate"
 >;
 
 type ArchiveRepository = Pick<
@@ -415,6 +415,22 @@ export function createApp(deps: AppDependencies) {
         ...(status ? { status } : {}),
         ...(limit !== undefined ? { limit } : {}),
       }),
+    });
+  });
+
+  app.get("/v1/control/catalog/providers/:providerId/models", async (c) => {
+    if (!deps.catalogDiscovery || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+    const providerId = c.req.param("providerId");
+    if (!UUID_RE.test(providerId)) {
+      return c.json({ error: "invalid_provider_id" }, 400);
+    }
+    return c.json({
+      models: await deps.catalogDiscovery.listProviderModels(providerId),
     });
   });
 
