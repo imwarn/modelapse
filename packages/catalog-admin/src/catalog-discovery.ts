@@ -501,6 +501,11 @@ export class PgCatalogDiscovery {
       if (candidate.status !== "promotion_ready") {
         throw new Error("Catalog discovery candidate must be promotion_ready");
       }
+      if (candidate.source_type !== "provider_api") {
+        throw new Error(
+          "Promotion requires a first-party provider_api model-list observation",
+        );
+      }
       if (!candidate.source_url || !candidate.source_title) {
         throw new Error("Promotion requires a URL-backed first-party source");
       }
@@ -518,7 +523,9 @@ export class PgCatalogDiscovery {
       await client.query("COMMIT");
 
       const modelAdmin = new PgModelCatalogAdmin(this.pool);
-      const registration = await modelAdmin.registerFirstPartyModel({
+      let registration;
+      try {
+        registration = await modelAdmin.registerFirstPartyModel({
         providerSlug: candidate.provider_slug,
         canonicalSlug,
         marketingName,
@@ -528,7 +535,10 @@ export class PgCatalogDiscovery {
         sourceTitle: candidate.source_title,
         sourceType: candidate.source_type,
         sourceRecordId: candidate.last_source_record_id,
-      });
+        });
+      } catch (error) {
+        throw error;
+      }
 
       await client.query("BEGIN");
       await client.query(
@@ -612,11 +622,9 @@ export class PgCatalogDiscovery {
         reconciliationEventId,
       };
     } catch (error) {
-      if (!client.released) {
-        try {
-          await client.query("ROLLBACK");
-        } catch {}
-      }
+      try {
+        await client.query("ROLLBACK");
+      } catch {}
       throw error;
     } finally {
       client.release();
