@@ -240,7 +240,9 @@ export class PgModelCatalogAdmin {
       if (!model) throw new Error("Registered model could not be resolved");
       if (
         model.marketing_name !== marketingName ||
-        !["preview", "active"].includes(model.status)
+        model.status !== status ||
+        (model.canonical_source_id !== null &&
+          model.canonical_source_id !== sourceId)
       ) {
         throw new Error(
           "Canonical model identity conflicts with existing catalog data",
