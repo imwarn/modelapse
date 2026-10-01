@@ -10,12 +10,13 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run test/openai-smoke.test.ts",
+    "test": "vitest run test/openai-smoke.test.ts test/catalog-observer.test.ts",
     "test:integration": "vitest run test/bootstrap.integration.test.ts",
     "bootstrap:openai-smoke": "node dist/src/cli.js bootstrap-openai-smoke",
     "bootstrap:deepseek-smoke": "node dist/src/cli.js bootstrap-deepseek-smoke",
     "bootstrap:deepseek-flash-model": "node dist/src/cli.js bootstrap-deepseek-flash-model",
-    "observe:first-party-identity": "node dist/src/cli.js observe-first-party-identity"
+    "observe:first-party-identity": "node dist/src/cli.js observe-first-party-identity",
+    "collect:first-party-catalog": "node dist/src/cli.js collect-first-party-catalog"
   },
   "dependencies": {
     "@modelapse/blob-store": "*",
