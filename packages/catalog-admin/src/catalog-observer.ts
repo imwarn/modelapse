@@ -14,11 +14,6 @@ export type CatalogCollectionStatus =
   | "failed"
   | "skipped";
 
-export interface ObservedRemoteModel {
-  readonly id: string;
-  readonly providerSnapshotId: string | null;
-}
-
 export interface CatalogCollectionResult {
   readonly runId: string;
   readonly sourceKey: string;
