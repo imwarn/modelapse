@@ -504,7 +504,11 @@ export class PgCatalogDiscovery {
         `UPDATE modelapse.catalog_discovery_candidates
             SET status = $2,
                 resolved_model_id = $3,
-                resolved_at = CASE WHEN $2 = 'matched' THEN $4 ELSE NULL END,
+                resolved_at =
+                  CASE
+                    WHEN $2 = 'matched' THEN $4::timestamptz
+                    ELSE NULL::timestamptz
+                  END,
                 updated_at = now()
           WHERE id = $1`,
         [candidate.id, status, modelId, decidedAt],
