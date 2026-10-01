@@ -675,7 +675,7 @@ export class PgCatalogObserver {
         }
       }
 
-      const discoveryCandidateIds =
+      const allDiscoveryCandidateIds =
         await this.discovery.recordUnmatchedRemoteModels({
           providerId: source.providerId,
           collectionRunId: runId,
@@ -684,6 +684,7 @@ export class PgCatalogObserver {
           remoteModels,
           matchedRemoteModelIds: matchedApiModelIds,
         });
+      const discoveryCandidateIds = allDiscoveryCandidateIds.slice(0, 200);
       const unmatchedRemoteModelIds = remoteModels
         .map((model) => model.id)
         .filter((id) => !matchedApiModelIds.has(id))
@@ -715,6 +716,7 @@ export class PgCatalogObserver {
           missingKnownApiModelIds,
           unmatchedRemoteModelIds,
           discoveryCandidateIds,
+          discoveryCandidateCount: allDiscoveryCandidateIds.length,
         },
       });
 
