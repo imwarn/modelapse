@@ -10,6 +10,7 @@ import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   PgCatalogAdmin,
+  PgCatalogDiscovery,
   PgCatalogObserver,
   PgModelCatalogAdmin,
 } from "../src/index.js";
@@ -370,6 +371,156 @@ describe("production catalog bootstrap", () => {
             unmatchedRemoteModelIds: ["unmapped-remote-model"],
           },
         });
+
+        const discovery = PgCatalogDiscovery.connect(isolatedDatabaseUrl);
+        try {
+          const candidates = await discovery.listCandidates({
+            providerSlug: "deepseek",
+            status: "discovered",
+          });
+          const candidate = candidates.find(
+            (item) => item.remoteModelId === "unmapped-remote-model",
+          );
+          expect(candidate).toMatchObject({
+            provider: { slug: "deepseek" },
+            remoteModelId: "unmapped-remote-model",
+            observationCount: 2,
+            status: "discovered",
+            resolvedModel: null,
+            latestDecision: null,
+          });
+          expect(candidate?.firstSeenAt).toBe("2099-02-01T00:00:00.000Z");
+          expect(candidate?.lastSeenAt).toBe("2099-02-02T00:00:00.000Z");
+
+          if (!candidate) {
+            throw new Error("Expected unmatched discovery candidate");
+          }
+
+          await expect(
+            discovery.reconcileCandidate({
+              candidateId: candidate.id,
+              action: "match_existing",
+              resolvedModelId: registered.modelId,
+              actor: "integration-test",
+              note: "exact provider reconciliation",
+              decidedAt: "2099-02-03T00:00:00.000Z",
+            }),
+          ).resolves.toMatchObject({ status: "matched" });
+
+          const matched = await discovery.listCandidates({
+            providerSlug: "deepseek",
+            status: "matched",
+          });
+          expect(matched.find((item) => item.id === candidate.id)).toMatchObject({
+            status: "matched",
+            resolvedModel: {
+              id: registered.modelId,
+              canonicalSlug: "deepseek-flash",
+            },
+            latestDecision: {
+              action: "match_existing",
+              actor: "integration-test",
+            },
+          });
+
+          await expect(
+            discovery.reconcileCandidate({
+              candidateId: candidate.id,
+              action: "ignore",
+              actor: "integration-test",
+              note: "reclassified for state-machine coverage",
+              decidedAt: "2099-02-04T00:00:00.000Z",
+            }),
+          ).resolves.toMatchObject({ status: "ignored" });
+
+          await expect(
+            discovery.reconcileCandidate({
+              candidateId: candidate.id,
+              action: "mark_promotion_ready",
+              actor: "integration-test",
+              decidedAt: "2099-02-05T00:00:00.000Z",
+            }),
+          ).resolves.toMatchObject({ status: "promotion_ready" });
+
+          await expect(
+            discovery.reconcileCandidate({
+              candidateId: candidate.id,
+              action: "reopen",
+              actor: "integration-test",
+              decidedAt: "2099-02-06T00:00:00.000Z",
+            }),
+          ).resolves.toMatchObject({ status: "discovered" });
+
+          const otherProvider = await verification.query<{ id: string }>(
+            `INSERT INTO modelapse.providers (slug, name)
+             VALUES ('integration-other-provider', 'Integration Other Provider')
+             ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
+             RETURNING id`,
+          );
+          const otherModel = await verification.query<{ id: string }>(
+            `INSERT INTO modelapse.models
+              (provider_id, canonical_slug, marketing_name, status)
+             VALUES ($1, 'other-model', 'Other Model', 'active')
+             ON CONFLICT (provider_id, canonical_slug)
+             DO UPDATE SET marketing_name = EXCLUDED.marketing_name
+             RETURNING id`,
+            [otherProvider.rows[0]!.id],
+          );
+
+          await expect(
+            discovery.reconcileCandidate({
+              candidateId: candidate.id,
+              action: "match_existing",
+              resolvedModelId: otherModel.rows[0]!.id,
+              actor: "integration-test",
+            }),
+          ).rejects.toThrow(/share a provider/);
+
+          await expect(
+            verification.query(
+              `INSERT INTO modelapse.catalog_reconciliation_events
+                (candidate_id, action, resolved_model_id, actor)
+               VALUES ($1, 'match_existing', $2, 'direct-sql-test')`,
+              [candidate.id, otherModel.rows[0]!.id],
+            ),
+          ).rejects.toThrow(/provider mismatch/);
+
+          const decisions = await verification.query<{ id: string }>(
+            `SELECT id
+               FROM modelapse.catalog_reconciliation_events
+              WHERE candidate_id = $1
+              ORDER BY decided_at, id`,
+            [candidate.id],
+          );
+          expect(decisions.rows).toHaveLength(4);
+
+          await expect(
+            verification.query(
+              `UPDATE modelapse.catalog_reconciliation_events
+                  SET note = 'rewritten'
+                WHERE id = $1`,
+              [decisions.rows[0]!.id],
+            ),
+          ).rejects.toThrow(/append-only/);
+
+          const observations = await verification.query<{ id: string }>(
+            `SELECT id
+               FROM modelapse.catalog_discovery_observations
+              WHERE candidate_id = $1
+              ORDER BY observed_at, id`,
+            [candidate.id],
+          );
+          expect(observations.rows).toHaveLength(2);
+          await expect(
+            verification.query(
+              `DELETE FROM modelapse.catalog_discovery_observations
+                WHERE id = $1`,
+              [observations.rows[0]!.id],
+            ),
+          ).rejects.toThrow(/append-only/);
+        } finally {
+          await discovery.close();
+        }
       } finally {
         await verification.end();
       }
