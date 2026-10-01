@@ -335,7 +335,7 @@ export class PgCatalogDiscovery {
          SELECT event.*
            FROM modelapse.catalog_reconciliation_events event
           WHERE event.candidate_id = candidate.id
-          ORDER BY event.decided_at DESC, event.id DESC
+          ORDER BY event.created_at DESC, event.id DESC
           LIMIT 1
        ) decision ON true
       WHERE ($1::text IS NULL OR provider.slug = $1)
