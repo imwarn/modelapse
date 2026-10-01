@@ -157,6 +157,7 @@ describe("Catalog Discovery control API", () => {
       controlToken: "control-secret",
       catalogDiscovery: {
         listCandidates: async () => [candidate()],
+        listProviderModels: async () => [],
         reconcileCandidate: async () => {
           reconciled = true;
           return { eventId: "event", status: "promotion_ready" };
