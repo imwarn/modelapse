@@ -523,8 +523,13 @@ interface CatalogInboxInput extends OperatorInput {
 
 interface ReconcileCatalogCandidateInput extends OperatorInput {
   readonly candidateId: string;
-  readonly action: "ignore" | "mark_promotion_ready" | "reopen";
+  readonly action: "match_existing" | "ignore" | "mark_promotion_ready" | "reopen";
+  readonly resolvedModelId?: string;
   readonly note?: string;
+}
+
+interface CatalogProviderModelsInput extends OperatorInput {
+  readonly providerId: string;
 }
 
 interface PromoteCatalogCandidateInput extends OperatorInput {
@@ -760,10 +765,12 @@ function parseReconcileCatalogCandidateInput(
   const candidateId = value.candidateId;
   const action = value.action;
   const note = value.note;
+  const resolvedModelId = value.resolvedModelId;
   if (typeof candidateId !== "string" || !UUID_RE.test(candidateId)) {
     throw new Error("candidateId must be a UUID");
   }
   if (
+    action !== "match_existing" &&
     action !== "ignore" &&
     action !== "mark_promotion_ready" &&
     action !== "reopen"
@@ -773,12 +780,32 @@ function parseReconcileCatalogCandidateInput(
   if (note !== undefined && typeof note !== "string") {
     throw new Error("note must be a string");
   }
+  if (
+    resolvedModelId !== undefined &&
+    (typeof resolvedModelId !== "string" || !UUID_RE.test(resolvedModelId))
+  ) {
+    throw new Error("resolvedModelId must be a UUID");
+  }
+  if (action === "match_existing" && typeof resolvedModelId !== "string") {
+    throw new Error("match_existing requires resolvedModelId");
+  }
   return {
     operatorToken,
     candidateId,
     action,
+    ...(typeof resolvedModelId === "string" ? { resolvedModelId } : {}),
     ...(typeof note === "string" ? { note } : {}),
   };
+}
+
+function parseCatalogProviderModelsInput(value: unknown): CatalogProviderModelsInput {
+  const operatorToken = parseOperatorToken(value);
+  if (!isRecord(value)) throw new Error("Provider models request must be an object");
+  const providerId = value.providerId;
+  if (typeof providerId !== "string" || !UUID_RE.test(providerId)) {
+    throw new Error("providerId must be a UUID");
+  }
+  return { operatorToken, providerId };
 }
 
 function parsePromoteCatalogCandidateInput(
@@ -1120,6 +1147,23 @@ export const getCatalogInbox = createServerFn({ method: "POST" })
     return result.candidates;
   });
 
+export const getCatalogProviderModels = createServerFn({ method: "POST" })
+  .validator(parseCatalogProviderModelsInput)
+  .handler(async ({ data }) => {
+    requireOperator(data.operatorToken);
+    const result = await requestJson<{
+      models: readonly {
+        id: string;
+        canonicalSlug: string;
+        marketingName: string;
+        status: string;
+      }[];
+    }>(`/v1/control/catalog/providers/${data.providerId}/models`, {
+      control: true,
+    });
+    return result.models;
+  });
+
 export const reconcileCatalogCandidate = createServerFn({ method: "POST" })
   .validator(parseReconcileCatalogCandidateInput)
   .handler(async ({ data }) => {
@@ -1132,6 +1176,9 @@ export const reconcileCatalogCandidate = createServerFn({ method: "POST" })
         body: {
           action: data.action,
           actor: "web-operator",
+          ...(data.resolvedModelId
+            ? { resolvedModelId: data.resolvedModelId }
+            : {}),
           ...(data.note ? { note: data.note } : {}),
         },
       },
