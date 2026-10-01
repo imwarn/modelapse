@@ -435,6 +435,35 @@ export class PgCatalogDiscovery {
     }));
   }
 
+  async listProviderModels(providerId: string): Promise<
+    readonly {
+      readonly id: string;
+      readonly canonicalSlug: string;
+      readonly marketingName: string;
+      readonly status: string;
+    }[]
+  > {
+    const normalizedProviderId = nonEmpty(providerId, "providerId");
+    const result = await this.pool.query<{
+      id: string;
+      canonical_slug: string;
+      marketing_name: string;
+      status: string;
+    }>(
+      `SELECT id, canonical_slug, marketing_name, status
+         FROM modelapse.models
+        WHERE provider_id = $1
+        ORDER BY canonical_slug`,
+      [normalizedProviderId],
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      canonicalSlug: row.canonical_slug,
+      marketingName: row.marketing_name,
+      status: row.status,
+    }));
+  }
+
   async promoteCandidate(input: {
     readonly candidateId: string;
     readonly canonicalSlug: string;
