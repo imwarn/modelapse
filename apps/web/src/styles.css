@@ -2232,3 +2232,138 @@ footer {
     min-width: 0;
   }
 }
+
+
+/* Archive v0.9 — operator Catalog Inbox */
+.inbox-hero {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.inbox-access-grid {
+  grid-template-columns: minmax(260px, 1.3fr) minmax(220px, 0.8fr) auto;
+}
+
+.inbox-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.9fr) minmax(420px, 1.4fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.inbox-list {
+  display: grid;
+  gap: 10px;
+}
+
+.inbox-candidate {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 16px;
+  color: inherit;
+}
+
+.inbox-candidate:hover,
+.inbox-candidate-selected {
+  border-color: var(--ink);
+  transform: none;
+}
+
+.inbox-candidate span {
+  display: grid;
+  gap: 5px;
+}
+
+.inbox-candidate span:last-child {
+  text-align: right;
+}
+
+.inbox-candidate small {
+  color: var(--muted);
+}
+
+.inbox-review {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 24px;
+  display: grid;
+  gap: 20px;
+  position: sticky;
+  top: 18px;
+}
+
+.inbox-review label,
+.promotion-panel label {
+  display: grid;
+  gap: 8px;
+}
+
+.inbox-review textarea {
+  resize: vertical;
+}
+
+.inbox-evidence {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  background: var(--line);
+  border: 1px solid var(--line);
+}
+
+.inbox-evidence div {
+  background: var(--panel);
+  padding: 12px;
+  min-width: 0;
+}
+
+.inbox-evidence dt {
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.inbox-evidence dd {
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.inbox-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.secondary-button {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+.promotion-panel {
+  display: grid;
+  gap: 14px;
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+}
+
+.promotion-panel p {
+  margin: 0;
+  color: var(--muted);
+}
+
+@media (max-width: 860px) {
+  .inbox-layout,
+  .inbox-access-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .inbox-review {
+    position: static;
+  }
+}
