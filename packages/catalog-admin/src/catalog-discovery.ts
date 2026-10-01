@@ -1,5 +1,6 @@
 import { Pool, type PoolClient } from "pg";
 import type { ObservedRemoteModel } from "./catalog-adapter.js";
+import { PgModelCatalogAdmin } from "./model-catalog.js";
 
 export type CatalogDiscoveryStatus =
   | "discovered"
@@ -40,6 +41,12 @@ export interface CatalogDiscoveryCandidate {
     readonly retrievedAt: string;
     readonly contentSha256: string | null;
   };
+  readonly promotion: {
+    readonly id: string;
+    readonly promotedAt: string;
+    readonly actor: string;
+    readonly modelId: string;
+  } | null;
   readonly latestDecision: {
     readonly id: string;
     readonly action: CatalogReconciliationAction;
@@ -306,6 +313,10 @@ export class PgCatalogDiscovery {
       decision_decided_at: Date | null;
       decision_actor: string | null;
       decision_note: string | null;
+      promotion_id: string | null;
+      promotion_promoted_at: Date | null;
+      promotion_actor: string | null;
+      promotion_model_id: string | null;
     }>(
       `SELECT
          candidate.id,
@@ -332,7 +343,11 @@ export class PgCatalogDiscovery {
          decision.action AS decision_action,
          decision.decided_at AS decision_decided_at,
          decision.actor AS decision_actor,
-         decision.note AS decision_note
+         decision.note AS decision_note,
+         promotion.id AS promotion_id,
+         promotion.promoted_at AS promotion_promoted_at,
+         promotion.actor AS promotion_actor,
+         promotion.model_id AS promotion_model_id
        FROM modelapse.catalog_discovery_candidates candidate
        JOIN modelapse.providers provider
          ON provider.id = candidate.provider_id
@@ -340,6 +355,8 @@ export class PgCatalogDiscovery {
          ON source.id = candidate.last_source_record_id
        LEFT JOIN modelapse.models model
          ON model.id = candidate.resolved_model_id
+       LEFT JOIN modelapse.catalog_promotion_events promotion
+         ON promotion.candidate_id = candidate.id
        LEFT JOIN LATERAL (
          SELECT event.*
            FROM modelapse.catalog_reconciliation_events event
@@ -390,6 +407,18 @@ export class PgCatalogDiscovery {
         retrievedAt: row.source_retrieved_at.toISOString(),
         contentSha256: row.source_content_sha256,
       },
+      promotion:
+        row.promotion_id &&
+        row.promotion_promoted_at &&
+        row.promotion_actor &&
+        row.promotion_model_id
+          ? {
+              id: row.promotion_id,
+              promotedAt: row.promotion_promoted_at.toISOString(),
+              actor: row.promotion_actor,
+              modelId: row.promotion_model_id,
+            }
+          : null,
       latestDecision:
         row.decision_id &&
         row.decision_action &&
@@ -404,6 +433,194 @@ export class PgCatalogDiscovery {
             }
           : null,
     }));
+  }
+
+  async promoteCandidate(input: {
+    readonly candidateId: string;
+    readonly canonicalSlug: string;
+    readonly marketingName: string;
+    readonly status?: "preview" | "active";
+    readonly actor: string;
+    readonly note?: string;
+  }): Promise<{
+    readonly candidateId: string;
+    readonly modelId: string;
+    readonly promotionEventId: string;
+    readonly reconciliationEventId: string;
+  }> {
+    const candidateId = nonEmpty(input.candidateId, "candidateId");
+    const canonicalSlug = nonEmpty(input.canonicalSlug, "canonicalSlug");
+    const marketingName = nonEmpty(input.marketingName, "marketingName");
+    const actor = nonEmpty(input.actor, "actor");
+    const note = input.note?.trim() || null;
+    const status = input.status ?? "active";
+
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(canonicalSlug)) {
+      throw new Error("canonicalSlug must use lowercase letters, digits, and hyphens");
+    }
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtext($1))",
+        ["modelapse:catalog-promotion:" + candidateId],
+      );
+
+      const candidateResult = await client.query<{
+        id: string;
+        provider_id: string;
+        provider_slug: string;
+        remote_model_id: string;
+        status: CatalogDiscoveryStatus;
+        last_source_record_id: string;
+        source_type: string;
+        source_url: string | null;
+        source_title: string | null;
+      }>(
+        `SELECT
+           candidate.id,
+           candidate.provider_id,
+           provider.slug AS provider_slug,
+           candidate.remote_model_id,
+           candidate.status,
+           candidate.last_source_record_id,
+           source.source_type,
+           source.url AS source_url,
+           source.title AS source_title
+         FROM modelapse.catalog_discovery_candidates candidate
+         JOIN modelapse.providers provider ON provider.id = candidate.provider_id
+         JOIN modelapse.source_records source
+           ON source.id = candidate.last_source_record_id
+        WHERE candidate.id = $1
+        FOR UPDATE OF candidate`,
+        [candidateId],
+      );
+      const candidate = candidateResult.rows[0];
+      if (!candidate) throw new Error("Catalog discovery candidate not found");
+      if (candidate.status !== "promotion_ready") {
+        throw new Error("Catalog discovery candidate must be promotion_ready");
+      }
+      if (!candidate.source_url || !candidate.source_title) {
+        throw new Error("Promotion requires a URL-backed first-party source");
+      }
+
+      const priorPromotion = await client.query<{ id: string }>(
+        `SELECT id
+           FROM modelapse.catalog_promotion_events
+          WHERE candidate_id = $1`,
+        [candidateId],
+      );
+      if (priorPromotion.rows[0]) {
+        throw new Error("Catalog discovery candidate has already been promoted");
+      }
+
+      await client.query("COMMIT");
+
+      const modelAdmin = new PgModelCatalogAdmin(this.pool);
+      const registration = await modelAdmin.registerFirstPartyModel({
+        providerSlug: candidate.provider_slug,
+        canonicalSlug,
+        marketingName,
+        apiModelId: candidate.remote_model_id,
+        status,
+        sourceUrl: candidate.source_url,
+        sourceTitle: candidate.source_title,
+        sourceType: candidate.source_type,
+        sourceRecordId: candidate.last_source_record_id,
+      });
+
+      await client.query("BEGIN");
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtext($1))",
+        ["modelapse:catalog-promotion:" + candidateId],
+      );
+      const locked = await lockCandidate(client, candidateId);
+      if (locked.status !== "promotion_ready") {
+        throw new Error("Catalog discovery candidate changed during promotion");
+      }
+
+      const reconciliation = await client.query<{ id: string }>(
+        `INSERT INTO modelapse.catalog_reconciliation_events
+          (candidate_id, action, resolved_model_id, actor, note, metadata)
+         VALUES ($1, 'match_existing', $2, $3, $4, $5::jsonb)
+         RETURNING id`,
+        [
+          candidateId,
+          registration.modelId,
+          actor,
+          note,
+          JSON.stringify({
+            previousStatus: locked.status,
+            remoteModelId: locked.remote_model_id,
+            promotion: true,
+          }),
+        ],
+      );
+      const reconciliationEventId = reconciliation.rows[0]?.id;
+      if (!reconciliationEventId) {
+        throw new Error("Promotion reconciliation event insert failed");
+      }
+
+      await client.query(
+        `UPDATE modelapse.catalog_discovery_candidates
+            SET status = 'matched',
+                resolved_model_id = $2,
+                resolved_at = now(),
+                updated_at = now()
+          WHERE id = $1`,
+        [candidateId, registration.modelId],
+      );
+
+      const promotion = await client.query<{ id: string }>(
+        `INSERT INTO modelapse.catalog_promotion_events
+          (
+            candidate_id,
+            model_id,
+            source_record_id,
+            canonical_slug,
+            marketing_name,
+            model_status,
+            actor,
+            metadata
+          )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+         RETURNING id`,
+        [
+          candidateId,
+          registration.modelId,
+          registration.sourceId,
+          canonicalSlug,
+          marketingName,
+          status,
+          actor,
+          JSON.stringify({
+            remoteModelId: candidate.remote_model_id,
+            sourceType: candidate.source_type,
+            note,
+          }),
+        ],
+      );
+      const promotionEventId = promotion.rows[0]?.id;
+      if (!promotionEventId) throw new Error("Catalog promotion event insert failed");
+
+      await client.query("COMMIT");
+      return {
+        candidateId,
+        modelId: registration.modelId,
+        promotionEventId,
+        reconciliationEventId,
+      };
+    } catch (error) {
+      if (!client.released) {
+        try {
+          await client.query("ROLLBACK");
+        } catch {}
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async reconcileCandidate(input: {
