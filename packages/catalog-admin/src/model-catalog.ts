@@ -241,7 +241,8 @@ export class PgModelCatalogAdmin {
       if (
         model.marketing_name !== marketingName ||
         model.status !== status ||
-        (model.canonical_source_id !== null &&
+        (sourceRecordId !== null &&
+          model.canonical_source_id !== null &&
           model.canonical_source_id !== sourceId)
       ) {
         throw new Error(
