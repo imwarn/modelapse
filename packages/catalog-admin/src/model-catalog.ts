@@ -118,6 +118,8 @@ export class PgModelCatalogAdmin {
     readonly status?: "preview" | "active";
     readonly sourceUrl: string;
     readonly sourceTitle: string;
+    readonly sourceType?: string;
+    readonly sourceRecordId?: string;
   }): Promise<FirstPartyModelRegistration> {
     const providerSlug = input.providerSlug.trim();
     const canonicalSlug = input.canonicalSlug.trim();
@@ -126,6 +128,8 @@ export class PgModelCatalogAdmin {
     const sourceUrl = input.sourceUrl.trim();
     const sourceTitle = input.sourceTitle.trim();
     const status = input.status ?? "active";
+    const sourceType = input.sourceType?.trim() || "provider_docs";
+    const sourceRecordId = input.sourceRecordId?.trim() || null;
 
     if (
       !providerSlug ||
@@ -146,11 +150,36 @@ export class PgModelCatalogAdmin {
         ["modelapse:model:" + providerSlug + ":" + canonicalSlug],
       );
 
-      const sourceId = await ensureSource(client, {
-        sourceType: "provider_docs",
-        url: sourceUrl,
-        title: sourceTitle,
-      });
+      let sourceId = sourceRecordId;
+      if (sourceId) {
+        const sourceResult = await client.query<{
+          source_type: string;
+          url: string | null;
+          title: string | null;
+        }>(
+          `SELECT source_type, url, title
+             FROM modelapse.source_records
+            WHERE id = $1`,
+          [sourceId],
+        );
+        const source = sourceResult.rows[0];
+        if (
+          !source ||
+          source.source_type !== sourceType ||
+          source.url !== sourceUrl ||
+          source.title !== sourceTitle
+        ) {
+          throw new Error(
+            "Existing source record does not match first-party model registration",
+          );
+        }
+      } else {
+        sourceId = await ensureSource(client, {
+          sourceType,
+          url: sourceUrl,
+          title: sourceTitle,
+        });
+      }
 
       const endpoint = await client.query<{
         provider_id: string;
@@ -301,7 +330,7 @@ export class PgModelCatalogAdmin {
               confidence,
               raw_observation
             )
-           VALUES ($1, $2, now(), 'provider_docs', $3, 1.0, $4::jsonb)`,
+           VALUES ($1, $2, now(), $5, $3, 1.0, $4::jsonb)`,
           [
             aliasId,
             model.id,
@@ -311,6 +340,7 @@ export class PgModelCatalogAdmin {
               endpointId,
               registration: "catalog-admin",
             }),
+            sourceType,
           ],
         );
       }
