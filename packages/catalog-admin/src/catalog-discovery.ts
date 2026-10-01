@@ -1,5 +1,5 @@
 import { Pool, type PoolClient } from "pg";
-import type { ObservedRemoteModel } from "./catalog-observer.js";
+import type { ObservedRemoteModel } from "./catalog-adapter.js";
 
 export type CatalogDiscoveryStatus =
   | "discovered"
