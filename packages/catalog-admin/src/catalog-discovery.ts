@@ -205,11 +205,34 @@ export class PgCatalogDiscovery {
         if (observation.rows[0] && !newlyCreated) {
           await client.query(
             `UPDATE modelapse.catalog_discovery_candidates
-                SET last_seen_at = GREATEST(last_seen_at, $2::timestamptz),
-                    last_source_record_id = $3,
-                    last_collection_run_id = $4,
+                SET first_seen_at = LEAST(first_seen_at, $2::timestamptz),
+                    first_source_record_id =
+                      CASE
+                        WHEN $2::timestamptz < first_seen_at THEN $3
+                        ELSE first_source_record_id
+                      END,
+                    first_collection_run_id =
+                      CASE
+                        WHEN $2::timestamptz < first_seen_at THEN $4
+                        ELSE first_collection_run_id
+                      END,
+                    last_source_record_id =
+                      CASE
+                        WHEN $2::timestamptz >= last_seen_at THEN $3
+                        ELSE last_source_record_id
+                      END,
+                    last_collection_run_id =
+                      CASE
+                        WHEN $2::timestamptz >= last_seen_at THEN $4
+                        ELSE last_collection_run_id
+                      END,
                     latest_provider_snapshot_id =
-                      COALESCE($5, latest_provider_snapshot_id),
+                      CASE
+                        WHEN $2::timestamptz >= last_seen_at
+                          THEN COALESCE($5, latest_provider_snapshot_id)
+                        ELSE latest_provider_snapshot_id
+                      END,
+                    last_seen_at = GREATEST(last_seen_at, $2::timestamptz),
                     observation_count = observation_count + 1,
                     updated_at = now()
               WHERE id = $1`,
@@ -382,6 +405,14 @@ export class PgCatalogDiscovery {
     readonly note?: string;
     readonly decidedAt?: string;
   }): Promise<{ readonly eventId: string; readonly status: CatalogDiscoveryStatus }> {
+    if (
+      !["match_existing", "ignore", "mark_promotion_ready", "reopen"].includes(
+        input.action,
+      )
+    ) {
+      throw new Error("Unsupported catalog reconciliation action: " + input.action);
+    }
+
     const actor = nonEmpty(input.actor, "actor");
     const note = input.note?.trim() || null;
     const decidedAt = normalizedTime(input.decidedAt, "decidedAt");
