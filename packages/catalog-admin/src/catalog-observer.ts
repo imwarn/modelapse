@@ -156,6 +156,10 @@ function safeError(error: unknown): string {
   return String(error).slice(0, 4000);
 }
 
+function completionTimestamp(startedAt: string): string {
+  return new Date(Math.max(Date.now(), Date.parse(startedAt))).toISOString();
+}
+
 async function sourceRows(
   client: PoolClient,
   input: {
@@ -574,7 +578,7 @@ export class PgCatalogObserver {
       const error = "Missing collector credential: " + source.credentialEnv;
       await this.finishRun(runId, {
         status: "skipped",
-        completedAt: new Date().toISOString(),
+        completedAt: completionTimestamp(observedAt),
         error,
       });
       return {
@@ -647,7 +651,7 @@ export class PgCatalogObserver {
         );
         await this.finishRun(runId, {
           status: "succeeded",
-          completedAt: new Date().toISOString(),
+          completedAt: completionTimestamp(observedAt),
           httpStatus: response.status,
           observationsEmitted: 0,
           metadata: { sourceRecordId, contentSha256 },
@@ -726,7 +730,7 @@ export class PgCatalogObserver {
       );
       await this.finishRun(runId, {
         status,
-        completedAt: new Date().toISOString(),
+        completedAt: completionTimestamp(observedAt),
         httpStatus: response.status,
         itemCount: remoteModels.length,
         observationsEmitted,
@@ -754,7 +758,7 @@ export class PgCatalogObserver {
       const message = safeError(error);
       await this.finishRun(runId, {
         status: "failed",
-        completedAt: new Date().toISOString(),
+        completedAt: completionTimestamp(observedAt),
         ...(httpStatus === null ? {} : { httpStatus }),
         error: message,
       });
