@@ -40,7 +40,7 @@ All require the control Bearer token.
 Promotion requires:
 
 - Candidate state `promotion_ready`;
-- latest Candidate evidence to be a `provider_api` source;
+- latest Candidate evidence to be a `provider_catalog` source;
 - a URL-backed first-party source record;
 - explicit canonical slug and marketing name;
 - explicit initial status (`preview` or `active`);
