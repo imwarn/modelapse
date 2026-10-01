@@ -27,7 +27,7 @@ CREATE TABLE catalog_discovery_candidates (
   CHECK (
     (status = 'matched' AND resolved_model_id IS NOT NULL AND resolved_at IS NOT NULL)
     OR
-    (status <> 'matched')
+    (status <> 'matched' AND resolved_model_id IS NULL AND resolved_at IS NULL)
   )
 );
 
@@ -60,6 +60,38 @@ CREATE TABLE catalog_reconciliation_events (
     (action <> 'match_existing' AND resolved_model_id IS NULL)
   )
 );
+
+CREATE OR REPLACE FUNCTION validate_catalog_reconciliation_event()
+RETURNS trigger LANGUAGE plpgsql AS $catalog_reconciliation$
+DECLARE
+  candidate_provider uuid;
+  model_provider uuid;
+BEGIN
+  SELECT provider_id INTO candidate_provider
+  FROM catalog_discovery_candidates
+  WHERE id = NEW.candidate_id;
+
+  IF candidate_provider IS NULL THEN
+    RAISE EXCEPTION 'catalog reconciliation references a missing candidate';
+  END IF;
+
+  IF NEW.action = 'match_existing' THEN
+    SELECT provider_id INTO model_provider
+    FROM models
+    WHERE id = NEW.resolved_model_id;
+
+    IF model_provider IS NULL OR model_provider <> candidate_provider THEN
+      RAISE EXCEPTION 'catalog reconciliation model provider mismatch';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$catalog_reconciliation$;
+
+CREATE TRIGGER catalog_reconciliation_events_validate
+BEFORE INSERT ON catalog_reconciliation_events
+FOR EACH ROW EXECUTE FUNCTION validate_catalog_reconciliation_event();
 
 CREATE TRIGGER catalog_discovery_observations_append_only
 BEFORE UPDATE OR DELETE ON catalog_discovery_observations
