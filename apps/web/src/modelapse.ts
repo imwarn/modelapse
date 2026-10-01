@@ -438,6 +438,47 @@ export interface ArchiveTemporalComparison {
   }[];
 }
 
+export type CatalogDiscoveryStatus =
+  | "discovered"
+  | "matched"
+  | "ignored"
+  | "promotion_ready";
+
+export interface CatalogDiscoveryCandidate {
+  readonly id: string;
+  readonly provider: {
+    readonly id: string;
+    readonly slug: string;
+    readonly name: string;
+  };
+  readonly remoteModelId: string;
+  readonly firstSeenAt: string;
+  readonly lastSeenAt: string;
+  readonly latestProviderSnapshotId: string | null;
+  readonly observationCount: number;
+  readonly status: CatalogDiscoveryStatus;
+  readonly resolvedModel: {
+    readonly id: string;
+    readonly canonicalSlug: string;
+    readonly marketingName: string;
+  } | null;
+  readonly resolvedAt: string | null;
+  readonly lastSource: ArchiveSource;
+  readonly promotion: {
+    readonly id: string;
+    readonly promotedAt: string;
+    readonly actor: string;
+    readonly modelId: string;
+  } | null;
+  readonly latestDecision: {
+    readonly id: string;
+    readonly action: "match_existing" | "ignore" | "mark_promotion_ready" | "reopen";
+    readonly decidedAt: string;
+    readonly actor: string;
+    readonly note: string | null;
+  } | null;
+}
+
 export interface ControlJob {
   readonly id: string;
   readonly kind: string;
@@ -474,6 +515,24 @@ interface SubmitRunInput extends OperatorInput {
 
 interface ReadJobInput extends OperatorInput {
   readonly jobId: string;
+}
+
+interface CatalogInboxInput extends OperatorInput {
+  readonly status?: CatalogDiscoveryStatus;
+}
+
+interface ReconcileCatalogCandidateInput extends OperatorInput {
+  readonly candidateId: string;
+  readonly action: "ignore" | "mark_promotion_ready" | "reopen";
+  readonly note?: string;
+}
+
+interface PromoteCatalogCandidateInput extends OperatorInput {
+  readonly candidateId: string;
+  readonly canonicalSlug: string;
+  readonly marketingName: string;
+  readonly status: "preview" | "active";
+  readonly note?: string;
 }
 
 interface ReadArchiveRunInput {
@@ -675,6 +734,89 @@ function parseReadJobInput(value: unknown): ReadJobInput {
   }
 
   return { operatorToken, jobId };
+}
+
+function parseCatalogInboxInput(value: unknown): CatalogInboxInput {
+  const operatorToken = parseOperatorToken(value);
+  if (!isRecord(value)) throw new Error("Catalog Inbox request must be an object");
+  const status = value.status;
+  if (
+    status !== undefined &&
+    status !== "discovered" &&
+    status !== "matched" &&
+    status !== "ignored" &&
+    status !== "promotion_ready"
+  ) {
+    throw new Error("Invalid catalog discovery status");
+  }
+  return { operatorToken, ...(status ? { status } : {}) };
+}
+
+function parseReconcileCatalogCandidateInput(
+  value: unknown,
+): ReconcileCatalogCandidateInput {
+  const operatorToken = parseOperatorToken(value);
+  if (!isRecord(value)) throw new Error("Reconciliation request must be an object");
+  const candidateId = value.candidateId;
+  const action = value.action;
+  const note = value.note;
+  if (typeof candidateId !== "string" || !UUID_RE.test(candidateId)) {
+    throw new Error("candidateId must be a UUID");
+  }
+  if (
+    action !== "ignore" &&
+    action !== "mark_promotion_ready" &&
+    action !== "reopen"
+  ) {
+    throw new Error("Unsupported Inbox reconciliation action");
+  }
+  if (note !== undefined && typeof note !== "string") {
+    throw new Error("note must be a string");
+  }
+  return {
+    operatorToken,
+    candidateId,
+    action,
+    ...(typeof note === "string" ? { note } : {}),
+  };
+}
+
+function parsePromoteCatalogCandidateInput(
+  value: unknown,
+): PromoteCatalogCandidateInput {
+  const operatorToken = parseOperatorToken(value);
+  if (!isRecord(value)) throw new Error("Promotion request must be an object");
+  const candidateId = value.candidateId;
+  const canonicalSlug = value.canonicalSlug;
+  const marketingName = value.marketingName;
+  const status = value.status;
+  const note = value.note;
+  if (typeof candidateId !== "string" || !UUID_RE.test(candidateId)) {
+    throw new Error("candidateId must be a UUID");
+  }
+  if (
+    typeof canonicalSlug !== "string" ||
+    !/^[a-z0-9][a-z0-9-]*$/.test(canonicalSlug)
+  ) {
+    throw new Error("canonicalSlug must use lowercase letters, digits, and hyphens");
+  }
+  if (typeof marketingName !== "string" || !marketingName.trim()) {
+    throw new Error("marketingName is required");
+  }
+  if (status !== "preview" && status !== "active") {
+    throw new Error("status must be preview or active");
+  }
+  if (note !== undefined && typeof note !== "string") {
+    throw new Error("note must be a string");
+  }
+  return {
+    operatorToken,
+    candidateId,
+    canonicalSlug,
+    marketingName,
+    status,
+    ...(typeof note === "string" ? { note } : {}),
+  };
 }
 
 function parseArchiveRunInput(value: unknown): ReadArchiveRunInput {
@@ -962,6 +1104,60 @@ export const compareArchive = createServerFn({ method: "POST" })
       }
       throw error;
     }
+  });
+
+export const getCatalogInbox = createServerFn({ method: "POST" })
+  .validator(parseCatalogInboxInput)
+  .handler(async ({ data }): Promise<readonly CatalogDiscoveryCandidate[]> => {
+    requireOperator(data.operatorToken);
+    const params = new URLSearchParams({ limit: "200" });
+    if (data.status) params.set("status", data.status);
+    const result = await requestJson<{
+      candidates: readonly CatalogDiscoveryCandidate[];
+    }>(`/v1/control/catalog/discoveries?${params.toString()}`, {
+      control: true,
+    });
+    return result.candidates;
+  });
+
+export const reconcileCatalogCandidate = createServerFn({ method: "POST" })
+  .validator(parseReconcileCatalogCandidateInput)
+  .handler(async ({ data }) => {
+    requireOperator(data.operatorToken);
+    return requestJson<{ eventId: string; status: CatalogDiscoveryStatus }>(
+      `/v1/control/catalog/discoveries/${data.candidateId}/reconcile`,
+      {
+        method: "POST",
+        control: true,
+        body: {
+          action: data.action,
+          actor: "web-operator",
+          ...(data.note ? { note: data.note } : {}),
+        },
+      },
+    );
+  });
+
+export const promoteCatalogCandidate = createServerFn({ method: "POST" })
+  .validator(parsePromoteCatalogCandidateInput)
+  .handler(async ({ data }) => {
+    requireOperator(data.operatorToken);
+    return requestJson<{
+      candidateId: string;
+      modelId: string;
+      promotionEventId: string;
+      reconciliationEventId: string;
+    }>(`/v1/control/catalog/discoveries/${data.candidateId}/promote`, {
+      method: "POST",
+      control: true,
+      body: {
+        canonicalSlug: data.canonicalSlug,
+        marketingName: data.marketingName,
+        status: data.status,
+        actor: "web-operator",
+        ...(data.note ? { note: data.note } : {}),
+      },
+    });
   });
 
 export const getControlCatalog = createServerFn({ method: "POST" })
