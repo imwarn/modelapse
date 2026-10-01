@@ -442,6 +442,81 @@ describe("production catalog bootstrap", () => {
             }),
           ).resolves.toMatchObject({ status: "promotion_ready" });
 
+          const promoted = await discovery.promoteCandidate({
+            candidateId: candidate.id,
+            canonicalSlug: "unmapped-remote-model",
+            marketingName: "Unmapped Remote Model",
+            status: "preview",
+            actor: "integration-test",
+            note: "explicit v0.9 promotion",
+          });
+          expect(promoted.candidateId).toBe(candidate.id);
+
+          const promotedCandidates = await discovery.listCandidates({
+            providerSlug: "deepseek",
+            status: "matched",
+          });
+          expect(
+            promotedCandidates.find((item) => item.id === candidate.id),
+          ).toMatchObject({
+            status: "matched",
+            resolvedModel: {
+              id: promoted.modelId,
+              canonicalSlug: "unmapped-remote-model",
+              marketingName: "Unmapped Remote Model",
+            },
+            promotion: {
+              actor: "integration-test",
+              modelId: promoted.modelId,
+            },
+            latestDecision: {
+              action: "match_existing",
+              actor: "integration-test",
+            },
+          });
+
+          const promotedModel = await verification.query<{
+            canonical_source_id: string;
+            api_model_id: string;
+          }>(
+            `SELECT model.canonical_source_id, binding.api_model_id
+               FROM modelapse.models model
+               JOIN modelapse.model_execution_bindings binding
+                 ON binding.model_id = model.id
+                AND binding.valid_to IS NULL
+              WHERE model.id = $1`,
+            [promoted.modelId],
+          );
+          expect(promotedModel.rows[0]).toEqual({
+            canonical_source_id: candidate.lastSource.id,
+            api_model_id: "unmapped-remote-model",
+          });
+
+          const promotionEvents = await verification.query<{ id: string }>(
+            `SELECT id
+               FROM modelapse.catalog_promotion_events
+              WHERE candidate_id = $1`,
+            [candidate.id],
+          );
+          expect(promotionEvents.rows).toHaveLength(1);
+          await expect(
+            verification.query(
+              `UPDATE modelapse.catalog_promotion_events
+                  SET actor = 'rewritten'
+                WHERE id = $1`,
+              [promotionEvents.rows[0]!.id],
+            ),
+          ).rejects.toThrow(/append-only/);
+
+          await expect(
+            discovery.promoteCandidate({
+              candidateId: candidate.id,
+              canonicalSlug: "duplicate-promotion",
+              marketingName: "Duplicate Promotion",
+              actor: "integration-test",
+            }),
+          ).rejects.toThrow(/promotion_ready/);
+
           await expect(
             discovery.reconcileCandidate({
               candidateId: candidate.id,
@@ -492,7 +567,7 @@ describe("production catalog bootstrap", () => {
               ORDER BY decided_at, id`,
             [candidate.id],
           );
-          expect(decisions.rows).toHaveLength(4);
+          expect(decisions.rows).toHaveLength(5);
 
           await expect(
             verification.query(
