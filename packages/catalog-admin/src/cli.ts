@@ -14,7 +14,8 @@ if (
   command !== "bootstrap-openai-smoke" &&
   command !== "bootstrap-deepseek-smoke" &&
   command !== "bootstrap-deepseek-flash-model" &&
-  command !== "observe-first-party-identity"
+  command !== "observe-first-party-identity" &&
+  command !== "collect-first-party-catalog"
 ) {
   throw new Error(
     "Usage: catalog-admin bootstrap-openai-smoke|bootstrap-deepseek-smoke|bootstrap-deepseek-flash-model|observe-first-party-identity|collect-first-party-catalog",
