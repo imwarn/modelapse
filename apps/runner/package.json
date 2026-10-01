@@ -19,13 +19,13 @@
     "@modelapse/provider-adapter": "*",
     "@modelapse/provider-openai": "*",
     "@modelapse/provider-deepseek": "*",
-    "@modelapse/evaluation": "*"
+    "@modelapse/evaluation": "*",
+    "@modelapse/catalog-admin": "*"
   },
   "devDependencies": {
     "@types/pg": "8.23.1",
     "pg": "8.23.0",
     "vitest": "3.0.8",
-    "@modelapse/catalog-admin": "*",
     "@modelapse/database": "*"
   }
 }
