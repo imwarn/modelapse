@@ -158,7 +158,10 @@ function safeError(error: unknown): string {
 
 async function sourceRows(
   client: PoolClient,
-  source: ObserverSource,
+  input: {
+    readonly providerSlug: string | null;
+    readonly sourceKey: string | null;
+  },
   now: string,
   limit: number,
   force: boolean,
@@ -214,7 +217,7 @@ async function sourceRows(
        JOIN modelapse.providers provider
          ON provider.id = claimed.provider_id
       ORDER BY claimed.next_run_at, claimed.id`,
-    [source.providerSlug, source.sourceKey, force, now, limit],
+    [input.providerSlug, input.sourceKey, force, now, limit],
   );
 
   return result.rows.map((row) => ({
@@ -358,16 +361,8 @@ export class PgCatalogObserver {
       claimed = await sourceRows(
         client,
         {
-          id: "",
-          providerId: "",
-          providerSlug: input.providerSlug?.trim() || "",
-          sourceKey: input.sourceKey?.trim() || "",
-          sourceKind: "docs",
-          url: "",
-          title: "",
-          parser: "snapshot_only",
-          credentialEnv: null,
-          intervalSeconds: 0,
+          providerSlug: input.providerSlug?.trim() || null,
+          sourceKey: input.sourceKey?.trim() || null,
         },
         now,
         limit,
@@ -686,15 +681,14 @@ export class PgCatalogObserver {
         }
         matchedApiModelIds.add(binding.apiModelId);
         try {
+          const observedSnapshotId =
+            remote.providerSnapshotId ?? binding.providerSnapshotId;
           await this.modelAdmin.observeFirstPartyIdentity({
             providerSlug: source.providerSlug,
             canonicalSlug: binding.canonicalSlug,
             apiModelId: binding.apiModelId,
-            ...(remote.providerSnapshotId ?? binding.providerSnapshotId
-              ? {
-                  providerSnapshotId:
-                    remote.providerSnapshotId ?? binding.providerSnapshotId ?? undefined,
-                }
+            ...(observedSnapshotId
+              ? { providerSnapshotId: observedSnapshotId }
               : {}),
             sourceUrl: source.url,
             sourceTitle: source.title,
