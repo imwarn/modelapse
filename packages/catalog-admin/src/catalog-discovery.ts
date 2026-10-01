@@ -264,6 +264,15 @@ export class PgCatalogDiscovery {
     readonly status?: CatalogDiscoveryStatus;
     readonly limit?: number;
   } = {}): Promise<readonly CatalogDiscoveryCandidate[]> {
+    if (
+      input.status &&
+      !["discovered", "matched", "ignored", "promotion_ready"].includes(
+        input.status,
+      )
+    ) {
+      throw new Error("Unsupported catalog discovery status: " + input.status);
+    }
+
     const limit = input.limit ?? 100;
     if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
       throw new Error(
@@ -413,6 +422,7 @@ export class PgCatalogDiscovery {
       throw new Error("Unsupported catalog reconciliation action: " + input.action);
     }
 
+    const candidateId = nonEmpty(input.candidateId, "candidateId");
     const actor = nonEmpty(input.actor, "actor");
     const note = input.note?.trim() || null;
     const decidedAt = normalizedTime(input.decidedAt, "decidedAt");
@@ -430,10 +440,10 @@ export class PgCatalogDiscovery {
       await client.query("BEGIN");
       await client.query(
         "SELECT pg_advisory_xact_lock(hashtext($1))",
-        ["modelapse:catalog-discovery:" + input.candidateId],
+        ["modelapse:catalog-discovery:" + candidateId],
       );
 
-      const candidate = await lockCandidate(client, input.candidateId);
+      const candidate = await lockCandidate(client, candidateId);
       let status: CatalogDiscoveryStatus;
       let modelId: string | null = null;
 
