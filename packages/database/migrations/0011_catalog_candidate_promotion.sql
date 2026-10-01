@@ -34,8 +34,8 @@ BEGIN
     RAISE EXCEPTION 'catalog promotion references a missing candidate';
   END IF;
 
-  IF candidate_status <> 'matched' THEN
-    RAISE EXCEPTION 'catalog promotion candidate must be matched before event insertion';
+  IF candidate_status NOT IN ('promotion_ready', 'matched') THEN
+    RAISE EXCEPTION 'catalog promotion candidate must be promotion_ready or matched';
   END IF;
 
   SELECT provider_id, canonical_source_id
