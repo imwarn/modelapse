@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { PgCatalogDiscovery } from "@modelapse/catalog-admin";
+import { PgCatalogDiscovery, PgCatalogDriftReview } from "@modelapse/catalog-admin";
 import {
   PgRunJobQueue,
   PgRunPlanner,
@@ -20,6 +20,7 @@ const jobs = PgRunJobQueue.connect(databaseUrl);
 const planner = PgRunPlanner.connect(databaseUrl);
 const archive = PgArchiveRepository.connect(databaseUrl);
 const catalogDiscovery = PgCatalogDiscovery.connect(databaseUrl);
+const catalogDriftReview = PgCatalogDriftReview.connect(databaseUrl);
 const controlToken = process.env.MODELAPSE_CONTROL_TOKEN;
 const port = Number(process.env.PORT ?? "3000");
 const app = createApp({
@@ -28,6 +29,7 @@ const app = createApp({
   planner,
   archive,
   catalogDiscovery,
+  catalogDriftReview,
   ...(controlToken ? { controlToken } : {}),
 });
 
@@ -50,6 +52,7 @@ function shutdown(signal: string): void {
       planner.close(),
       archive.close(),
       catalogDiscovery.close(),
+      catalogDriftReview.close(),
     ]).finally(() => {
       if (error) {
         console.error(error);
