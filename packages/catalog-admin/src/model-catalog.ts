@@ -240,7 +240,7 @@ export class PgModelCatalogAdmin {
       if (!model) throw new Error("Registered model could not be resolved");
       if (
         model.marketing_name !== marketingName ||
-        model.status !== status ||
+        !["preview", "active"].includes(model.status) ||
         (sourceRecordId !== null &&
           model.canonical_source_id !== null &&
           model.canonical_source_id !== sourceId)
