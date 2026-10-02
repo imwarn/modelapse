@@ -13,6 +13,10 @@ import type {
   RunRepository,
   RunView,
 } from "@modelapse/persistence";
+import type {
+  CatalogDiscoveryStatus,
+  PgCatalogDiscovery,
+} from "@modelapse/catalog-admin";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -24,6 +28,11 @@ type ControlPlanner = Pick<
   PgRunPlanner,
   "ping" | "listModels" | "listTests" | "plan"
 >;
+type CatalogDiscoveryRepository = Pick<
+  PgCatalogDiscovery,
+  "listCandidates" | "listProviderModels" | "reconcileCandidate" | "promoteCandidate"
+>;
+
 type ArchiveRepository = Pick<
   PgArchiveRepository,
   | "ping"
@@ -43,6 +52,7 @@ export interface AppDependencies {
   readonly jobs?: ControlQueue;
   readonly planner?: ControlPlanner;
   readonly archive?: ArchiveRepository;
+  readonly catalogDiscovery?: CatalogDiscoveryRepository;
   readonly controlToken?: string;
 }
 
@@ -370,6 +380,175 @@ export function createApp(deps: AppDependencies) {
     }
 
     return c.json({ run: publicRun(run) });
+  });
+
+  app.get("/v1/control/catalog/discoveries", async (c) => {
+    if (!deps.catalogDiscovery || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+    const provider = c.req.query("provider");
+    const status = c.req.query("status") as CatalogDiscoveryStatus | undefined;
+    const rawLimit = c.req.query("limit");
+    if (provider && !PROVIDER_SLUG_RE.test(provider)) {
+      return c.json({ error: "invalid_provider" }, 400);
+    }
+    if (
+      status &&
+      !["discovered", "matched", "ignored", "promotion_ready"].includes(status)
+    ) {
+      return c.json({ error: "invalid_discovery_status" }, 400);
+    }
+    const limit = rawLimit === undefined ? undefined : Number(rawLimit);
+    if (
+      limit !== undefined &&
+      (!Number.isInteger(limit) || limit < 1 || limit > 200)
+    ) {
+      return c.json({ error: "invalid_limit" }, 400);
+    }
+
+    return c.json({
+      candidates: await deps.catalogDiscovery.listCandidates({
+        ...(provider ? { providerSlug: provider } : {}),
+        ...(status ? { status } : {}),
+        ...(limit !== undefined ? { limit } : {}),
+      }),
+    });
+  });
+
+  app.get("/v1/control/catalog/providers/:providerId/models", async (c) => {
+    if (!deps.catalogDiscovery || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+    const providerId = c.req.param("providerId");
+    if (!UUID_RE.test(providerId)) {
+      return c.json({ error: "invalid_provider_id" }, 400);
+    }
+    return c.json({
+      models: await deps.catalogDiscovery.listProviderModels(providerId),
+    });
+  });
+
+  app.post("/v1/control/catalog/discoveries/:candidateId/reconcile", async (c) => {
+    if (!deps.catalogDiscovery || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+    const candidateId = c.req.param("candidateId");
+    if (!UUID_RE.test(candidateId)) {
+      return c.json({ error: "invalid_candidate_id" }, 400);
+    }
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid_json" }, 400);
+    }
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return c.json({ error: "invalid_reconciliation" }, 400);
+    }
+    const body = raw as Record<string, unknown>;
+    const action = body.action;
+    const actor = body.actor;
+    const resolvedModelId = body.resolvedModelId;
+    const note = body.note;
+    if (
+      typeof action !== "string" ||
+      !["match_existing", "ignore", "mark_promotion_ready", "reopen"].includes(action) ||
+      typeof actor !== "string" ||
+      !actor.trim() ||
+      (resolvedModelId !== undefined &&
+        (typeof resolvedModelId !== "string" || !UUID_RE.test(resolvedModelId))) ||
+      (note !== undefined && typeof note !== "string")
+    ) {
+      return c.json({ error: "invalid_reconciliation" }, 400);
+    }
+
+    try {
+      const result = await deps.catalogDiscovery.reconcileCandidate({
+        candidateId,
+        action: action as "match_existing" | "ignore" | "mark_promotion_ready" | "reopen",
+        actor,
+        ...(typeof resolvedModelId === "string" ? { resolvedModelId } : {}),
+        ...(typeof note === "string" ? { note } : {}),
+      });
+      return c.json(result);
+    } catch (error) {
+      return c.json(
+        {
+          error: "reconciliation_rejected",
+          message: error instanceof Error ? error.message : "Reconciliation rejected",
+        },
+        409,
+      );
+    }
+  });
+
+  app.post("/v1/control/catalog/discoveries/:candidateId/promote", async (c) => {
+    if (!deps.catalogDiscovery || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+    const candidateId = c.req.param("candidateId");
+    if (!UUID_RE.test(candidateId)) {
+      return c.json({ error: "invalid_candidate_id" }, 400);
+    }
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid_json" }, 400);
+    }
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return c.json({ error: "invalid_promotion" }, 400);
+    }
+    const body = raw as Record<string, unknown>;
+    const canonicalSlug = body.canonicalSlug;
+    const marketingName = body.marketingName;
+    const status = body.status;
+    const actor = body.actor;
+    const note = body.note;
+    if (
+      typeof canonicalSlug !== "string" ||
+      !PROVIDER_SLUG_RE.test(canonicalSlug) ||
+      typeof marketingName !== "string" ||
+      !marketingName.trim() ||
+      (status !== undefined && status !== "preview" && status !== "active") ||
+      typeof actor !== "string" ||
+      !actor.trim() ||
+      (note !== undefined && typeof note !== "string")
+    ) {
+      return c.json({ error: "invalid_promotion" }, 400);
+    }
+
+    try {
+      const result = await deps.catalogDiscovery.promoteCandidate({
+        candidateId,
+        canonicalSlug,
+        marketingName,
+        ...(status === "preview" || status === "active" ? { status } : {}),
+        actor,
+        ...(typeof note === "string" ? { note } : {}),
+      });
+      return c.json(result, 201);
+    } catch (error) {
+      return c.json(
+        {
+          error: "promotion_rejected",
+          message: error instanceof Error ? error.message : "Promotion rejected",
+        },
+        409,
+      );
+    }
   });
 
   app.get("/v1/control/catalog/models", async (c) => {
