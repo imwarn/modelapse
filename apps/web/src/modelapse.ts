@@ -515,6 +515,98 @@ export interface CatalogDriftReviewItem {
   };
 }
 
+export interface CatalogIdentityCaseSource {
+  readonly id: string;
+  readonly sourceType: string;
+  readonly url: string | null;
+  readonly title: string | null;
+  readonly retrievedAt: string;
+  readonly contentSha256: string | null;
+}
+
+export interface CatalogIdentityCase {
+  readonly model: {
+    readonly id: string;
+    readonly provider: { readonly id: string; readonly slug: string; readonly name: string };
+    readonly canonicalSlug: string;
+    readonly marketingName: string;
+    readonly status: string;
+  };
+  readonly candidates: readonly {
+    readonly id: string;
+    readonly remoteModelId: string;
+    readonly status: string;
+    readonly firstSeenAt: string;
+    readonly lastSeenAt: string;
+    readonly observationCount: number;
+    readonly resolvedAt: string | null;
+    readonly observations: readonly {
+      readonly id: string;
+      readonly observedAt: string;
+      readonly providerSnapshotId: string | null;
+      readonly source: CatalogIdentityCaseSource;
+    }[];
+    readonly decisions: readonly {
+      readonly id: string;
+      readonly action: string;
+      readonly decidedAt: string;
+      readonly actor: string;
+      readonly note: string | null;
+      readonly resolvedModelId: string | null;
+    }[];
+    readonly promotion: {
+      readonly id: string;
+      readonly promotedAt: string;
+      readonly actor: string;
+      readonly canonicalSlug: string;
+      readonly marketingName: string;
+      readonly modelStatus: string;
+      readonly policyVersion: string;
+      readonly evidence: Readonly<Record<string, unknown>>;
+      readonly source: CatalogIdentityCaseSource;
+    } | null;
+  }[];
+  readonly drift: readonly {
+    readonly eventId: string;
+    readonly changeType: string;
+    readonly occurredAt: string;
+    readonly changedFields: readonly string[];
+    readonly previousApiModelId: string | null;
+    readonly currentApiModelId: string | null;
+    readonly previousSource: CatalogIdentityCaseSource | null;
+    readonly currentSource: CatalogIdentityCaseSource;
+    readonly review: {
+      readonly status: CatalogDriftReviewStatus;
+      readonly acknowledgedAt: string | null;
+      readonly resolvedAt: string | null;
+      readonly decisions: readonly {
+        readonly id: string;
+        readonly action: "acknowledge" | "resolve" | "reopen";
+        readonly actor: string;
+        readonly note: string | null;
+        readonly decidedAt: string;
+      }[];
+    };
+  }[];
+  readonly timeline: readonly {
+    readonly id: string;
+    readonly kind:
+      | "discovery_observation"
+      | "reconciliation"
+      | "promotion"
+      | "identity_drift"
+      | "drift_review";
+    readonly occurredAt: string;
+    readonly title: string;
+    readonly description: string;
+    readonly candidateId: string | null;
+    readonly driftEventId: string | null;
+    readonly actor: string | null;
+    readonly note: string | null;
+    readonly source: CatalogIdentityCaseSource | null;
+  }[];
+}
+
 export interface ControlJob {
   readonly id: string;
   readonly kind: string;
@@ -575,6 +667,8 @@ interface PromoteCatalogCandidateInput extends OperatorInput {
   readonly status: "preview" | "active";
   readonly note?: string;
 }
+
+interface CatalogIdentityCaseInput extends OperatorInput { readonly modelId: string; }
 
 interface DriftReviewInboxInput extends OperatorInput { readonly status?: CatalogDriftReviewStatus; }
 interface DecideDriftReviewInput extends OperatorInput {
@@ -889,6 +983,16 @@ function parsePromoteCatalogCandidateInput(
   };
 }
 
+function parseCatalogIdentityCaseInput(value: unknown): CatalogIdentityCaseInput {
+  const operatorToken = parseOperatorToken(value);
+  if (!isRecord(value)) throw new Error("Identity Case request must be an object");
+  const modelId = value.modelId;
+  if (typeof modelId !== "string" || !UUID_RE.test(modelId)) {
+    throw new Error("modelId must be a UUID");
+  }
+  return { operatorToken, modelId };
+}
+
 function parseDriftReviewInboxInput(value: unknown): DriftReviewInboxInput {
   const operatorToken = parseOperatorToken(value);
   if (!isRecord(value)) throw new Error("Drift review request must be an object");
@@ -1194,6 +1298,22 @@ export const compareArchive = createServerFn({ method: "POST" })
       if (error instanceof ApiRequestError && error.status === 404) {
         return null;
       }
+      throw error;
+    }
+  });
+
+export const getCatalogIdentityCase = createServerFn({ method: "POST" })
+  .validator(parseCatalogIdentityCaseInput)
+  .handler(async ({ data }): Promise<CatalogIdentityCase | null> => {
+    requireOperator(data.operatorToken);
+    try {
+      const result = await requestJson<{ identityCase: CatalogIdentityCase }>(
+        `/v1/control/catalog/identity-cases/${data.modelId}`,
+        { control: true },
+      );
+      return result.identityCase;
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 404) return null;
       throw error;
     }
   });
