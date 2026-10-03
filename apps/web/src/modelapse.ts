@@ -562,7 +562,7 @@ export interface CatalogIdentityCase {
       readonly marketingName: string;
       readonly modelStatus: string;
       readonly policyVersion: string;
-      readonly evidence: Readonly<Record<string, unknown>>;
+      readonly evidenceJson: string;
       readonly source: CatalogIdentityCaseSource;
     } | null;
   }[];
