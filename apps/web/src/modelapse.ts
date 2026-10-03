@@ -463,12 +463,27 @@ export interface CatalogDiscoveryCandidate {
     readonly marketingName: string;
   } | null;
   readonly resolvedAt: string | null;
+  readonly promotionPolicy: {
+    readonly version: string;
+    readonly eligible: boolean;
+    readonly blockers: readonly string[];
+    readonly evidence: {
+      readonly sourceRecordId: string;
+      readonly sourceType: string;
+      readonly sourceUrl: string | null;
+      readonly sourceTitle: string | null;
+      readonly contentSha256: string | null;
+      readonly sourceRetrievedAt: string;
+      readonly observationCount: number;
+    };
+  };
   readonly lastSource: ArchiveSource;
   readonly promotion: {
     readonly id: string;
     readonly promotedAt: string;
     readonly actor: string;
     readonly modelId: string;
+    readonly policyVersion: string;
   } | null;
   readonly latestDecision: {
     readonly id: string;

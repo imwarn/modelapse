@@ -1,6 +1,6 @@
 import { Pool, type PoolClient } from "pg";
 import type { ObservedRemoteModel } from "./catalog-adapter.js";
-import { PgModelCatalogAdmin } from "./model-catalog.js";
+import { registerFirstPartyModelOnClient } from "./model-catalog.js";
 
 export type CatalogDiscoveryStatus =
   | "discovered"
@@ -13,6 +13,23 @@ export type CatalogReconciliationAction =
   | "ignore"
   | "mark_promotion_ready"
   | "reopen";
+
+export const CATALOG_PROMOTION_POLICY_VERSION = "provider-catalog-v1";
+
+export interface CatalogPromotionPolicy {
+  readonly version: typeof CATALOG_PROMOTION_POLICY_VERSION;
+  readonly eligible: boolean;
+  readonly blockers: readonly string[];
+  readonly evidence: {
+    readonly sourceRecordId: string;
+    readonly sourceType: string;
+    readonly sourceUrl: string | null;
+    readonly sourceTitle: string | null;
+    readonly contentSha256: string | null;
+    readonly sourceRetrievedAt: string;
+    readonly observationCount: number;
+  };
+}
 
 export interface CatalogDiscoveryCandidate {
   readonly id: string;
@@ -33,6 +50,7 @@ export interface CatalogDiscoveryCandidate {
     readonly marketingName: string;
   } | null;
   readonly resolvedAt: string | null;
+  readonly promotionPolicy: CatalogPromotionPolicy;
   readonly lastSource: {
     readonly id: string;
     readonly sourceType: string;
@@ -46,6 +64,7 @@ export interface CatalogDiscoveryCandidate {
     readonly promotedAt: string;
     readonly actor: string;
     readonly modelId: string;
+    readonly policyVersion: string;
   } | null;
   readonly latestDecision: {
     readonly id: string;
@@ -69,6 +88,43 @@ function nonEmpty(value: string, name: string): string {
   const normalized = value.trim();
   if (!normalized) throw new Error(name + " must be non-empty");
   return normalized;
+}
+
+function promotionPolicy(input: {
+  readonly status: CatalogDiscoveryStatus;
+  readonly promotionId: string | null;
+  readonly sourceRecordId: string;
+  readonly sourceType: string;
+  readonly sourceUrl: string | null;
+  readonly sourceTitle: string | null;
+  readonly sourceRetrievedAt: Date;
+  readonly contentSha256: string | null;
+  readonly observationCount: number;
+}): CatalogPromotionPolicy {
+  const blockers: string[] = [];
+  if (input.status !== "promotion_ready") blockers.push("candidate_not_promotion_ready");
+  if (input.promotionId) blockers.push("candidate_already_promoted");
+  if (input.sourceType !== "provider_catalog") blockers.push("latest_source_not_provider_catalog");
+  if (!input.sourceUrl) blockers.push("latest_source_missing_url");
+  if (!input.sourceTitle) blockers.push("latest_source_missing_title");
+  if (!input.contentSha256 || !/^[0-9a-f]{64}$/.test(input.contentSha256)) {
+    blockers.push("latest_source_missing_content_sha256");
+  }
+
+  return {
+    version: CATALOG_PROMOTION_POLICY_VERSION,
+    eligible: blockers.length === 0,
+    blockers,
+    evidence: {
+      sourceRecordId: input.sourceRecordId,
+      sourceType: input.sourceType,
+      sourceUrl: input.sourceUrl,
+      sourceTitle: input.sourceTitle,
+      contentSha256: input.contentSha256,
+      sourceRetrievedAt: input.sourceRetrievedAt.toISOString(),
+      observationCount: input.observationCount,
+    },
+  };
 }
 
 async function lockCandidate(
@@ -317,6 +373,7 @@ export class PgCatalogDiscovery {
       promotion_promoted_at: Date | null;
       promotion_actor: string | null;
       promotion_model_id: string | null;
+      promotion_policy_version: string | null;
     }>(
       `SELECT
          candidate.id,
@@ -347,7 +404,8 @@ export class PgCatalogDiscovery {
          promotion.id AS promotion_id,
          promotion.promoted_at AS promotion_promoted_at,
          promotion.actor AS promotion_actor,
-         promotion.model_id AS promotion_model_id
+         promotion.model_id AS promotion_model_id,
+         promotion.policy_version AS promotion_policy_version
        FROM modelapse.catalog_discovery_candidates candidate
        JOIN modelapse.providers provider
          ON provider.id = candidate.provider_id
@@ -399,6 +457,17 @@ export class PgCatalogDiscovery {
             }
           : null,
       resolvedAt: row.resolved_at?.toISOString() ?? null,
+      promotionPolicy: promotionPolicy({
+        status: row.status,
+        promotionId: row.promotion_id,
+        sourceRecordId: row.source_id,
+        sourceType: row.source_type,
+        sourceUrl: row.source_url,
+        sourceTitle: row.source_title,
+        sourceRetrievedAt: row.source_retrieved_at,
+        contentSha256: row.source_content_sha256,
+        observationCount: Number(row.observation_count),
+      }),
       lastSource: {
         id: row.source_id,
         sourceType: row.source_type,
@@ -417,6 +486,7 @@ export class PgCatalogDiscovery {
               promotedAt: row.promotion_promoted_at.toISOString(),
               actor: row.promotion_actor,
               modelId: row.promotion_model_id,
+              policyVersion: row.promotion_policy_version ?? "legacy",
             }
           : null,
       latestDecision:
@@ -490,71 +560,6 @@ export class PgCatalogDiscovery {
       );
     }
 
-    const candidate = (
-      await this.pool.query<{
-        id: string;
-        provider_slug: string;
-        remote_model_id: string;
-        status: CatalogDiscoveryStatus;
-        last_source_record_id: string;
-        source_type: string;
-        source_url: string | null;
-        source_title: string | null;
-      }>(
-        `SELECT
-           candidate.id,
-           provider.slug AS provider_slug,
-           candidate.remote_model_id,
-           candidate.status,
-           candidate.last_source_record_id,
-           source.source_type,
-           source.url AS source_url,
-           source.title AS source_title
-         FROM modelapse.catalog_discovery_candidates candidate
-         JOIN modelapse.providers provider ON provider.id = candidate.provider_id
-         JOIN modelapse.source_records source
-           ON source.id = candidate.last_source_record_id
-        WHERE candidate.id = $1`,
-        [candidateId],
-      )
-    ).rows[0];
-
-    if (!candidate) throw new Error("Catalog discovery candidate not found");
-    if (candidate.status !== "promotion_ready") {
-      throw new Error("Catalog discovery candidate must be promotion_ready");
-    }
-    if (candidate.source_type !== "provider_catalog") {
-      throw new Error(
-        "Promotion requires a first-party provider_catalog model-list observation",
-      );
-    }
-    if (!candidate.source_url || !candidate.source_title) {
-      throw new Error("Promotion requires a URL-backed first-party source");
-    }
-
-    const priorPromotion = await this.pool.query<{ id: string }>(
-      `SELECT id
-         FROM modelapse.catalog_promotion_events
-        WHERE candidate_id = $1`,
-      [candidateId],
-    );
-    if (priorPromotion.rows[0]) {
-      throw new Error("Catalog discovery candidate has already been promoted");
-    }
-
-    const modelAdmin = new PgModelCatalogAdmin(this.pool);
-    const registration = await modelAdmin.registerFirstPartyModel({
-      providerSlug: candidate.provider_slug,
-      canonicalSlug,
-      marketingName,
-      apiModelId: candidate.remote_model_id,
-      status,
-      sourceUrl: candidate.source_url,
-      sourceTitle: candidate.source_title,
-      sourceType: candidate.source_type,
-      sourceRecordId: candidate.last_source_record_id,
-    });
-
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -563,19 +568,73 @@ export class PgCatalogDiscovery {
         ["modelapse:catalog-promotion:" + candidateId],
       );
       const locked = await lockCandidate(client, candidateId);
-      if (locked.status !== "promotion_ready") {
-        throw new Error("Catalog discovery candidate changed during promotion");
-      }
 
-      const alreadyPromoted = await client.query<{ id: string }>(
-        `SELECT id
-           FROM modelapse.catalog_promotion_events
-          WHERE candidate_id = $1`,
+      const candidateResult = await client.query<{
+        provider_slug: string;
+        last_source_record_id: string;
+        first_seen_at: Date;
+        last_seen_at: Date;
+        observation_count: string;
+        source_type: string;
+        source_url: string | null;
+        source_title: string | null;
+        source_retrieved_at: Date;
+        source_content_sha256: string | null;
+        promotion_id: string | null;
+      }>(
+        `SELECT
+           provider.slug AS provider_slug,
+           candidate.last_source_record_id,
+           candidate.first_seen_at,
+           candidate.last_seen_at,
+           candidate.observation_count::text,
+           source.source_type,
+           source.url AS source_url,
+           source.title AS source_title,
+           source.retrieved_at AS source_retrieved_at,
+           source.content_sha256 AS source_content_sha256,
+           promotion.id AS promotion_id
+         FROM modelapse.catalog_discovery_candidates candidate
+         JOIN modelapse.providers provider ON provider.id = candidate.provider_id
+         JOIN modelapse.source_records source ON source.id = candidate.last_source_record_id
+         LEFT JOIN modelapse.catalog_promotion_events promotion ON promotion.candidate_id = candidate.id
+        WHERE candidate.id = $1`,
         [candidateId],
       );
-      if (alreadyPromoted.rows[0]) {
-        throw new Error("Catalog discovery candidate has already been promoted");
+      const candidate = candidateResult.rows[0];
+      if (!candidate) throw new Error("Catalog discovery candidate not found");
+
+      const policy = promotionPolicy({
+        status: locked.status,
+        promotionId: candidate.promotion_id,
+        sourceRecordId: candidate.last_source_record_id,
+        sourceType: candidate.source_type,
+        sourceUrl: candidate.source_url,
+        sourceTitle: candidate.source_title,
+        sourceRetrievedAt: candidate.source_retrieved_at,
+        contentSha256: candidate.source_content_sha256,
+        observationCount: Number(candidate.observation_count),
+      });
+      if (!policy.eligible) {
+        throw new Error(
+          "Catalog promotion blocked by " +
+            policy.version +
+            ": " +
+            policy.blockers.join(", "),
+        );
       }
+
+      const registration = await registerFirstPartyModelOnClient(client, {
+        providerSlug: candidate.provider_slug,
+        canonicalSlug,
+        marketingName,
+        apiModelId: locked.remote_model_id,
+        status,
+        sourceUrl: candidate.source_url!,
+        sourceTitle: candidate.source_title!,
+        sourceType: candidate.source_type,
+        sourceRecordId: candidate.last_source_record_id,
+      });
 
       const reconciliation = await client.query<{ id: string }>(
         `INSERT INTO modelapse.catalog_reconciliation_events
@@ -591,6 +650,7 @@ export class PgCatalogDiscovery {
             previousStatus: locked.status,
             remoteModelId: locked.remote_model_id,
             promotion: true,
+            promotionPolicy: policy.version,
           }),
         ],
       );
@@ -619,9 +679,11 @@ export class PgCatalogDiscovery {
             marketing_name,
             model_status,
             actor,
+            policy_version,
+            evidence,
             metadata
           )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb)
          RETURNING id`,
         [
           candidateId,
@@ -631,8 +693,14 @@ export class PgCatalogDiscovery {
           marketingName,
           status,
           actor,
+          policy.version,
           JSON.stringify({
-            remoteModelId: candidate.remote_model_id,
+            ...policy.evidence,
+            firstSeenAt: candidate.first_seen_at.toISOString(),
+            lastSeenAt: candidate.last_seen_at.toISOString(),
+          }),
+          JSON.stringify({
+            remoteModelId: locked.remote_model_id,
             sourceType: candidate.source_type,
             note,
           }),
