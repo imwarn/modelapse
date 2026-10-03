@@ -516,11 +516,11 @@ describe("production catalog bootstrap", () => {
 
           await verification.query(
             `CREATE OR REPLACE FUNCTION modelapse.reject_integration_promotion()
-             RETURNS trigger LANGUAGE plpgsql AS $
+             RETURNS trigger LANGUAGE plpgsql AS $promotion_test$
              BEGIN
                RAISE EXCEPTION 'integration forced promotion audit failure';
              END;
-             $`,
+             $promotion_test$`,
           );
           await verification.query(
             `CREATE TRIGGER reject_integration_promotion
