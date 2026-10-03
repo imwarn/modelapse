@@ -69,7 +69,7 @@ export interface CatalogIdentityCase {
       readonly marketingName: string;
       readonly modelStatus: string;
       readonly policyVersion: string;
-      readonly evidence: Readonly<Record<string, unknown>>;
+      readonly evidenceJson: string;
       readonly source: CatalogIdentityCaseSource;
     } | null;
   }[];
@@ -520,7 +520,7 @@ export class PgCatalogIdentityCase {
               marketingName: promotionRow.marketing_name,
               modelStatus: promotionRow.model_status,
               policyVersion: promotionRow.policy_version,
-              evidence: promotionRow.evidence,
+              evidenceJson: JSON.stringify(promotionRow.evidence),
               source,
             };
           })()
