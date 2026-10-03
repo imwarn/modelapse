@@ -378,11 +378,27 @@ function CatalogInbox() {
 
                 {selected.status === "promotion_ready" ? (
                   <div className="promotion-panel">
-                    <p className="eyebrow">EXPLICIT PROMOTION</p>
-                    <p>
-                      Promotion creates a canonical Model and first-party execution
-                      binding from this candidate's existing provider API evidence.
-                    </p>
+                    <div className="section-heading">
+                      <div>
+                        <p className="eyebrow">EXPLICIT PROMOTION</p>
+                        <p>
+                          Promotion creates a canonical Model and first-party execution
+                          binding from this candidate's existing provider catalog evidence.
+                        </p>
+                      </div>
+                      <span className={selected.promotionPolicy.eligible ? "badge badge-pass" : "badge"}>
+                        {selected.promotionPolicy.eligible ? "policy eligible" : "policy blocked"}
+                      </span>
+                    </div>
+                    <dl className="inbox-evidence">
+                      <div><dt>policy</dt><dd>{selected.promotionPolicy.version}</dd></div>
+                      <div><dt>evidence SHA</dt><dd>{selected.promotionPolicy.evidence.contentSha256?.slice(0, 16) ?? "—"}</dd></div>
+                    </dl>
+                    {!selected.promotionPolicy.eligible ? (
+                      <div className="notice notice-error">
+                        Promotion blocked: {selected.promotionPolicy.blockers.join(", ")}
+                      </div>
+                    ) : null}
                     <label>
                       <span>Canonical slug</span>
                       <input
@@ -414,14 +430,20 @@ function CatalogInbox() {
                     </label>
                     <button
                       type="button"
-                      disabled={busy || !canonicalSlug || !marketingName}
+                      disabled={
+                        busy ||
+                        !canonicalSlug ||
+                        !marketingName ||
+                        !selected.promotionPolicy.eligible
+                      }
                       onClick={() => void promote()}
                     >
                       Promote canonical Model
                     </button>
                     <small>
-                      This is intentionally separate from discovery. Promotion is
-                      audited and cannot be repeated for the same candidate.
+                      This is intentionally separate from discovery. The server re-checks
+                      this policy under the same database transaction as Model registration
+                      and immutable promotion audit.
                     </small>
                   </div>
                 ) : null}
@@ -429,7 +451,8 @@ function CatalogInbox() {
                 {selected.promotion ? (
                   <div className="notice">
                     Promoted {formatTimestamp(selected.promotion.promotedAt)} by{" "}
-                    {selected.promotion.actor}. Model {selected.promotion.modelId}.
+                    {selected.promotion.actor}. Model {selected.promotion.modelId}. Policy{" "}
+                    {selected.promotion.policyVersion}.
                   </div>
                 ) : null}
               </>
