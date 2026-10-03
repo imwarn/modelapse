@@ -12,6 +12,7 @@ import {
   PgCatalogAdmin,
   PgCatalogDiscovery,
   PgCatalogDriftReview,
+  PgCatalogIdentityCase,
   PgCatalogObserver,
   PgModelCatalogAdmin,
 } from "../src/index.js";
@@ -676,6 +677,61 @@ describe("production catalog bootstrap", () => {
               decidedAt: "2099-02-06T00:00:00.000Z",
             }),
           ).resolves.toMatchObject({ status: "discovered" });
+
+          const identityCases = PgCatalogIdentityCase.connect(isolatedDatabaseUrl);
+          try {
+            const originalCase = await identityCases.get(registered.modelId);
+            expect(originalCase).not.toBeNull();
+            expect(originalCase?.candidates.find((item) => item.id === candidate.id)).toMatchObject({
+              id: candidate.id,
+              remoteModelId: "unmapped-remote-model",
+            });
+            expect(
+              originalCase?.candidates
+                .find((item) => item.id === candidate.id)
+                ?.decisions.some(
+                  (decision) =>
+                    decision.action === "match_existing" &&
+                    decision.resolvedModelId === registered.modelId,
+                ),
+            ).toBe(true);
+            expect(originalCase?.drift.length).toBeGreaterThan(0);
+            expect(
+              originalCase?.drift.some((item) =>
+                item.review.decisions.some((decision) => decision.actor === "integration-test"),
+              ),
+            ).toBe(true);
+            expect(
+              originalCase?.timeline.some((event) => event.kind === "drift_review"),
+            ).toBe(true);
+
+            const promotedCase = await identityCases.get(promoted.modelId);
+            expect(promotedCase).not.toBeNull();
+            expect(promotedCase?.candidates).toHaveLength(1);
+            expect(promotedCase?.candidates[0]).toMatchObject({
+              id: candidate.id,
+              observationCount: 2,
+              promotion: {
+                policyVersion: "provider-catalog-v1",
+                actor: "integration-test",
+              },
+            });
+            expect(
+              promotedCase?.timeline.some(
+                (event) =>
+                  event.kind === "promotion" &&
+                  event.candidateId === candidate.id &&
+                  event.source?.id === candidate.lastSource.id,
+              ),
+            ).toBe(true);
+            expect(
+              promotedCase?.timeline.filter(
+                (event) => event.kind === "discovery_observation",
+              ),
+            ).toHaveLength(2);
+          } finally {
+            await identityCases.close();
+          }
 
           const otherProvider = await verification.query<{ id: string }>(
             `INSERT INTO modelapse.providers (slug, name)
