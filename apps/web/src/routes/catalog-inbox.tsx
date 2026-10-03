@@ -452,7 +452,17 @@ function CatalogInbox() {
                   <div className="notice">
                     Promoted {formatTimestamp(selected.promotion.promotedAt)} by{" "}
                     {selected.promotion.actor}. Model {selected.promotion.modelId}. Policy{" "}
-                    {selected.promotion.policyVersion}.
+                    {selected.promotion.policyVersion}.{" "}
+                    <a className="text-link" href={"/identity-cases/" + selected.promotion.modelId}>
+                      Open Identity Case →
+                    </a>
+                  </div>
+                ) : selected.resolvedModel ? (
+                  <div className="notice">
+                    Linked to canonical Model {selected.resolvedModel.marketingName}.{" "}
+                    <a className="text-link" href={"/identity-cases/" + selected.resolvedModel.id}>
+                      Open Identity Case →
+                    </a>
                   </div>
                 ) : null}
               </>

@@ -106,6 +106,11 @@ function IdentityReview() {
               {selected.review.status !== "open" ? <button type="button" className="secondary-button" disabled={busy} onClick={() => void decide("reopen")}>Reopen</button> : null}
             </div>
             {selected.review.latestDecision ? <p className="muted">Latest: {selected.review.latestDecision.action} by {selected.review.latestDecision.actor} · {stamp(selected.review.latestDecision.decidedAt)}</p> : null}
+            {selected.model ? (
+              <a className="text-link" href={"/identity-cases/" + selected.model.id}>
+                Open full Identity Case →
+              </a>
+            ) : null}
           </article>
         ) : null}
       </section>

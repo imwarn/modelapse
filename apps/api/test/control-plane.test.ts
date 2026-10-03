@@ -269,3 +269,60 @@ describe("Catalog identity drift review control API", () => {
     expect(decided).toBe(true);
   });
 });
+
+
+describe("Catalog Identity Case control API", () => {
+  const modelId = "00000000-0000-4000-8000-000000000120";
+
+  it("keeps cross-workflow identity history behind control authentication", async () => {
+    const app = createApp({
+      runs: baseRuns(),
+      controlToken: "control-secret",
+      catalogIdentityCase: {
+        get: async (requestedModelId) =>
+          requestedModelId === modelId
+            ? {
+                model: {
+                  id: modelId,
+                  provider: {
+                    id: "00000000-0000-4000-8000-000000000121",
+                    slug: "deepseek",
+                    name: "DeepSeek",
+                  },
+                  canonicalSlug: "deepseek-case",
+                  marketingName: "DeepSeek Case",
+                  status: "active",
+                },
+                candidates: [],
+                drift: [],
+                timeline: [],
+              }
+            : null,
+      },
+    });
+
+    expect(
+      (await app.request("/v1/control/catalog/identity-cases/" + modelId)).status,
+    ).toBe(401);
+
+    const invalid = await app.request(
+      "/v1/control/catalog/identity-cases/not-a-uuid",
+      { headers: { authorization: "Bearer control-secret" } },
+    );
+    expect(invalid.status).toBe(400);
+
+    const found = await app.request(
+      "/v1/control/catalog/identity-cases/" + modelId,
+      { headers: { authorization: "Bearer control-secret" } },
+    );
+    expect(found.status).toBe(200);
+    await expect(found.json()).resolves.toMatchObject({
+      identityCase: {
+        model: { id: modelId, canonicalSlug: "deepseek-case" },
+        candidates: [],
+        drift: [],
+        timeline: [],
+      },
+    });
+  });
+});

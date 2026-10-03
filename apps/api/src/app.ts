@@ -18,6 +18,7 @@ import type {
   CatalogDriftReviewStatus,
   PgCatalogDiscovery,
   PgCatalogDriftReview,
+  PgCatalogIdentityCase,
 } from "@modelapse/catalog-admin";
 
 const UUID_RE =
@@ -36,6 +37,7 @@ type CatalogDiscoveryRepository = Pick<
 >;
 
 type CatalogDriftReviewRepository = Pick<PgCatalogDriftReview, "list" | "decide">;
+type CatalogIdentityCaseRepository = Pick<PgCatalogIdentityCase, "get">;
 
 type ArchiveRepository = Pick<
   PgArchiveRepository,
@@ -58,6 +60,7 @@ export interface AppDependencies {
   readonly archive?: ArchiveRepository;
   readonly catalogDiscovery?: CatalogDiscoveryRepository;
   readonly catalogDriftReview?: CatalogDriftReviewRepository;
+  readonly catalogIdentityCase?: CatalogIdentityCaseRepository;
   readonly controlToken?: string;
 }
 
@@ -385,6 +388,25 @@ export function createApp(deps: AppDependencies) {
     }
 
     return c.json({ run: publicRun(run) });
+  });
+
+  app.get("/v1/control/catalog/identity-cases/:modelId", async (c) => {
+    if (!deps.catalogIdentityCase || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+    const modelId = c.req.param("modelId");
+    if (!UUID_RE.test(modelId)) {
+      return c.json({ error: "invalid_model_id" }, 400);
+    }
+
+    const identityCase = await deps.catalogIdentityCase.get(modelId);
+    if (!identityCase) {
+      return c.json({ error: "catalog_identity_case_not_found" }, 404);
+    }
+    return c.json({ identityCase });
   });
 
   app.get("/v1/control/catalog/drift-reviews", async (c) => {
