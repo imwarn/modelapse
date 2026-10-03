@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   PgCatalogAdmin,
   PgCatalogDiscovery,
+  PgCatalogDriftReview,
   PgCatalogObserver,
   PgModelCatalogAdmin,
 } from "../src/index.js";
@@ -347,6 +348,60 @@ describe("production catalog bootstrap", () => {
               row.provider_snapshot_id === "deepseek-flash-observer-b",
           ),
         ).toBe(true);
+
+        const driftReview = PgCatalogDriftReview.connect(isolatedDatabaseUrl);
+        try {
+          const open = await driftReview.list({ status: "open" });
+          const reviewTarget = open.find((item) => item.model?.id === registered.modelId);
+          expect(reviewTarget).toBeDefined();
+          const eventId = reviewTarget!.eventId;
+
+          await expect(
+            driftReview.decide({
+              eventId,
+              action: "acknowledge",
+              actor: "integration-test",
+              note: "triaged",
+            }),
+          ).resolves.toMatchObject({ eventId, status: "acknowledged" });
+
+          await expect(
+            driftReview.decide({
+              eventId,
+              action: "resolve",
+              actor: "integration-test",
+              note: "source-backed identity accepted",
+            }),
+          ).resolves.toMatchObject({ eventId, status: "resolved" });
+
+          await expect(
+            driftReview.decide({
+              eventId,
+              action: "reopen",
+              actor: "integration-test",
+              note: "needs another look",
+            }),
+          ).resolves.toMatchObject({ eventId, status: "open" });
+
+          const reviewEvents = await verification.query<{ id: string }>(
+            `SELECT id
+               FROM modelapse.catalog_identity_drift_review_events
+              WHERE drift_event_id = $1
+              ORDER BY created_at, id`,
+            [eventId],
+          );
+          expect(reviewEvents.rows).toHaveLength(3);
+          await expect(
+            verification.query(
+              `UPDATE modelapse.catalog_identity_drift_review_events
+                  SET actor = 'rewritten'
+                WHERE id = $1`,
+              [reviewEvents.rows[0]!.id],
+            ),
+          ).rejects.toThrow(/append-only/);
+        } finally {
+          await driftReview.close();
+        }
 
         const runMetadata = await verification.query<{
           status: string;

@@ -15,7 +15,9 @@ import type {
 } from "@modelapse/persistence";
 import type {
   CatalogDiscoveryStatus,
+  CatalogDriftReviewStatus,
   PgCatalogDiscovery,
+  PgCatalogDriftReview,
 } from "@modelapse/catalog-admin";
 
 const UUID_RE =
@@ -32,6 +34,8 @@ type CatalogDiscoveryRepository = Pick<
   PgCatalogDiscovery,
   "listCandidates" | "listProviderModels" | "reconcileCandidate" | "promoteCandidate"
 >;
+
+type CatalogDriftReviewRepository = Pick<PgCatalogDriftReview, "list" | "decide">;
 
 type ArchiveRepository = Pick<
   PgArchiveRepository,
@@ -53,6 +57,7 @@ export interface AppDependencies {
   readonly planner?: ControlPlanner;
   readonly archive?: ArchiveRepository;
   readonly catalogDiscovery?: CatalogDiscoveryRepository;
+  readonly catalogDriftReview?: CatalogDriftReviewRepository;
   readonly controlToken?: string;
 }
 
@@ -380,6 +385,44 @@ export function createApp(deps: AppDependencies) {
     }
 
     return c.json({ run: publicRun(run) });
+  });
+
+  app.get("/v1/control/catalog/drift-reviews", async (c) => {
+    if (!deps.catalogDriftReview || !controlToken) return c.json({ error: "control_plane_disabled" }, 503);
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+    const status = c.req.query("status") as CatalogDriftReviewStatus | undefined;
+    if (status && !["open", "acknowledged", "resolved"].includes(status)) {
+      return c.json({ error: "invalid_drift_review_status" }, 400);
+    }
+    return c.json({ items: await deps.catalogDriftReview.list({ ...(status ? { status } : {}) }) });
+  });
+
+  app.post("/v1/control/catalog/drift-reviews/decide", async (c) => {
+    if (!deps.catalogDriftReview || !controlToken) return c.json({ error: "control_plane_disabled" }, 503);
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+    let raw: unknown;
+    try { raw = await c.req.json(); } catch { return c.json({ error: "invalid_json" }, 400); }
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return c.json({ error: "invalid_drift_review" }, 400);
+    const body = raw as Record<string, unknown>;
+    const eventId = body.eventId;
+    const action = body.action;
+    const actor = body.actor;
+    const note = body.note;
+    if (
+      typeof eventId !== "string" || !eventId.trim() ||
+      (action !== "acknowledge" && action !== "resolve" && action !== "reopen") ||
+      typeof actor !== "string" || !actor.trim() ||
+      (note !== undefined && typeof note !== "string")
+    ) return c.json({ error: "invalid_drift_review" }, 400);
+    try {
+      return c.json(await deps.catalogDriftReview.decide({
+        eventId, action, actor, ...(typeof note === "string" ? { note } : {}),
+      }));
+    } catch (error) {
+      return c.json({ error: "drift_review_rejected", message: error instanceof Error ? error.message : "Drift review rejected" }, 409);
+    }
   });
 
   app.get("/v1/control/catalog/discoveries", async (c) => {

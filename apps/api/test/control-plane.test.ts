@@ -223,3 +223,35 @@ describe("Catalog Discovery control API", () => {
     expect(promoted).toBe(true);
   });
 });
+
+
+describe("Catalog identity drift review control API", () => {
+  it("keeps drift triage behind control authentication", async () => {
+    let decided = false;
+    const app = createApp({
+      runs: baseRuns(),
+      controlToken: "control-secret",
+      catalogDriftReview: {
+        list: async () => [],
+        decide: async ({ eventId }) => {
+          decided = true;
+          return { eventId, eventAuditId: "audit", status: "acknowledged" as const };
+        },
+      },
+    });
+
+    expect((await app.request("/v1/control/catalog/drift-reviews")).status).toBe(401);
+    const listed = await app.request("/v1/control/catalog/drift-reviews?status=open", {
+      headers: { authorization: "Bearer control-secret" },
+    });
+    expect(listed.status).toBe(200);
+
+    const response = await app.request("/v1/control/catalog/drift-reviews/decide", {
+      method: "POST",
+      headers: { authorization: "Bearer control-secret", "content-type": "application/json" },
+      body: JSON.stringify({ eventId: "binding:00000000-0000-4000-8000-000000000099", action: "acknowledge", actor: "web-operator" }),
+    });
+    expect(response.status).toBe(200);
+    expect(decided).toBe(true);
+  });
+});

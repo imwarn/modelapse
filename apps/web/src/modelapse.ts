@@ -479,6 +479,27 @@ export interface CatalogDiscoveryCandidate {
   } | null;
 }
 
+export type CatalogDriftReviewStatus = "open" | "acknowledged" | "resolved";
+export interface CatalogDriftReviewItem {
+  readonly eventId: string;
+  readonly changeType: string;
+  readonly occurredAt: string;
+  readonly provider: { readonly id: string; readonly slug: string; readonly name: string };
+  readonly model: { readonly id: string; readonly canonicalSlug: string; readonly marketingName: string } | null;
+  readonly alias: string | null;
+  readonly previousApiModelId: string | null;
+  readonly currentApiModelId: string | null;
+  readonly changedFields: readonly string[];
+  readonly previousSource: { readonly id: string; readonly url: string | null; readonly title: string | null } | null;
+  readonly currentSource: { readonly id: string; readonly url: string | null; readonly title: string | null } | null;
+  readonly review: {
+    readonly status: CatalogDriftReviewStatus;
+    readonly acknowledgedAt: string | null;
+    readonly resolvedAt: string | null;
+    readonly latestDecision: { readonly id: string; readonly action: "acknowledge" | "resolve" | "reopen"; readonly actor: string; readonly note: string | null; readonly decidedAt: string } | null;
+  };
+}
+
 export interface ControlJob {
   readonly id: string;
   readonly kind: string;
@@ -537,6 +558,13 @@ interface PromoteCatalogCandidateInput extends OperatorInput {
   readonly canonicalSlug: string;
   readonly marketingName: string;
   readonly status: "preview" | "active";
+  readonly note?: string;
+}
+
+interface DriftReviewInboxInput extends OperatorInput { readonly status?: CatalogDriftReviewStatus; }
+interface DecideDriftReviewInput extends OperatorInput {
+  readonly eventId: string;
+  readonly action: "acknowledge" | "resolve" | "reopen";
   readonly note?: string;
 }
 
@@ -846,6 +874,28 @@ function parsePromoteCatalogCandidateInput(
   };
 }
 
+function parseDriftReviewInboxInput(value: unknown): DriftReviewInboxInput {
+  const operatorToken = parseOperatorToken(value);
+  if (!isRecord(value)) throw new Error("Drift review request must be an object");
+  const status = value.status;
+  if (status !== undefined && status !== "open" && status !== "acknowledged" && status !== "resolved") {
+    throw new Error("Invalid drift review status");
+  }
+  return { operatorToken, ...(status ? { status } : {}) };
+}
+
+function parseDecideDriftReviewInput(value: unknown): DecideDriftReviewInput {
+  const operatorToken = parseOperatorToken(value);
+  if (!isRecord(value)) throw new Error("Drift review decision must be an object");
+  const eventId = value.eventId;
+  const action = value.action;
+  const note = value.note;
+  if (typeof eventId !== "string" || !eventId.trim()) throw new Error("eventId is required");
+  if (action !== "acknowledge" && action !== "resolve" && action !== "reopen") throw new Error("Unsupported drift review action");
+  if (note !== undefined && typeof note !== "string") throw new Error("note must be a string");
+  return { operatorToken, eventId, action, ...(typeof note === "string" ? { note } : {}) };
+}
+
 function parseArchiveRunInput(value: unknown): ReadArchiveRunInput {
   if (!isRecord(value)) throw new Error("Archive Run request must be an object");
 
@@ -1131,6 +1181,27 @@ export const compareArchive = createServerFn({ method: "POST" })
       }
       throw error;
     }
+  });
+
+export const getDriftReviewInbox = createServerFn({ method: "POST" })
+  .validator(parseDriftReviewInboxInput)
+  .handler(async ({ data }) => {
+    requireOperator(data.operatorToken);
+    const query = data.status ? `?status=${encodeURIComponent(data.status)}` : "";
+    const result = await requestJson<{ items: readonly CatalogDriftReviewItem[] }>(
+      `/v1/control/catalog/drift-reviews${query}`, { control: true },
+    );
+    return result.items;
+  });
+
+export const decideDriftReview = createServerFn({ method: "POST" })
+  .validator(parseDecideDriftReviewInput)
+  .handler(async ({ data }) => {
+    requireOperator(data.operatorToken);
+    return requestJson<{ eventId: string; eventAuditId: string; status: CatalogDriftReviewStatus }>(
+      "/v1/control/catalog/drift-reviews/decide",
+      { method: "POST", control: true, body: { eventId: data.eventId, action: data.action, actor: "web-operator", ...(data.note ? { note: data.note } : {}) } },
+    );
   });
 
 export const getCatalogInbox = createServerFn({ method: "POST" })
