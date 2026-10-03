@@ -625,13 +625,31 @@ describe("production catalog bootstrap", () => {
             api_model_id: "unmapped-remote-model",
           });
 
-          const promotionEvents = await verification.query<{ id: string }>(
-            `SELECT id
+          const promotionEvents = await verification.query<{
+            id: string;
+            policy_version: string;
+            evidence: {
+              sourceRecordId: string;
+              sourceType: string;
+              contentSha256: string;
+              observationCount: number;
+            };
+          }>(
+            `SELECT id, policy_version, evidence
                FROM modelapse.catalog_promotion_events
               WHERE candidate_id = $1`,
             [candidate.id],
           );
           expect(promotionEvents.rows).toHaveLength(1);
+          expect(promotionEvents.rows[0]).toMatchObject({
+            policy_version: "provider-catalog-v1",
+            evidence: {
+              sourceRecordId: candidate.lastSource.id,
+              sourceType: "provider_catalog",
+              contentSha256: candidate.lastSource.contentSha256,
+              observationCount: 2,
+            },
+          });
           await expect(
             verification.query(
               `UPDATE modelapse.catalog_promotion_events
