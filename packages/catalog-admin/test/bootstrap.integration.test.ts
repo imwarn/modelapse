@@ -497,6 +497,84 @@ describe("production catalog bootstrap", () => {
             }),
           ).resolves.toMatchObject({ status: "promotion_ready" });
 
+          const promotionReady = (
+            await discovery.listCandidates({
+              providerSlug: "deepseek",
+              status: "promotion_ready",
+            })
+          ).find((item) => item.id === candidate.id);
+          expect(promotionReady?.promotionPolicy).toMatchObject({
+            version: "provider-catalog-v1",
+            eligible: true,
+            blockers: [],
+            evidence: {
+              sourceRecordId: candidate.lastSource.id,
+              sourceType: "provider_catalog",
+              observationCount: 2,
+            },
+          });
+
+          await verification.query(
+            `CREATE OR REPLACE FUNCTION modelapse.reject_integration_promotion()
+             RETURNS trigger LANGUAGE plpgsql AS $
+             BEGIN
+               RAISE EXCEPTION 'integration forced promotion audit failure';
+             END;
+             $`,
+          );
+          await verification.query(
+            `CREATE TRIGGER reject_integration_promotion
+             BEFORE INSERT ON modelapse.catalog_promotion_events
+             FOR EACH ROW EXECUTE FUNCTION modelapse.reject_integration_promotion()`,
+          );
+          try {
+            await expect(
+              discovery.promoteCandidate({
+                candidateId: candidate.id,
+                canonicalSlug: "atomic-rollback-probe",
+                marketingName: "Atomic Rollback Probe",
+                status: "preview",
+                actor: "integration-test",
+              }),
+            ).rejects.toThrow(/forced promotion audit failure/);
+          } finally {
+            await verification.query(
+              `DROP TRIGGER IF EXISTS reject_integration_promotion
+               ON modelapse.catalog_promotion_events`,
+            );
+            await verification.query(
+              `DROP FUNCTION IF EXISTS modelapse.reject_integration_promotion()`,
+            );
+          }
+
+          const rollbackProbe = await verification.query<{
+            candidate_status: string;
+            model_count: string;
+            binding_count: string;
+          }>(
+            `SELECT
+               candidate.status AS candidate_status,
+               (
+                 SELECT COUNT(*)::text
+                   FROM modelapse.models model
+                  WHERE model.provider_id = candidate.provider_id
+                    AND model.canonical_slug = 'atomic-rollback-probe'
+               ) AS model_count,
+               (
+                 SELECT COUNT(*)::text
+                   FROM modelapse.model_execution_bindings binding
+                  WHERE binding.api_model_id = candidate.remote_model_id
+               ) AS binding_count
+             FROM modelapse.catalog_discovery_candidates candidate
+            WHERE candidate.id = $1`,
+            [candidate.id],
+          );
+          expect(rollbackProbe.rows[0]).toEqual({
+            candidate_status: "promotion_ready",
+            model_count: "0",
+            binding_count: "0",
+          });
+
           const promoted = await discovery.promoteCandidate({
             candidateId: candidate.id,
             canonicalSlug: "unmapped-remote-model",
