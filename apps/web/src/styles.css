@@ -2376,3 +2376,54 @@ footer {
   gap: 10px;
   margin-top: 4px;
 }
+
+
+.identity-case-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.identity-case-card > strong {
+  overflow-wrap: anywhere;
+}
+
+.identity-case-mini-ledger {
+  display: grid;
+  gap: 8px;
+}
+
+.identity-case-mini-ledger > div {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 6px;
+}
+
+.identity-case-mini-ledger small,
+.identity-case-review-history small {
+  color: var(--muted);
+  font: 10px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow-wrap: anywhere;
+}
+
+.identity-case-mini-ledger p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.identity-case-review-history {
+  grid-column: 1 / -1;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 6px;
+}
+
+@media (max-width: 760px) {
+  .identity-case-review-history {
+    grid-column: auto;
+  }
+}
