@@ -287,6 +287,7 @@ export class PgCatalogIdentityCase {
             model_status: string;
             policy_version: string;
             evidence: Record<string, unknown>;
+            metadata: Record<string, unknown>;
           } & SourceColumns> }
         : await this.pool.query<
             {
@@ -299,6 +300,7 @@ export class PgCatalogIdentityCase {
               model_status: string;
               policy_version: string;
               evidence: Record<string, unknown>;
+              metadata: Record<string, unknown>;
             } & SourceColumns
           >(
             `SELECT
@@ -311,6 +313,7 @@ export class PgCatalogIdentityCase {
                promotion.model_status,
                promotion.policy_version,
                promotion.evidence,
+               promotion.metadata,
                source.id AS source_id,
                source.source_type,
                source.url AS source_url,
@@ -504,8 +507,8 @@ export class PgCatalogIdentityCase {
               driftEventId: null,
               actor: promotionRow.actor,
               note:
-                typeof promotionRow.evidence.note === "string"
-                  ? promotionRow.evidence.note
+                typeof promotionRow.metadata.note === "string"
+                  ? promotionRow.metadata.note
                   : null,
               source,
             });
