@@ -57,6 +57,7 @@ function IdentityReview() {
           <p className="eyebrow">Archive v0.10 · operator control plane</p>
           <h1>Identity Review Queue</h1>
           <p>Review source-backed alias and execution-binding drift without mutating the immutable identity timeline.</p>
+          <a className="text-link" href="/catalog-integrity">Back to Catalog Integrity →</a>
         </div>
       </header>
 
