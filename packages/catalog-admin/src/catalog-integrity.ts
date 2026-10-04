@@ -632,7 +632,6 @@ export class PgCatalogIntegrity {
       counts.drift_open = Number(exactCounts.drift_open);
       counts.drift_acknowledged = Number(exactCounts.drift_acknowledged);
     }
-
     return {
       generatedAt: clock.rows[0]?.generated_at.toISOString() ?? new Date().toISOString(),
       summary: {
@@ -928,7 +927,6 @@ export class PgCatalogIntegrity {
             WHERE review.status = 'acknowledged'
          ) AS drift_acknowledged`,
     );
-
     const counts = categoryCounts();
 
     const observerSources: CatalogIntegrityObserverSource[] = observerResult.rows.map((row) => {
