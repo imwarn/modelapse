@@ -158,9 +158,12 @@ function ModelapseHome() {
             <small>AI Model Test & Evolution Archive</small>
           </span>
         </a>
-        <div className="build-chip">
-          <span className="status-dot" />
-          build {snapshot.build.slice(0, 12)}
+        <div className="integrity-links">
+          <a href="/catalog-integrity">Catalog Integrity</a>
+          <div className="build-chip">
+            <span className="status-dot" />
+            build {snapshot.build.slice(0, 12)}
+          </div>
         </div>
       </header>
 
