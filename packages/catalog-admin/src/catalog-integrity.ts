@@ -363,6 +363,572 @@ export class PgCatalogIntegrity {
         ),
       ]);
 
+    const exactAttentionCounts = await this.pool.query<{
+      discovery_unresolved: string;
+      promotion_ready: string;
+      promotion_blocked: string;
+      drift_open: string;
+      drift_acknowledged: string;
+    }>(
+      `SELECT
+         (
+           SELECT count(*)::text
+             FROM modelapse.catalog_discovery_candidates candidate
+            WHERE candidate.status = 'discovered'
+         ) AS discovery_unresolved,
+         (
+           SELECT count(*)::text
+             FROM modelapse.catalog_discovery_candidates candidate
+             JOIN modelapse.source_records source
+               ON source.id = candidate.last_source_record_id
+             LEFT JOIN modelapse.catalog_promotion_events promotion
+               ON promotion.candidate_id = candidate.id
+            WHERE candidate.status = 'promotion_ready'
+              AND promotion.id IS NULL
+              AND source.source_type = 'provider_catalog'
+              AND source.url IS NOT NULL
+              AND source.title IS NOT NULL
+              AND source.content_sha256 ~ '^[0-9a-f]{64}
+
+    const observerSources: CatalogIntegrityObserverSource[] = observerResult.rows.map((row) => {
+      let health: CatalogIntegrityObserverSource["health"];
+      let attentionCategory: CatalogIntegrityObserverSource["attentionCategory"] = null;
+      if (!row.enabled) {
+        health = "disabled";
+      } else if (row.latest_run_status === "failed") {
+        health = "failed";
+        attentionCategory = "collection_failed";
+      } else if (row.latest_run_status === "partial") {
+        health = "partial";
+        attentionCategory = "collection_partial";
+      } else if (row.is_stale) {
+        health = "stale";
+        attentionCategory = "collection_stale";
+      } else if (!row.latest_run_id) {
+        health = "never_collected";
+      } else {
+        health = "healthy";
+      }
+      if (attentionCategory) counts[attentionCategory] += 1;
+
+      return {
+        id: row.id,
+        provider: { id: row.provider_id, slug: row.provider_slug, name: row.provider_name },
+        sourceKey: row.source_key,
+        sourceKind: row.source_kind,
+        url: row.url,
+        title: row.title,
+        enabled: row.enabled,
+        intervalSeconds: row.interval_seconds,
+        lastAttemptedAt: row.last_attempted_at?.toISOString() ?? null,
+        lastSucceededAt: row.last_succeeded_at?.toISOString() ?? null,
+        nextRunAt: row.next_run_at.toISOString(),
+        health,
+        attentionCategory,
+        latestRun:
+          row.latest_run_id && row.latest_run_status && row.latest_run_started_at
+            ? {
+                id: row.latest_run_id,
+                status: row.latest_run_status,
+                startedAt: row.latest_run_started_at.toISOString(),
+                completedAt: row.latest_run_completed_at?.toISOString() ?? null,
+                httpStatus: row.latest_run_http_status,
+                itemCount: row.latest_run_item_count,
+                observationsEmitted: row.latest_run_observations_emitted ?? 0,
+              }
+            : null,
+      };
+    });
+
+    const discovery: CatalogIntegrityDiscoveryItem[] = [
+      ...discovered.map((candidate) => {
+        counts.discovery_unresolved += 1;
+        return {
+          candidateId: candidate.id,
+          provider: candidate.provider,
+          remoteModelId: candidate.remoteModelId,
+          status: candidate.status,
+          firstSeenAt: candidate.firstSeenAt,
+          lastSeenAt: candidate.lastSeenAt,
+          observationCount: candidate.observationCount,
+          latestProviderSnapshotId: candidate.latestProviderSnapshotId,
+          attentionCategory: "discovery_unresolved" as const,
+          promotionPolicy: {
+            version: candidate.promotionPolicy.version,
+            eligible: candidate.promotionPolicy.eligible,
+            blockers: candidate.promotionPolicy.blockers,
+          },
+          latestFirstPartySource: candidate.lastSource,
+        };
+      }),
+      ...promotionReady.map((candidate) => {
+        const attentionCategory = candidate.promotionPolicy.eligible
+          ? ("promotion_ready" as const)
+          : ("promotion_blocked" as const);
+        counts[attentionCategory] += 1;
+        return {
+          candidateId: candidate.id,
+          provider: candidate.provider,
+          remoteModelId: candidate.remoteModelId,
+          status: candidate.status,
+          firstSeenAt: candidate.firstSeenAt,
+          lastSeenAt: candidate.lastSeenAt,
+          observationCount: candidate.observationCount,
+          latestProviderSnapshotId: candidate.latestProviderSnapshotId,
+          attentionCategory,
+          promotionPolicy: {
+            version: candidate.promotionPolicy.version,
+            eligible: candidate.promotionPolicy.eligible,
+            blockers: candidate.promotionPolicy.blockers,
+          },
+          latestFirstPartySource: candidate.lastSource,
+        };
+      }),
+    ];
+
+    const drift: CatalogIntegrityDriftItem[] = [
+      ...openDrift.map((item) => {
+        counts.drift_open += 1;
+        return {
+          eventId: item.eventId,
+          attentionCategory: "drift_open" as const,
+          changeType: item.changeType,
+          occurredAt: item.occurredAt,
+          provider: item.provider,
+          model: item.model,
+          alias: item.alias,
+          previousApiModelId: item.previousApiModelId,
+          currentApiModelId: item.currentApiModelId,
+          changedFields: item.changedFields,
+          evidenceSource: item.currentSource,
+          reviewStatus: "open" as const,
+        };
+      }),
+      ...acknowledgedDrift.map((item) => {
+        counts.drift_acknowledged += 1;
+        return {
+          eventId: item.eventId,
+          attentionCategory: "drift_acknowledged" as const,
+          changeType: item.changeType,
+          occurredAt: item.occurredAt,
+          provider: item.provider,
+          model: item.model,
+          alias: item.alias,
+          previousApiModelId: item.previousApiModelId,
+          currentApiModelId: item.currentApiModelId,
+          changedFields: item.changedFields,
+          evidenceSource: item.currentSource,
+          reviewStatus: "acknowledged" as const,
+        };
+      }),
+    ];
+
+    const provenance: CatalogIntegrityProvenanceItem[] = [];
+    for (const row of provenanceResult.rows) {
+      const reasons: string[] = [];
+      if (!row.canonical_source_id || !row.canonical_source_retrieved_at) {
+        reasons.push("missing_canonical_source");
+      } else if (!sourceComplete({
+        source_type: row.canonical_source_type,
+        source_url: row.canonical_source_url,
+        source_title: row.canonical_source_title,
+      })) {
+        reasons.push("canonical_source_not_first_party_or_incomplete");
+      }
+
+      const bindingCount = Number(row.current_binding_count);
+      if (bindingCount === 0) reasons.push("missing_current_first_party_binding");
+      if (bindingCount > 1) reasons.push("multiple_current_first_party_bindings");
+      if (
+        row.binding_id &&
+        !sourceComplete({
+          source_type: row.binding_source_type,
+          source_url: row.binding_source_url,
+          source_title: row.binding_source_title,
+        })
+      ) {
+        reasons.push("binding_source_not_first_party_or_incomplete");
+      }
+
+      if (
+        row.promotion_id &&
+        (row.promotion_policy_version !== "provider-catalog-v1" ||
+          !row.promotion_source_record_id ||
+          row.promotion_source_record_id !== row.canonical_source_id)
+      ) {
+        reasons.push("promotion_audit_mismatch");
+      }
+
+      if (reasons.length === 0) continue;
+      counts.provenance_incomplete += 1;
+
+      provenance.push({
+        model: {
+          id: row.model_id,
+          provider: { id: row.provider_id, slug: row.provider_slug, name: row.provider_name },
+          canonicalSlug: row.canonical_slug,
+          marketingName: row.marketing_name,
+          status: row.model_status,
+        },
+        attentionCategory: "provenance_incomplete",
+        reasons,
+        canonicalSource:
+          row.canonical_source_id &&
+          row.canonical_source_type &&
+          row.canonical_source_retrieved_at
+            ? {
+                id: row.canonical_source_id,
+                sourceType: row.canonical_source_type,
+                url: row.canonical_source_url,
+                title: row.canonical_source_title,
+                retrievedAt: row.canonical_source_retrieved_at.toISOString(),
+                contentSha256: row.canonical_source_content_sha256,
+              }
+            : null,
+        currentBinding:
+          row.binding_id &&
+          row.api_model_id &&
+          row.endpoint_hostname &&
+          row.binding_source_id &&
+          row.binding_source_type &&
+          row.binding_source_retrieved_at
+            ? {
+                id: row.binding_id,
+                apiModelId: row.api_model_id,
+                endpointHostname: row.endpoint_hostname,
+                source: {
+                  id: row.binding_source_id,
+                  sourceType: row.binding_source_type,
+                  url: row.binding_source_url,
+                  title: row.binding_source_title,
+                  retrievedAt: row.binding_source_retrieved_at.toISOString(),
+                  contentSha256: row.binding_source_content_sha256,
+                },
+              }
+            : null,
+        currentBindingCount: bindingCount,
+        promotionAudit:
+          row.promotion_id &&
+          row.promotion_candidate_id &&
+          row.promoted_at &&
+          row.promotion_policy_version &&
+          row.promotion_source_record_id
+            ? {
+                id: row.promotion_id,
+                candidateId: row.promotion_candidate_id,
+                promotedAt: row.promoted_at.toISOString(),
+                policyVersion: row.promotion_policy_version,
+                sourceRecordId: row.promotion_source_record_id,
+              }
+            : null,
+      });
+    }
+
+    const exactCounts = exactAttentionCounts.rows[0];
+    if (exactCounts) {
+      counts.discovery_unresolved = Number(exactCounts.discovery_unresolved);
+      counts.promotion_ready = Number(exactCounts.promotion_ready);
+      counts.promotion_blocked = Number(exactCounts.promotion_blocked);
+      counts.drift_open = Number(exactCounts.drift_open);
+      counts.drift_acknowledged = Number(exactCounts.drift_acknowledged);
+    }
+
+    return {
+      generatedAt: clock.rows[0]?.generated_at.toISOString() ?? new Date().toISOString(),
+      summary: {
+        total: Object.values(counts).reduce((sum, count) => sum + count, 0),
+        counts,
+      },
+      observerSources,
+      discovery,
+      drift,
+      provenance,
+    };
+  }
+}
+
+         ) AS promotion_ready,
+         (
+           SELECT count(*)::text
+             FROM modelapse.catalog_discovery_candidates candidate
+             JOIN modelapse.source_records source
+               ON source.id = candidate.last_source_record_id
+             LEFT JOIN modelapse.catalog_promotion_events promotion
+               ON promotion.candidate_id = candidate.id
+            WHERE candidate.status = 'promotion_ready'
+              AND NOT (
+                promotion.id IS NULL
+                AND source.source_type = 'provider_catalog'
+                AND source.url IS NOT NULL
+                AND source.title IS NOT NULL
+                AND source.content_sha256 ~ '^[0-9a-f]{64}
+
+    const observerSources: CatalogIntegrityObserverSource[] = observerResult.rows.map((row) => {
+      let health: CatalogIntegrityObserverSource["health"];
+      let attentionCategory: CatalogIntegrityObserverSource["attentionCategory"] = null;
+      if (!row.enabled) {
+        health = "disabled";
+      } else if (row.latest_run_status === "failed") {
+        health = "failed";
+        attentionCategory = "collection_failed";
+      } else if (row.latest_run_status === "partial") {
+        health = "partial";
+        attentionCategory = "collection_partial";
+      } else if (row.is_stale) {
+        health = "stale";
+        attentionCategory = "collection_stale";
+      } else if (!row.latest_run_id) {
+        health = "never_collected";
+      } else {
+        health = "healthy";
+      }
+      if (attentionCategory) counts[attentionCategory] += 1;
+
+      return {
+        id: row.id,
+        provider: { id: row.provider_id, slug: row.provider_slug, name: row.provider_name },
+        sourceKey: row.source_key,
+        sourceKind: row.source_kind,
+        url: row.url,
+        title: row.title,
+        enabled: row.enabled,
+        intervalSeconds: row.interval_seconds,
+        lastAttemptedAt: row.last_attempted_at?.toISOString() ?? null,
+        lastSucceededAt: row.last_succeeded_at?.toISOString() ?? null,
+        nextRunAt: row.next_run_at.toISOString(),
+        health,
+        attentionCategory,
+        latestRun:
+          row.latest_run_id && row.latest_run_status && row.latest_run_started_at
+            ? {
+                id: row.latest_run_id,
+                status: row.latest_run_status,
+                startedAt: row.latest_run_started_at.toISOString(),
+                completedAt: row.latest_run_completed_at?.toISOString() ?? null,
+                httpStatus: row.latest_run_http_status,
+                itemCount: row.latest_run_item_count,
+                observationsEmitted: row.latest_run_observations_emitted ?? 0,
+              }
+            : null,
+      };
+    });
+
+    const discovery: CatalogIntegrityDiscoveryItem[] = [
+      ...discovered.map((candidate) => {
+        counts.discovery_unresolved += 1;
+        return {
+          candidateId: candidate.id,
+          provider: candidate.provider,
+          remoteModelId: candidate.remoteModelId,
+          status: candidate.status,
+          firstSeenAt: candidate.firstSeenAt,
+          lastSeenAt: candidate.lastSeenAt,
+          observationCount: candidate.observationCount,
+          latestProviderSnapshotId: candidate.latestProviderSnapshotId,
+          attentionCategory: "discovery_unresolved" as const,
+          promotionPolicy: {
+            version: candidate.promotionPolicy.version,
+            eligible: candidate.promotionPolicy.eligible,
+            blockers: candidate.promotionPolicy.blockers,
+          },
+          latestFirstPartySource: candidate.lastSource,
+        };
+      }),
+      ...promotionReady.map((candidate) => {
+        const attentionCategory = candidate.promotionPolicy.eligible
+          ? ("promotion_ready" as const)
+          : ("promotion_blocked" as const);
+        counts[attentionCategory] += 1;
+        return {
+          candidateId: candidate.id,
+          provider: candidate.provider,
+          remoteModelId: candidate.remoteModelId,
+          status: candidate.status,
+          firstSeenAt: candidate.firstSeenAt,
+          lastSeenAt: candidate.lastSeenAt,
+          observationCount: candidate.observationCount,
+          latestProviderSnapshotId: candidate.latestProviderSnapshotId,
+          attentionCategory,
+          promotionPolicy: {
+            version: candidate.promotionPolicy.version,
+            eligible: candidate.promotionPolicy.eligible,
+            blockers: candidate.promotionPolicy.blockers,
+          },
+          latestFirstPartySource: candidate.lastSource,
+        };
+      }),
+    ];
+
+    const drift: CatalogIntegrityDriftItem[] = [
+      ...openDrift.map((item) => {
+        counts.drift_open += 1;
+        return {
+          eventId: item.eventId,
+          attentionCategory: "drift_open" as const,
+          changeType: item.changeType,
+          occurredAt: item.occurredAt,
+          provider: item.provider,
+          model: item.model,
+          alias: item.alias,
+          previousApiModelId: item.previousApiModelId,
+          currentApiModelId: item.currentApiModelId,
+          changedFields: item.changedFields,
+          evidenceSource: item.currentSource,
+          reviewStatus: "open" as const,
+        };
+      }),
+      ...acknowledgedDrift.map((item) => {
+        counts.drift_acknowledged += 1;
+        return {
+          eventId: item.eventId,
+          attentionCategory: "drift_acknowledged" as const,
+          changeType: item.changeType,
+          occurredAt: item.occurredAt,
+          provider: item.provider,
+          model: item.model,
+          alias: item.alias,
+          previousApiModelId: item.previousApiModelId,
+          currentApiModelId: item.currentApiModelId,
+          changedFields: item.changedFields,
+          evidenceSource: item.currentSource,
+          reviewStatus: "acknowledged" as const,
+        };
+      }),
+    ];
+
+    const provenance: CatalogIntegrityProvenanceItem[] = [];
+    for (const row of provenanceResult.rows) {
+      const reasons: string[] = [];
+      if (!row.canonical_source_id || !row.canonical_source_retrieved_at) {
+        reasons.push("missing_canonical_source");
+      } else if (!sourceComplete({
+        source_type: row.canonical_source_type,
+        source_url: row.canonical_source_url,
+        source_title: row.canonical_source_title,
+      })) {
+        reasons.push("canonical_source_not_first_party_or_incomplete");
+      }
+
+      const bindingCount = Number(row.current_binding_count);
+      if (bindingCount === 0) reasons.push("missing_current_first_party_binding");
+      if (bindingCount > 1) reasons.push("multiple_current_first_party_bindings");
+      if (
+        row.binding_id &&
+        !sourceComplete({
+          source_type: row.binding_source_type,
+          source_url: row.binding_source_url,
+          source_title: row.binding_source_title,
+        })
+      ) {
+        reasons.push("binding_source_not_first_party_or_incomplete");
+      }
+
+      if (
+        row.promotion_id &&
+        (row.promotion_policy_version !== "provider-catalog-v1" ||
+          !row.promotion_source_record_id ||
+          row.promotion_source_record_id !== row.canonical_source_id)
+      ) {
+        reasons.push("promotion_audit_mismatch");
+      }
+
+      if (reasons.length === 0) continue;
+      counts.provenance_incomplete += 1;
+
+      provenance.push({
+        model: {
+          id: row.model_id,
+          provider: { id: row.provider_id, slug: row.provider_slug, name: row.provider_name },
+          canonicalSlug: row.canonical_slug,
+          marketingName: row.marketing_name,
+          status: row.model_status,
+        },
+        attentionCategory: "provenance_incomplete",
+        reasons,
+        canonicalSource:
+          row.canonical_source_id &&
+          row.canonical_source_type &&
+          row.canonical_source_retrieved_at
+            ? {
+                id: row.canonical_source_id,
+                sourceType: row.canonical_source_type,
+                url: row.canonical_source_url,
+                title: row.canonical_source_title,
+                retrievedAt: row.canonical_source_retrieved_at.toISOString(),
+                contentSha256: row.canonical_source_content_sha256,
+              }
+            : null,
+        currentBinding:
+          row.binding_id &&
+          row.api_model_id &&
+          row.endpoint_hostname &&
+          row.binding_source_id &&
+          row.binding_source_type &&
+          row.binding_source_retrieved_at
+            ? {
+                id: row.binding_id,
+                apiModelId: row.api_model_id,
+                endpointHostname: row.endpoint_hostname,
+                source: {
+                  id: row.binding_source_id,
+                  sourceType: row.binding_source_type,
+                  url: row.binding_source_url,
+                  title: row.binding_source_title,
+                  retrievedAt: row.binding_source_retrieved_at.toISOString(),
+                  contentSha256: row.binding_source_content_sha256,
+                },
+              }
+            : null,
+        currentBindingCount: bindingCount,
+        promotionAudit:
+          row.promotion_id &&
+          row.promotion_candidate_id &&
+          row.promoted_at &&
+          row.promotion_policy_version &&
+          row.promotion_source_record_id
+            ? {
+                id: row.promotion_id,
+                candidateId: row.promotion_candidate_id,
+                promotedAt: row.promoted_at.toISOString(),
+                policyVersion: row.promotion_policy_version,
+                sourceRecordId: row.promotion_source_record_id,
+              }
+            : null,
+      });
+    }
+
+    return {
+      generatedAt: clock.rows[0]?.generated_at.toISOString() ?? new Date().toISOString(),
+      summary: {
+        total: Object.values(counts).reduce((sum, count) => sum + count, 0),
+        counts,
+      },
+      observerSources,
+      discovery,
+      drift,
+      provenance,
+    };
+  }
+}
+
+              )
+         ) AS promotion_blocked,
+         (
+           SELECT count(*)::text
+             FROM modelapse.catalog_identity_drift_events drift
+             LEFT JOIN modelapse.catalog_identity_drift_reviews review
+               ON review.drift_event_id = drift.event_id
+            WHERE COALESCE(review.status, 'open') = 'open'
+         ) AS drift_open,
+         (
+           SELECT count(*)::text
+             FROM modelapse.catalog_identity_drift_events drift
+             JOIN modelapse.catalog_identity_drift_reviews review
+               ON review.drift_event_id = drift.event_id
+            WHERE review.status = 'acknowledged'
+         ) AS drift_acknowledged`,
+    );
+
     const counts = categoryCounts();
 
     const observerSources: CatalogIntegrityObserverSource[] = observerResult.rows.map((row) => {
