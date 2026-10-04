@@ -19,6 +19,7 @@ import type {
   PgCatalogDiscovery,
   PgCatalogDriftReview,
   PgCatalogIdentityCase,
+  PgCatalogIntegrity,
 } from "@modelapse/catalog-admin";
 
 const UUID_RE =
@@ -38,6 +39,7 @@ type CatalogDiscoveryRepository = Pick<
 
 type CatalogDriftReviewRepository = Pick<PgCatalogDriftReview, "list" | "decide">;
 type CatalogIdentityCaseRepository = Pick<PgCatalogIdentityCase, "get">;
+type CatalogIntegrityRepository = Pick<PgCatalogIntegrity, "getDashboard">;
 
 type ArchiveRepository = Pick<
   PgArchiveRepository,
@@ -61,6 +63,7 @@ export interface AppDependencies {
   readonly catalogDiscovery?: CatalogDiscoveryRepository;
   readonly catalogDriftReview?: CatalogDriftReviewRepository;
   readonly catalogIdentityCase?: CatalogIdentityCaseRepository;
+  readonly catalogIntegrity?: CatalogIntegrityRepository;
   readonly controlToken?: string;
 }
 
@@ -388,6 +391,16 @@ export function createApp(deps: AppDependencies) {
     }
 
     return c.json({ run: publicRun(run) });
+  });
+
+  app.get("/v1/control/catalog/integrity", async (c) => {
+    if (!deps.catalogIntegrity || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+    return c.json({ dashboard: await deps.catalogIntegrity.getDashboard() });
   });
 
   app.get("/v1/control/catalog/identity-cases/:modelId", async (c) => {
