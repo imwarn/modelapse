@@ -3,6 +3,7 @@ import {
   PgCatalogDiscovery,
   PgCatalogDriftReview,
   PgCatalogIdentityCase,
+  PgCatalogIntegrity,
 } from "@modelapse/catalog-admin";
 import {
   PgRunJobQueue,
@@ -26,6 +27,7 @@ const archive = PgArchiveRepository.connect(databaseUrl);
 const catalogDiscovery = PgCatalogDiscovery.connect(databaseUrl);
 const catalogDriftReview = PgCatalogDriftReview.connect(databaseUrl);
 const catalogIdentityCase = PgCatalogIdentityCase.connect(databaseUrl);
+const catalogIntegrity = PgCatalogIntegrity.connect(databaseUrl);
 const controlToken = process.env.MODELAPSE_CONTROL_TOKEN;
 const port = Number(process.env.PORT ?? "3000");
 const app = createApp({
@@ -36,6 +38,7 @@ const app = createApp({
   catalogDiscovery,
   catalogDriftReview,
   catalogIdentityCase,
+  catalogIntegrity,
   ...(controlToken ? { controlToken } : {}),
 });
 
@@ -60,6 +63,7 @@ function shutdown(signal: string): void {
       catalogDiscovery.close(),
       catalogDriftReview.close(),
       catalogIdentityCase.close(),
+      catalogIntegrity.close(),
     ]).finally(() => {
       if (error) {
         console.error(error);
