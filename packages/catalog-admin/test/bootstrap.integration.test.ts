@@ -1060,8 +1060,8 @@ describe("production catalog bootstrap", () => {
       await verification.query(
         `INSERT INTO modelapse.alias_resolution_events
           (alias_id, resolved_model_id, observed_at, source_type, source_id)
-         VALUES ($1, $2, '2099-03-01T00:10:00Z', 'provider_catalog', $4)`,
-        [alias.rows[0]!.id, modelA.rows[0]!.id, modelB.rows[0]!.id, catalogSource.rows[0]!.id],
+         VALUES ($1, $2, '2099-03-01T00:10:00Z', 'provider_catalog', $3)`,
+        [alias.rows[0]!.id, modelA.rows[0]!.id, catalogSource.rows[0]!.id],
       );
       const changedAlias = await verification.query<{ id: string }>(
         `INSERT INTO modelapse.alias_resolution_events
