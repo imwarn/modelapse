@@ -326,3 +326,51 @@ describe("Catalog Identity Case control API", () => {
     });
   });
 });
+
+
+describe("Catalog Integrity control API", () => {
+  it("keeps the read-only attention projection behind control authentication", async () => {
+    const dashboard = {
+      generatedAt: "2026-10-04T00:00:00.000Z",
+      summary: {
+        total: 1,
+        counts: {
+          collection_failed: 1,
+          collection_partial: 0,
+          collection_stale: 0,
+          discovery_unresolved: 0,
+          promotion_ready: 0,
+          promotion_blocked: 0,
+          drift_open: 0,
+          drift_acknowledged: 0,
+          provenance_incomplete: 0,
+        },
+      },
+      observerSources: [],
+      discovery: [],
+      drift: [],
+      provenance: [],
+    };
+
+    const app = createApp({
+      runs: baseRuns(),
+      controlToken: "control-secret",
+      catalogIntegrity: {
+        getDashboard: async () => dashboard,
+      },
+    });
+
+    const unauthorized = await app.request("/v1/control/catalog/integrity");
+    expect(unauthorized.status).toBe(401);
+
+    const response = await app.request("/v1/control/catalog/integrity", {
+      headers: { authorization: "Bearer control-secret" },
+    });
+    expect(response.status).toBe(200);
+
+    const payload = await response.json();
+    expect(payload).toEqual({ dashboard });
+    expect(JSON.stringify(payload)).not.toContain("response_body");
+    expect(JSON.stringify(payload)).not.toContain("responseBody");
+  });
+});
