@@ -607,6 +607,127 @@ export interface CatalogIdentityCase {
   }[];
 }
 
+export type CatalogIntegrityCategory =
+  | "collection_failed"
+  | "collection_partial"
+  | "collection_stale"
+  | "discovery_unresolved"
+  | "promotion_ready"
+  | "promotion_blocked"
+  | "drift_open"
+  | "drift_acknowledged"
+  | "provenance_incomplete";
+
+export interface CatalogIntegrityDashboard {
+  readonly generatedAt: string;
+  readonly summary: {
+    readonly total: number;
+    readonly counts: Readonly<Record<CatalogIntegrityCategory, number>>;
+  };
+  readonly observerSources: readonly {
+    readonly id: string;
+    readonly provider: { readonly id: string; readonly slug: string; readonly name: string };
+    readonly sourceKey: string;
+    readonly sourceKind: string;
+    readonly url: string;
+    readonly title: string;
+    readonly enabled: boolean;
+    readonly intervalSeconds: number;
+    readonly lastAttemptedAt: string | null;
+    readonly lastSucceededAt: string | null;
+    readonly nextRunAt: string;
+    readonly health: "disabled" | "healthy" | "never_collected" | "failed" | "partial" | "stale";
+    readonly attentionCategory: "collection_failed" | "collection_partial" | "collection_stale" | null;
+    readonly latestRun: {
+      readonly id: string;
+      readonly status: string;
+      readonly startedAt: string;
+      readonly completedAt: string | null;
+      readonly httpStatus: number | null;
+      readonly itemCount: number | null;
+      readonly observationsEmitted: number;
+    } | null;
+  }[];
+  readonly discovery: readonly {
+    readonly candidateId: string;
+    readonly provider: { readonly id: string; readonly slug: string; readonly name: string };
+    readonly remoteModelId: string;
+    readonly status: CatalogDiscoveryStatus;
+    readonly firstSeenAt: string;
+    readonly lastSeenAt: string;
+    readonly observationCount: number;
+    readonly latestProviderSnapshotId: string | null;
+    readonly attentionCategory: "discovery_unresolved" | "promotion_ready" | "promotion_blocked";
+    readonly promotionPolicy: {
+      readonly version: string;
+      readonly eligible: boolean;
+      readonly blockers: readonly string[];
+    };
+    readonly latestFirstPartySource: {
+      readonly id: string;
+      readonly sourceType: string;
+      readonly url: string | null;
+      readonly title: string | null;
+      readonly retrievedAt: string;
+      readonly contentSha256: string | null;
+    };
+  }[];
+  readonly drift: readonly {
+    readonly eventId: string;
+    readonly attentionCategory: "drift_open" | "drift_acknowledged";
+    readonly changeType: string;
+    readonly occurredAt: string;
+    readonly provider: { readonly id: string; readonly slug: string; readonly name: string };
+    readonly model: { readonly id: string; readonly canonicalSlug: string; readonly marketingName: string } | null;
+    readonly alias: string | null;
+    readonly previousApiModelId: string | null;
+    readonly currentApiModelId: string | null;
+    readonly changedFields: readonly string[];
+    readonly evidenceSource: { readonly id: string; readonly url: string | null; readonly title: string | null } | null;
+    readonly reviewStatus: "open" | "acknowledged";
+  }[];
+  readonly provenance: readonly {
+    readonly model: {
+      readonly id: string;
+      readonly provider: { readonly id: string; readonly slug: string; readonly name: string };
+      readonly canonicalSlug: string;
+      readonly marketingName: string;
+      readonly status: string;
+    };
+    readonly attentionCategory: "provenance_incomplete";
+    readonly reasons: readonly string[];
+    readonly canonicalSource: {
+      readonly id: string;
+      readonly sourceType: string;
+      readonly url: string | null;
+      readonly title: string | null;
+      readonly retrievedAt: string;
+      readonly contentSha256: string | null;
+    } | null;
+    readonly currentBinding: {
+      readonly id: string;
+      readonly apiModelId: string;
+      readonly endpointHostname: string;
+      readonly source: {
+        readonly id: string;
+        readonly sourceType: string;
+        readonly url: string | null;
+        readonly title: string | null;
+        readonly retrievedAt: string;
+        readonly contentSha256: string | null;
+      };
+    } | null;
+    readonly currentBindingCount: number;
+    readonly promotionAudit: {
+      readonly id: string;
+      readonly candidateId: string;
+      readonly promotedAt: string;
+      readonly policyVersion: string;
+      readonly sourceRecordId: string;
+    } | null;
+  }[];
+}
+
 export interface ControlJob {
   readonly id: string;
   readonly kind: string;
@@ -1300,6 +1421,17 @@ export const compareArchive = createServerFn({ method: "POST" })
       }
       throw error;
     }
+  });
+
+export const getCatalogIntegrity = createServerFn({ method: "POST" })
+  .validator(parseOperatorInput)
+  .handler(async ({ data }): Promise<CatalogIntegrityDashboard> => {
+    requireOperator(data.operatorToken);
+    const result = await requestJson<{ dashboard: CatalogIntegrityDashboard }>(
+      "/v1/control/catalog/integrity",
+      { control: true },
+    );
+    return result.dashboard;
   });
 
 export const getCatalogIdentityCase = createServerFn({ method: "POST" })

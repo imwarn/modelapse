@@ -166,7 +166,10 @@ function CatalogInbox() {
             <small>Catalog Discovery Inbox</small>
           </span>
         </a>
-        <a className="header-link" href="/changes">Public catalog changes →</a>
+        <nav className="integrity-nav" aria-label="Catalog navigation">
+          <a href="/catalog-integrity">Integrity dashboard</a>
+          <a href="/changes">Public catalog changes</a>
+        </nav>
       </header>
 
       <section className="hero inbox-hero">

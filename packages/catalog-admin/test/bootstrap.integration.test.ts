@@ -13,6 +13,7 @@ import {
   PgCatalogDiscovery,
   PgCatalogDriftReview,
   PgCatalogIdentityCase,
+  PgCatalogIntegrity,
   PgCatalogObserver,
   PgModelCatalogAdmin,
 } from "../src/index.js";
@@ -808,6 +809,345 @@ describe("production catalog bootstrap", () => {
       }
     } finally {
       await observer.close();
+    }
+  });
+
+  it("derives Catalog Integrity attention without mutating catalog facts or exposing raw snapshots", async () => {
+    const verification = new Pool({ connectionString: isolatedDatabaseUrl });
+    const integrity = PgCatalogIntegrity.connect(isolatedDatabaseUrl);
+    try {
+      const provider = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.providers (slug, name)
+         VALUES ('integrity-fixture', 'Integrity Fixture')
+         RETURNING id`,
+      );
+      const providerId = provider.rows[0]!.id;
+
+      const observerSource = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.catalog_observer_sources
+          (
+            provider_id,
+            source_key,
+            source_kind,
+            url,
+            title,
+            parser,
+            interval_seconds,
+            enabled,
+            next_run_at,
+            last_attempted_at
+          )
+         VALUES (
+           $1,
+           'models-api',
+           'model_list',
+           'https://integrity.example.test/models',
+           'Integrity fixture catalog',
+           'openai_models',
+           3600,
+           true,
+           '2099-03-01T01:00:00Z',
+           '2099-03-01T00:00:00Z'
+         )
+         RETURNING id`,
+        [providerId],
+      );
+
+      const failedRun = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.catalog_collection_runs
+          (
+            observer_source_id,
+            status,
+            started_at,
+            completed_at,
+            http_status,
+            item_count,
+            observations_emitted,
+            collector_build
+          )
+         VALUES (
+           $1,
+           'failed',
+           '2099-03-01T00:00:00Z',
+           '2099-03-01T00:00:05Z',
+           200,
+           2,
+           0,
+           'integrity-fixture'
+         )
+         RETURNING id`,
+        [observerSource.rows[0]!.id],
+      );
+
+      const catalogSource = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.source_records
+          (source_type, url, title, retrieved_at, content_sha256)
+         VALUES (
+           'provider_catalog',
+           'https://integrity.example.test/models',
+           'Integrity fixture catalog',
+           '2099-03-01T00:00:01Z',
+           $1
+         )
+         RETURNING id`,
+        ["a".repeat(64)],
+      );
+
+      await verification.query(
+        `INSERT INTO modelapse.catalog_source_snapshots
+          (
+            observer_source_id,
+            collection_run_id,
+            source_record_id,
+            retrieved_at,
+            content_sha256,
+            response_body
+          )
+         VALUES ($1, $2, $3, '2099-03-01T00:00:01Z', $4, $5)`,
+        [
+          observerSource.rows[0]!.id,
+          failedRun.rows[0]!.id,
+          catalogSource.rows[0]!.id,
+          "a".repeat(64),
+          "raw-secret-provider-body",
+        ],
+      );
+
+      const docsSource = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.source_records
+          (source_type, url, title, retrieved_at, content_sha256)
+         VALUES (
+           'provider_docs',
+           'https://integrity.example.test/docs',
+           'Integrity fixture docs',
+           '2099-03-01T00:00:02Z',
+           $1
+         )
+         RETURNING id`,
+        ["b".repeat(64)],
+      );
+
+      const discovered = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.catalog_discovery_candidates
+          (
+            provider_id,
+            remote_model_id,
+            first_seen_at,
+            last_seen_at,
+            first_source_record_id,
+            last_source_record_id,
+            first_collection_run_id,
+            last_collection_run_id,
+            observation_count,
+            status
+          )
+         VALUES (
+           $1,
+           'integrity-unresolved',
+           '2099-03-01T00:00:01Z',
+           '2099-03-01T00:00:01Z',
+           $2,
+           $2,
+           $3,
+           $3,
+           1,
+           'discovered'
+         )
+         RETURNING id`,
+        [providerId, catalogSource.rows[0]!.id, failedRun.rows[0]!.id],
+      );
+
+      await verification.query(
+        `INSERT INTO modelapse.catalog_discovery_observations
+          (candidate_id, collection_run_id, source_record_id, observed_at)
+         VALUES ($1, $2, $3, '2099-03-01T00:00:01Z')`,
+        [discovered.rows[0]!.id, failedRun.rows[0]!.id, catalogSource.rows[0]!.id],
+      );
+
+      const promotionReady = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.catalog_discovery_candidates
+          (
+            provider_id,
+            remote_model_id,
+            first_seen_at,
+            last_seen_at,
+            first_source_record_id,
+            last_source_record_id,
+            first_collection_run_id,
+            last_collection_run_id,
+            observation_count,
+            status
+          )
+         VALUES (
+           $1,
+           'integrity-promotion-ready',
+           '2099-03-01T00:00:02Z',
+           '2099-03-01T00:00:02Z',
+           $2,
+           $2,
+           $3,
+           $3,
+           1,
+           'promotion_ready'
+         )
+         RETURNING id`,
+        [providerId, catalogSource.rows[0]!.id, failedRun.rows[0]!.id],
+      );
+      await verification.query(
+        `INSERT INTO modelapse.catalog_discovery_observations
+          (candidate_id, collection_run_id, source_record_id, observed_at)
+         VALUES ($1, $2, $3, '2099-03-01T00:00:02Z')`,
+        [promotionReady.rows[0]!.id, failedRun.rows[0]!.id, catalogSource.rows[0]!.id],
+      );
+
+      const blocked = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.catalog_discovery_candidates
+          (
+            provider_id,
+            remote_model_id,
+            first_seen_at,
+            last_seen_at,
+            first_source_record_id,
+            last_source_record_id,
+            first_collection_run_id,
+            last_collection_run_id,
+            observation_count,
+            status
+          )
+         VALUES (
+           $1,
+           'integrity-promotion-blocked',
+           '2099-03-01T00:00:03Z',
+           '2099-03-01T00:00:03Z',
+           $2,
+           $2,
+           $3,
+           $3,
+           1,
+           'promotion_ready'
+         )
+         RETURNING id`,
+        [providerId, docsSource.rows[0]!.id, failedRun.rows[0]!.id],
+      );
+      await verification.query(
+        `INSERT INTO modelapse.catalog_discovery_observations
+          (candidate_id, collection_run_id, source_record_id, observed_at)
+         VALUES ($1, $2, $3, '2099-03-01T00:00:03Z')`,
+        [blocked.rows[0]!.id, failedRun.rows[0]!.id, docsSource.rows[0]!.id],
+      );
+
+      const modelA = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.models
+          (provider_id, canonical_slug, marketing_name, status, canonical_source_id)
+         VALUES ($1, 'integrity-model-a', 'Integrity Model A', 'active', $2)
+         RETURNING id`,
+        [providerId, catalogSource.rows[0]!.id],
+      );
+      const modelB = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.models
+          (provider_id, canonical_slug, marketing_name, status)
+         VALUES ($1, 'integrity-model-b', 'Integrity Model B', 'active')
+         RETURNING id`,
+        [providerId],
+      );
+
+      const alias = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.model_aliases (provider_id, alias)
+         VALUES ($1, 'integrity-moving-alias')
+         RETURNING id`,
+        [providerId],
+      );
+      await verification.query(
+        `INSERT INTO modelapse.alias_resolution_events
+          (alias_id, resolved_model_id, observed_at, source_type, source_id)
+         VALUES ($1, $2, '2099-03-01T00:10:00Z', 'provider_catalog', $3)`,
+        [alias.rows[0]!.id, modelA.rows[0]!.id, catalogSource.rows[0]!.id],
+      );
+      const changedAlias = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.alias_resolution_events
+          (alias_id, resolved_model_id, observed_at, source_type, source_id)
+         VALUES ($1, $2, '2099-03-01T00:20:00Z', 'provider_catalog', $3)
+         RETURNING id`,
+        [alias.rows[0]!.id, modelB.rows[0]!.id, catalogSource.rows[0]!.id],
+      );
+      await verification.query(
+        `INSERT INTO modelapse.catalog_identity_drift_reviews
+          (drift_event_id, status, acknowledged_at)
+         VALUES ($1, 'acknowledged', '2099-03-01T00:30:00Z')`,
+        ["alias:" + changedAlias.rows[0]!.id],
+      );
+
+      const factCountsBefore = await verification.query(
+        `SELECT
+           (SELECT count(*)::text FROM modelapse.catalog_source_snapshots) AS snapshots,
+           (SELECT count(*)::text FROM modelapse.catalog_discovery_candidates) AS candidates,
+           (SELECT count(*)::text FROM modelapse.catalog_reconciliation_events) AS reconciliations,
+           (SELECT count(*)::text FROM modelapse.catalog_promotion_events) AS promotions,
+           (SELECT count(*)::text FROM modelapse.catalog_identity_drift_reviews) AS drift_reviews`,
+      );
+
+      const dashboard = await integrity.getDashboard();
+
+      expect(dashboard.observerSources).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            provider: expect.objectContaining({ slug: "integrity-fixture" }),
+            sourceKey: "models-api",
+            health: "failed",
+            attentionCategory: "collection_failed",
+          }),
+        ]),
+      );
+      expect(dashboard.discovery).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            candidateId: discovered.rows[0]!.id,
+            attentionCategory: "discovery_unresolved",
+          }),
+          expect.objectContaining({
+            candidateId: promotionReady.rows[0]!.id,
+            attentionCategory: "promotion_ready",
+          }),
+          expect.objectContaining({
+            candidateId: blocked.rows[0]!.id,
+            attentionCategory: "promotion_blocked",
+          }),
+        ]),
+      );
+      expect(
+        dashboard.drift.find(
+          (item) => item.eventId === "alias:" + changedAlias.rows[0]!.id,
+        ),
+      ).toMatchObject({
+        attentionCategory: "drift_acknowledged",
+        reviewStatus: "acknowledged",
+        model: { id: modelB.rows[0]!.id },
+      });
+      expect(
+        dashboard.provenance.find((item) => item.model.id === modelB.rows[0]!.id),
+      ).toMatchObject({
+        attentionCategory: "provenance_incomplete",
+        reasons: expect.arrayContaining([
+          "missing_canonical_source",
+          "missing_current_first_party_binding",
+        ]),
+      });
+      expect(JSON.stringify(dashboard)).not.toContain("raw-secret-provider-body");
+      expect(JSON.stringify(dashboard)).not.toContain("response_body");
+      expect(JSON.stringify(dashboard)).not.toContain("responseBody");
+
+      const factCountsAfter = await verification.query(
+        `SELECT
+           (SELECT count(*)::text FROM modelapse.catalog_source_snapshots) AS snapshots,
+           (SELECT count(*)::text FROM modelapse.catalog_discovery_candidates) AS candidates,
+           (SELECT count(*)::text FROM modelapse.catalog_reconciliation_events) AS reconciliations,
+           (SELECT count(*)::text FROM modelapse.catalog_promotion_events) AS promotions,
+           (SELECT count(*)::text FROM modelapse.catalog_identity_drift_reviews) AS drift_reviews`,
+      );
+      expect(factCountsAfter.rows[0]).toEqual(factCountsBefore.rows[0]);
+    } finally {
+      await integrity.close();
+      await verification.end();
     }
   });
 
