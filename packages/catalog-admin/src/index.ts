@@ -7,3 +7,5 @@ export * from "./catalog-adapter.js";
 export * from "./catalog-discovery.js";
 export * from "./catalog-drift-review.js";
 export * from "./catalog-identity-case.js";
+
+export * from "./catalog-integrity.js";
