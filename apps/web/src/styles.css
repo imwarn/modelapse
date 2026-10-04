@@ -2427,3 +2427,149 @@ footer {
     grid-column: auto;
   }
 }
+
+
+/* Archive v0.13 — Catalog Integrity / Attention Queue */
+.integrity-nav {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.integrity-nav a,
+.integrity-links a {
+  color: var(--soft);
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.integrity-nav a:hover,
+.integrity-links a:hover {
+  color: var(--accent);
+}
+
+.integrity-hero {
+  min-height: 440px;
+}
+
+.integrity-access-grid {
+  align-items: end;
+}
+
+.integrity-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+}
+
+.integrity-count {
+  min-height: 132px;
+  padding: 22px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: rgba(17, 19, 19, 0.55);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.integrity-count strong {
+  font: 600 36px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.integrity-count span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.integrity-count.active strong {
+  color: var(--warm);
+}
+
+.integrity-list {
+  border-top: 1px solid var(--line);
+}
+
+.integrity-row {
+  padding: 24px 0;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 16px;
+}
+
+.integrity-row > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.integrity-title-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+}
+
+.integrity-title-line strong {
+  font-size: 17px;
+}
+
+.integrity-facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(130px, 0.25fr) minmax(0, 1fr);
+  gap: 8px 18px;
+  font-size: 13px;
+}
+
+.integrity-facts dt {
+  color: var(--muted);
+}
+
+.integrity-facts dd {
+  margin: 0;
+  color: var(--soft);
+  overflow-wrap: anywhere;
+}
+
+.integrity-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+@media (max-width: 820px) {
+  .integrity-nav {
+    gap: 10px;
+  }
+
+  .integrity-summary-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .integrity-title-line {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .integrity-facts {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .integrity-facts dd {
+    margin-bottom: 8px;
+  }
+}
+
+@media (max-width: 560px) {
+  .integrity-nav {
+    display: none;
+  }
+
+  .integrity-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}
