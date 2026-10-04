@@ -388,7 +388,7 @@ export class PgCatalogIntegrity {
               AND source.source_type = 'provider_catalog'
               AND source.url IS NOT NULL
               AND source.title IS NOT NULL
-              AND source.content_sha256 ~ '^[0-9a-f]{64}$'
+              AND source.content_sha256 IS NOT NULL
          ) AS promotion_ready,
          (
            SELECT count(*)::text
@@ -403,7 +403,7 @@ export class PgCatalogIntegrity {
                 AND source.source_type = 'provider_catalog'
                 AND source.url IS NOT NULL
                 AND source.title IS NOT NULL
-                AND source.content_sha256 ~ '^[0-9a-f]{64}$'
+                AND source.content_sha256 IS NOT NULL
               )
          ) AS promotion_blocked,
          (
