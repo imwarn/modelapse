@@ -183,6 +183,23 @@ function optionalText(value: string | undefined, label: string): string | null {
   return normalized;
 }
 
+function normalizedSourceUrl(
+  value: string | undefined,
+): string | null {
+  const raw = optionalText(value, "source.url");
+  if (!raw) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error("source.url must be a valid URL");
+  }
+  if (parsed.protocol !== "https:") {
+    throw new Error("source.url must use https://");
+  }
+  return parsed.toString();
+}
+
 function sourceType(value: string): ProviderTestabilitySourceType {
   if (SOURCE_TYPES.has(value as ProviderTestabilitySourceType)) {
     return value as ProviderTestabilitySourceType;
@@ -464,12 +481,9 @@ export class PgProviderTestability {
     if (!sourceTitle) throw new Error("source.title is required");
 
     const normalizedSourceType = sourceType(input.source.sourceType);
-    const sourceUrl = optionalText(input.source.url, "source.url");
-    if (
-      normalizedSourceType !== "operator_verification" &&
-      (!sourceUrl || !sourceUrl.startsWith("https://"))
-    ) {
-      throw new Error("Provider source URL must use https://");
+    const sourceUrl = normalizedSourceUrl(input.source.url);
+    if (normalizedSourceType !== "operator_verification" && !sourceUrl) {
+      throw new Error("Provider source URL is required");
     }
 
     const contentSha256 = optionalText(
