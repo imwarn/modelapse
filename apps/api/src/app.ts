@@ -10,6 +10,7 @@ import {
 } from "@modelapse/control-plane";
 import type {
   PgArchiveRepository,
+  PgCostLedger,
   RunRepository,
   RunView,
 } from "@modelapse/persistence";
@@ -69,6 +70,10 @@ type ProviderTestabilityRepository = Pick<
   PgProviderTestability,
   "listProviders" | "getProvider" | "recordObservation"
 >;
+type CostLedgerRepository = Pick<
+  PgCostLedger,
+  "ping" | "listDailyCosts" | "listBudgetStatus" | "recordBudgetPolicy"
+>;
 
 type ArchiveRepository = Pick<
   PgArchiveRepository,
@@ -98,6 +103,7 @@ export interface AppDependencies {
   readonly catalogPresenceReview?: CatalogPresenceReviewRepository;
   readonly catalogRemoteIdCase?: CatalogRemoteIdCaseRepository;
   readonly providerTestability?: ProviderTestabilityRepository;
+  readonly costLedger?: CostLedgerRepository;
   readonly controlToken?: string;
 }
 
@@ -192,6 +198,7 @@ export function createApp(deps: AppDependencies) {
       if (deps.jobs) await deps.jobs.ping();
       if (deps.planner) await deps.planner.ping();
       if (deps.archive) await deps.archive.ping();
+      if (deps.costLedger) await deps.costLedger.ping();
       return c.json({
         ready: true,
         service: "modelapse-api",
@@ -1015,6 +1022,95 @@ export function createApp(deps: AppDependencies) {
     }
   });
 
+  app.get("/v1/control/cost-ledger/daily", async (c) => {
+    if (!deps.costLedger || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+    const rawDays = c.req.query("days");
+    const days = rawDays === undefined ? 30 : Number(rawDays);
+    if (!Number.isInteger(days) || days < 1 || days > 366) {
+      return c.json({ error: "invalid_days" }, 400);
+    }
+    return c.json({ daily: await deps.costLedger.listDailyCosts(days) });
+  });
+
+  app.get("/v1/control/cost-ledger/budgets", async (c) => {
+    if (!deps.costLedger || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+    return c.json({ budgets: await deps.costLedger.listBudgetStatus() });
+  });
+
+  app.post("/v1/control/cost-ledger/budgets", async (c) => {
+    if (!deps.costLedger || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid_json" }, 400);
+    }
+    const body = apiRecord(raw);
+    if (!body) return c.json({ error: "invalid_budget_policy" }, 400);
+
+    const providerId = body.providerId;
+    const currency = body.currency;
+    const period = body.period;
+    const budgetAmount = body.budgetAmount;
+    const effectiveFrom = body.effectiveFrom;
+    const actor = body.actor;
+    const note = body.note;
+
+    if (
+      (providerId !== undefined &&
+        (typeof providerId !== "string" || !UUID_RE.test(providerId))) ||
+      typeof currency !== "string" ||
+      !/^[A-Za-z]{3}$/.test(currency) ||
+      (period !== "day" && period !== "month") ||
+      typeof budgetAmount !== "string" ||
+      !/^\d+(?:\.\d+)?$/.test(budgetAmount) ||
+      typeof actor !== "string" ||
+      !actor.trim() ||
+      (effectiveFrom !== undefined &&
+        (typeof effectiveFrom !== "string" ||
+          !Number.isFinite(Date.parse(effectiveFrom)))) ||
+      (note !== undefined && typeof note !== "string")
+    ) {
+      return c.json({ error: "invalid_budget_policy" }, 400);
+    }
+
+    try {
+      const policy = await deps.costLedger.recordBudgetPolicy({
+        ...(typeof providerId === "string" ? { providerId } : {}),
+        currency,
+        period,
+        budgetAmount,
+        ...(typeof effectiveFrom === "string" ? { effectiveFrom } : {}),
+        actor,
+        ...(typeof note === "string" ? { note } : {}),
+      });
+      return c.json({ policy }, 201);
+    } catch (error) {
+      return c.json(
+        {
+          error: "budget_policy_rejected",
+          message:
+            error instanceof Error ? error.message : "Budget policy rejected",
+        },
+        400,
+      );
+    }
+  });
+
   app.get("/v1/control/catalog/models", async (c) => {
     if (!deps.planner || !controlToken) {
       return c.json({ error: "control_plane_disabled" }, 503);
@@ -1144,12 +1240,15 @@ export function createApp(deps: AppDependencies) {
       return c.json({ error: "invalid_json" }, 400);
     }
 
-    if (apiRecord(raw)?.qualification !== undefined) {
+    if (
+      apiRecord(raw)?.qualification !== undefined ||
+      apiRecord(raw)?.cost !== undefined
+    ) {
       return c.json(
         {
           error: "invalid_run_job",
           message:
-            "qualification is planner-owned; use /v1/control/runs to freeze testability evidence",
+            "qualification and cost are planner-owned; use /v1/control/runs to freeze execution and pricing evidence",
         },
         400,
       );
