@@ -355,6 +355,92 @@ function ArchiveRunPage() {
           ))}
         </div>
 
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">COST LEDGER</p>
+            <h2>Frozen price evidence, actual usage</h2>
+          </div>
+          <p className="section-note">
+            Native-currency cost is an estimate derived from the pricing
+            observation frozen for this Run. It does not affect Evaluation.
+          </p>
+        </div>
+
+        <div className="detail-grid">
+          <dl className="detail-panel">
+            <div>
+              <dt>Pricing selected</dt>
+              <dd>{formatTimestamp(run.cost?.selectedAt ?? null)}</dd>
+            </div>
+            <div>
+              <dt>Pricing evidence</dt>
+              <dd>
+                {run.cost?.pricingObservation
+                  ? run.cost.pricingObservation.id
+                  : "unknown"}
+              </dd>
+            </div>
+            <div>
+              <dt>Native estimate</dt>
+              <dd>
+                {run.cost?.estimatedNativeCost
+                  ? `${run.cost.pricing?.currency ?? "?"} ${run.cost.estimatedNativeCost}`
+                  : "unavailable"}
+              </dd>
+            </div>
+            <div>
+              <dt>Request count</dt>
+              <dd>{run.cost?.usage?.requestCount ?? "—"}</dd>
+            </div>
+          </dl>
+
+          <dl className="detail-panel">
+            <div>
+              <dt>Input tokens</dt>
+              <dd>{run.cost?.usage?.inputTokens ?? "—"}</dd>
+            </div>
+            <div>
+              <dt>Input / 1M</dt>
+              <dd>
+                {run.cost?.pricing?.inputPerMillion
+                  ? `${run.cost.pricing.currency} ${run.cost.pricing.inputPerMillion}`
+                  : "—"}
+              </dd>
+            </div>
+            <div>
+              <dt>Output tokens</dt>
+              <dd>{run.cost?.usage?.outputTokens ?? "—"}</dd>
+            </div>
+            <div>
+              <dt>Output / 1M</dt>
+              <dd>
+                {run.cost?.pricing?.outputPerMillion
+                  ? `${run.cost.pricing.currency} ${run.cost.pricing.outputPerMillion}`
+                  : "—"}
+              </dd>
+            </div>
+            <div>
+              <dt>Per request</dt>
+              <dd>
+                {run.cost?.pricing?.perRequest
+                  ? `${run.cost.pricing.currency} ${run.cost.pricing.perRequest}`
+                  : "—"}
+              </dd>
+            </div>
+          </dl>
+        </div>
+
+        <div className="run-verdict">
+          {(run.cost?.caveats.length
+            ? run.cost.caveats
+            : ["no cost caveats"]
+          ).map((caveat) => (
+            <span className="badge" key={caveat}>
+              {caveat.replaceAll("_", " ")}
+            </span>
+          ))}
+        </div>
+
         <div className="json-grid">
           <div className="json-panel">
             <span>Run configuration</span>
