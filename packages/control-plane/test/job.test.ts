@@ -116,6 +116,42 @@ describe("direct provider Run job", () => {
     ).toThrow(/decimal string/);
   });
 
+  it("preserves the planner-owned fleet target", () => {
+    const environmentId =
+      "00000000-0000-4000-8000-000000000024";
+    const capabilityEventId =
+      "00000000-0000-4000-8000-000000000025";
+
+    expect(
+      parseDirectProviderRunRequest({
+        provider: "openai",
+        testCaseId: TEST_CASE_ID,
+        model: "gpt-test",
+        fleet: {
+          selectedAt: "2026-10-06T00:00:00.000Z",
+          environmentId,
+          environmentSlug: "us-paid",
+          region: "US",
+          accountTier: "paid-standard",
+          serviceTier: "default",
+          serviceAssurance: "documented_default",
+          capabilityEventId,
+          caveats: [],
+        },
+      }),
+    ).toMatchObject({
+      fleet: {
+        environmentId,
+        environmentSlug: "us-paid",
+        region: "US",
+        accountTier: "paid-standard",
+        serviceTier: "default",
+        serviceAssurance: "documented_default",
+        capabilityEventId,
+      },
+    });
+  });
+
   it("keeps provider-specific parsers strict", () => {
     expect(() =>
       parseDirectOpenAIRunRequest({
