@@ -355,6 +355,7 @@ export interface ArchiveRunExecutionQualification {
   readonly executionEnvironment: {
     readonly id: string;
     readonly slug: string;
+    readonly capabilityEventId: string | null;
   } | null;
   readonly executionRegion: string | null;
   readonly accountTier: string | null;
