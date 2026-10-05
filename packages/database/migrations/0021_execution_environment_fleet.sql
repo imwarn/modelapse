@@ -103,7 +103,9 @@ CREATE INDEX run_jobs_target_environment_claim_idx
 
 ALTER TABLE run_execution_qualification_envelopes
   ADD COLUMN execution_environment_id uuid
-  REFERENCES execution_environments(id);
+  REFERENCES execution_environments(id),
+  ADD COLUMN execution_capability_event_id uuid
+  REFERENCES execution_environment_capability_events(id);
 
 CREATE INDEX run_execution_qualification_environment_idx
   ON run_execution_qualification_envelopes(execution_environment_id)
@@ -118,6 +120,7 @@ DECLARE
   policy provider_testability_observations%ROWTYPE;
   runner provider_testability_observations%ROWTYPE;
   environment execution_environments%ROWTYPE;
+  capability execution_environment_capability_events%ROWTYPE;
 BEGIN
   SELECT provider_id, model_id, execution_path
     INTO run_provider, run_model, run_path
@@ -171,6 +174,24 @@ BEGIN
        OR NEW.service_assurance IS DISTINCT FROM environment.service_assurance THEN
       RAISE EXCEPTION 'run execution qualification environment snapshot mismatch';
     END IF;
+
+    IF NEW.execution_capability_event_id IS NULL THEN
+      RAISE EXCEPTION 'run execution qualification fleet capability is required';
+    END IF;
+
+    SELECT * INTO capability
+      FROM execution_environment_capability_events
+     WHERE id = NEW.execution_capability_event_id;
+
+    IF capability.id IS NULL
+       OR capability.environment_id <> NEW.execution_environment_id
+       OR capability.provider_id <> run_provider
+       OR capability.execution_path <> run_path
+       OR NOT capability.enabled THEN
+      RAISE EXCEPTION 'run execution qualification fleet capability mismatch';
+    END IF;
+  ELSIF NEW.execution_capability_event_id IS NOT NULL THEN
+    RAISE EXCEPTION 'run execution qualification capability requires environment';
   END IF;
 
   RETURN NEW;
@@ -197,7 +218,8 @@ SELECT
   outcome.captured_at,
   envelope.created_at,
   envelope.execution_environment_id,
-  environment.slug AS execution_environment_slug
+  environment.slug AS execution_environment_slug,
+  envelope.execution_capability_event_id
 FROM run_execution_qualification_envelopes envelope
 LEFT JOIN execution_environments environment
   ON environment.id = envelope.execution_environment_id
