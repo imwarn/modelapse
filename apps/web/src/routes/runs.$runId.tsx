@@ -291,6 +291,18 @@ function ArchiveRunPage() {
               </dd>
             </div>
             <div>
+              <dt>Fleet capability</dt>
+              <dd>
+                {run.executionQualification?.executionEnvironment
+                  ?.capabilityEventId
+                  ? run.executionQualification.executionEnvironment.capabilityEventId.slice(
+                      0,
+                      8,
+                    )
+                  : "—"}
+              </dd>
+            </div>
+            <div>
               <dt>Execution region</dt>
               <dd>{run.executionQualification?.executionRegion ?? "unknown"}</dd>
             </div>
