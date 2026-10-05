@@ -159,6 +159,7 @@ function ModelapseHome() {
           </span>
         </a>
         <div className="integrity-links">
+          <a href="/provider-testability">Provider Testability</a>
           <a href="/catalog-integrity">Catalog Integrity</a>
           <div className="build-chip">
             <span className="status-dot" />
@@ -316,6 +317,61 @@ function ModelapseHome() {
 
         {accessError ? (
           <div className="notice notice-error">{accessError}</div>
+        ) : null}
+
+        {selectedModel ? (
+          <div className="testability-run-context">
+            <div>
+              <span className="eyebrow">TESTABILITY CONTEXT</span>
+              <strong>Non-blocking execution caveat</strong>
+              <small>
+                v0.18 surfaces access evidence before execution; it does not claim that a
+                successful Run is representative or automatically comparable.
+              </small>
+            </div>
+            <div className="testability-run-facts">
+              <span
+                className={
+                  selectedModel.testability.providerPolicy?.accessState === "available"
+                    ? "badge badge-pass"
+                    : selectedModel.testability.providerPolicy?.accessState === "restricted" ||
+                        selectedModel.testability.providerPolicy?.accessState === "unavailable"
+                      ? "badge badge-fail"
+                      : "badge"
+                }
+              >
+                policy{" "}
+                {selectedModel.testability.providerPolicy?.accessState ?? "missing evidence"}
+              </span>
+              <span
+                className={
+                  selectedModel.testability.runnerAccess?.accessState === "available"
+                    ? "badge badge-pass"
+                    : selectedModel.testability.runnerAccess?.accessState === "restricted" ||
+                        selectedModel.testability.runnerAccess?.accessState === "unavailable"
+                      ? "badge badge-fail"
+                      : "badge"
+                }
+              >
+                runner{" "}
+                {selectedModel.testability.runnerAccess?.accessState ?? "missing evidence"}
+              </span>
+              <span
+                className={
+                  selectedModel.testability.runnerAccess?.serviceAssurance === "operator_uncertain"
+                    ? "badge badge-fail"
+                    : "badge"
+                }
+              >
+                environment{" "}
+                {selectedModel.testability.runnerAccess?.serviceAssurance.replaceAll("_", " ") ??
+                  "unknown"}
+              </span>
+              <a className="text-link" href="/provider-testability">
+                Inspect / record evidence →
+              </a>
+            </div>
+          </div>
         ) : null}
 
         <div className="execute-bar">
