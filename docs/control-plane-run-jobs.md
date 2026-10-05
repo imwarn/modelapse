@@ -34,6 +34,8 @@ The response is `202` with the durable job ID and current status.
 
 The same idempotency key and same job payload return the same job. The same key with a different payload returns `409 idempotency_conflict`.
 
+`qualification` is an internal planner-owned field and is rejected on this low-level submission endpoint. Use `POST /v1/control/runs` when the Run must freeze current Provider/Runner testability evidence. Manual legacy job submission is archived with qualification evidence marked unknown.
+
 ## Read job status
 
 ```http
@@ -67,6 +69,7 @@ Optional queue settings:
 
 ```text
 MODELAPSE_WORKER_ID
+MODELAPSE_EXECUTION_REGION=<non-secret deployment region label>
 MODELAPSE_JOB_LEASE_SECONDS=300
 MODELAPSE_JOB_POLL_MS=1000
 MODELAPSE_PROVIDER_TIMEOUT_MS=120000

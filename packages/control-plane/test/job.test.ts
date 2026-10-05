@@ -36,6 +36,41 @@ describe("direct provider Run job", () => {
     });
   });
 
+  it("preserves the planner-owned qualification envelope", () => {
+    const providerPolicyObservationId =
+      "00000000-0000-4000-8000-000000000021";
+    const runnerAccessObservationId =
+      "00000000-0000-4000-8000-000000000022";
+
+    expect(
+      parseDirectProviderRunRequest({
+        provider: "openai",
+        testCaseId: TEST_CASE_ID,
+        model: "gpt-test",
+        qualification: {
+          selectedAt: "2026-10-05T00:00:00.000Z",
+          providerPolicyObservationId,
+          runnerAccessObservationId,
+          accountTier: "paid",
+          serviceTier: "default",
+          requestedServiceTier: "priority",
+          serviceAssurance: "documented_default",
+          caveats: ["provider_access_restricted"],
+        },
+      }),
+    ).toMatchObject({
+      qualification: {
+        providerPolicyObservationId,
+        runnerAccessObservationId,
+        accountTier: "paid",
+        serviceTier: "default",
+        requestedServiceTier: "priority",
+        serviceAssurance: "documented_default",
+        caveats: ["provider_access_restricted"],
+      },
+    });
+  });
+
   it("keeps provider-specific parsers strict", () => {
     expect(() =>
       parseDirectOpenAIRunRequest({

@@ -61,6 +61,7 @@ describe("persistSealedProviderRun", () => {
         providerResponseId: "resp_1",
         content: [{ type: "text", text: "ok" }],
         usage: { inputTokens: 2, outputTokens: 1, totalTokens: 3 },
+        providerMetadata: { serviceTier: "priority" },
       },
       requestSha256,
       responseSha256,
@@ -114,5 +115,9 @@ describe("persistSealedProviderRun", () => {
     expect(captured?.evidence.level).toBe("E4");
     expect(captured?.evidence.executionPath).toBe("first_party_direct");
     expect(captured?.providerMetadata?.timing).toMatchObject({ durationMs: 1250 });
+    expect(captured?.executionQualificationOutcome).toEqual({
+      returnedServiceTier: "priority",
+      capturedAt: exchange.completedAt,
+    });
   });
 });

@@ -231,4 +231,44 @@ describe("PostgreSQL Run job queue", () => {
     expect(failed.status).toBe("failed");
     expect(failed.lastError).toBe("fixture failure");
   });
+
+  it("keeps planner timestamps outside qualification idempotency identity", async () => {
+    const idempotencyKey = "qualification-" + randomUUID();
+    const payload = {
+      provider: "openai" as const,
+      testCaseId: randomUUID(),
+      model: "gpt-test",
+      qualification: {
+        selectedAt: "2026-10-05T00:00:00.000Z",
+        serviceAssurance: "unknown" as const,
+        caveats: ["runner_access_evidence_missing"],
+      },
+    };
+
+    const first = await queue.enqueue({ payload, idempotencyKey });
+    const retry = await queue.enqueue({
+      payload: {
+        ...payload,
+        qualification: {
+          ...payload.qualification,
+          selectedAt: "2026-10-05T00:00:05.000Z",
+        },
+      },
+      idempotencyKey,
+    });
+
+    expect(retry.id).toBe(first.id);
+
+    const claimed = await queue.claimNext({
+      workerId: "qualification-idempotency-worker",
+      leaseSeconds: 120,
+    });
+    expect(claimed?.id).toBe(first.id);
+
+    await queue.fail({
+      jobId: first.id,
+      workerId: "qualification-idempotency-worker",
+      error: "qualification idempotency fixture cleanup",
+    });
+  });
 });

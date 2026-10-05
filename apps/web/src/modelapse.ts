@@ -5,6 +5,7 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export interface RunnableModelTestabilityObservation {
+  readonly id: string;
   readonly scope: "provider" | "model";
   readonly accessState: "available" | "restricted" | "unavailable" | "unknown";
   readonly registrationRequirement:
@@ -349,6 +350,28 @@ export interface ArchiveCatalog {
   readonly tests: readonly ArchiveTest[];
 }
 
+export interface ArchiveRunExecutionQualification {
+  readonly selectedAt: string;
+  readonly executionRegion: string | null;
+  readonly accountTier: string | null;
+  readonly serviceTier: string | null;
+  readonly requestedServiceTier: string | null;
+  readonly returnedServiceTier: string | null;
+  readonly serviceAssurance: string;
+  readonly providerPolicyObservation: {
+    readonly id: string;
+    readonly sourceId: string;
+    readonly accessState: string;
+  } | null;
+  readonly runnerAccessObservation: {
+    readonly id: string;
+    readonly sourceId: string;
+    readonly accessState: string;
+  } | null;
+  readonly caveats: readonly string[];
+  readonly contextKey: string | null;
+}
+
 export interface ArchiveRun {
   readonly id: string;
   readonly status: string;
@@ -375,6 +398,7 @@ export interface ArchiveRun {
   readonly returnedModel: string | null;
   readonly executionPath: string;
   readonly evidenceLevel: string | null;
+  readonly executionQualification: ArchiveRunExecutionQualification | null;
   readonly evaluation: {
     readonly id: string;
     readonly status: string;

@@ -1144,6 +1144,17 @@ export function createApp(deps: AppDependencies) {
       return c.json({ error: "invalid_json" }, 400);
     }
 
+    if (apiRecord(raw)?.qualification !== undefined) {
+      return c.json(
+        {
+          error: "invalid_run_job",
+          message:
+            "qualification is planner-owned; use /v1/control/runs to freeze testability evidence",
+        },
+        400,
+      );
+    }
+
     let payload;
     try {
       payload = parseDirectProviderRunRequest(raw);

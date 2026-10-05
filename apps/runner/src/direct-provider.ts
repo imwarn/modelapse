@@ -28,6 +28,7 @@ export interface DirectProviderRunDependencies {
     readonly privateKey: string | KeyObject;
   };
   readonly runnerBuild: string;
+  readonly executionRegion?: string;
   readonly collector?: string;
 }
 
@@ -37,6 +38,36 @@ function publicKeyPem(privateKey: string | KeyObject): string {
   return createPublicKey(key)
     .export({ type: "spki", format: "pem" })
     .toString();
+}
+
+function qualificationEnvelope(
+  request: DirectProviderRunRequest,
+  executionRegion: string | undefined,
+) {
+  const plan = request.qualification;
+  const region = executionRegion?.trim() || undefined;
+  const caveats = new Set(
+    plan?.caveats ?? ["testability_evidence_not_planned"],
+  );
+  if (!region) caveats.add("execution_region_unknown");
+
+  return {
+    selectedAt: plan?.selectedAt ?? new Date().toISOString(),
+    ...(region ? { executionRegion: region } : {}),
+    ...(plan?.providerPolicyObservationId
+      ? { providerPolicyObservationId: plan.providerPolicyObservationId }
+      : {}),
+    ...(plan?.runnerAccessObservationId
+      ? { runnerAccessObservationId: plan.runnerAccessObservationId }
+      : {}),
+    ...(plan?.accountTier ? { accountTier: plan.accountTier } : {}),
+    ...(plan?.serviceTier ? { serviceTier: plan.serviceTier } : {}),
+    ...(plan?.requestedServiceTier
+      ? { requestedServiceTier: plan.requestedServiceTier }
+      : {}),
+    serviceAssurance: plan?.serviceAssurance ?? ("unknown" as const),
+    caveats: [...caveats],
+  };
 }
 
 function decodeVerifiedPrompt(
@@ -150,6 +181,10 @@ export async function runDirectProvider(
       ...(target.snapshotId ? { snapshotId: target.snapshotId } : {}),
       providerId: target.providerId,
       runnerBuild: deps.runnerBuild,
+      executionQualification: qualificationEnvelope(
+        request,
+        deps.executionRegion,
+      ),
     },
     collector: deps.collector ?? defaultCollector,
     evidenceLevel: "E4",

@@ -281,6 +281,77 @@ function ArchiveRunPage() {
           </dl>
         </div>
 
+        <div className="detail-grid">
+          <dl className="detail-panel">
+            <div>
+              <dt>Execution region</dt>
+              <dd>{run.executionQualification?.executionRegion ?? "unknown"}</dd>
+            </div>
+            <div>
+              <dt>Account tier</dt>
+              <dd>{run.executionQualification?.accountTier ?? "unknown"}</dd>
+            </div>
+            <div>
+              <dt>Selected service tier</dt>
+              <dd>{run.executionQualification?.serviceTier ?? "unknown"}</dd>
+            </div>
+            <div>
+              <dt>Requested service tier</dt>
+              <dd>{run.executionQualification?.requestedServiceTier ?? "—"}</dd>
+            </div>
+            <div>
+              <dt>Returned service tier</dt>
+              <dd>{run.executionQualification?.returnedServiceTier ?? "—"}</dd>
+            </div>
+            <div>
+              <dt>Service assurance</dt>
+              <dd>{run.executionQualification?.serviceAssurance ?? "unknown"}</dd>
+            </div>
+          </dl>
+
+          <dl className="detail-panel">
+            <div>
+              <dt>Qualification selected</dt>
+              <dd>{formatTimestamp(run.executionQualification?.selectedAt ?? null)}</dd>
+            </div>
+            <div>
+              <dt>Provider policy evidence</dt>
+              <dd>
+                {run.executionQualification?.providerPolicyObservation
+                  ? `${run.executionQualification.providerPolicyObservation.accessState} · ${run.executionQualification.providerPolicyObservation.id.slice(0, 8)}`
+                  : "unknown"}
+              </dd>
+            </div>
+            <div>
+              <dt>Runner access evidence</dt>
+              <dd>
+                {run.executionQualification?.runnerAccessObservation
+                  ? `${run.executionQualification.runnerAccessObservation.accessState} · ${run.executionQualification.runnerAccessObservation.id.slice(0, 8)}`
+                  : "unknown"}
+              </dd>
+            </div>
+            <div>
+              <dt>Context status</dt>
+              <dd>
+                {run.executionQualification?.contextKey
+                  ? "qualified context captured"
+                  : "context unknown"}
+              </dd>
+            </div>
+          </dl>
+        </div>
+
+        <div className="run-verdict">
+          {(run.executionQualification?.caveats.length
+            ? run.executionQualification.caveats
+            : ["no qualification caveats"]
+          ).map((caveat) => (
+            <span className="badge" key={caveat}>
+              {caveat.replaceAll("_", " ")}
+            </span>
+          ))}
+        </div>
+
         <div className="json-grid">
           <div className="json-panel">
             <span>Run configuration</span>

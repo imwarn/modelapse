@@ -32,6 +32,28 @@ export interface ArchiveTestView {
   readonly runCount: number;
 }
 
+export interface ArchiveRunExecutionQualificationView {
+  readonly selectedAt: string;
+  readonly executionRegion: string | null;
+  readonly accountTier: string | null;
+  readonly serviceTier: string | null;
+  readonly requestedServiceTier: string | null;
+  readonly returnedServiceTier: string | null;
+  readonly serviceAssurance: string;
+  readonly providerPolicyObservation: {
+    readonly id: string;
+    readonly sourceId: string;
+    readonly accessState: string;
+  } | null;
+  readonly runnerAccessObservation: {
+    readonly id: string;
+    readonly sourceId: string;
+    readonly accessState: string;
+  } | null;
+  readonly caveats: readonly string[];
+  readonly contextKey: string | null;
+}
+
 export interface ArchiveRunView {
   readonly id: string;
   readonly status: string;
@@ -58,6 +80,7 @@ export interface ArchiveRunView {
   readonly returnedModel: string | null;
   readonly executionPath: string;
   readonly evidenceLevel: string | null;
+  readonly executionQualification: ArchiveRunExecutionQualificationView | null;
   readonly evaluation: {
     readonly id: string;
     readonly status: string;
@@ -424,6 +447,20 @@ interface ArchiveRunRow {
   returned_model: string | null;
   execution_path: string;
   evidence_level: string | null;
+  qualification_selected_at: Date | null;
+  qualification_execution_region: string | null;
+  qualification_account_tier: string | null;
+  qualification_service_tier: string | null;
+  qualification_requested_service_tier: string | null;
+  qualification_returned_service_tier: string | null;
+  qualification_service_assurance: string | null;
+  qualification_provider_policy_observation_id: string | null;
+  qualification_provider_policy_source_id: string | null;
+  qualification_provider_policy_access_state: string | null;
+  qualification_runner_access_observation_id: string | null;
+  qualification_runner_access_source_id: string | null;
+  qualification_runner_access_state: string | null;
+  qualification_caveats: string[] | null;
   evaluation_id: string | null;
   evaluation_status: string | null;
   evaluator_slug: string | null;
@@ -436,6 +473,33 @@ interface ArchiveRunRow {
   created_at: Date;
   completed_at: Date | null;
   sealed_at: Date | null;
+}
+
+function qualificationContextKey(
+  row: ArchiveRunRow,
+): string | null {
+  if (
+    !row.qualification_selected_at ||
+    !row.qualification_execution_region ||
+    !row.qualification_provider_policy_observation_id ||
+    !row.qualification_runner_access_observation_id ||
+    !row.qualification_account_tier ||
+    !row.qualification_service_tier ||
+    !row.qualification_service_assurance ||
+    row.qualification_service_assurance === "operator_uncertain" ||
+    row.qualification_service_assurance === "unknown"
+  ) {
+    return null;
+  }
+
+  return JSON.stringify([
+    row.qualification_execution_region,
+    row.qualification_account_tier,
+    row.qualification_service_tier,
+    row.qualification_requested_service_tier ?? "",
+    row.qualification_returned_service_tier ?? "",
+    row.qualification_service_assurance,
+  ]);
 }
 
 function runView(row: ArchiveRunRow): ArchiveRunView {
@@ -465,6 +529,39 @@ function runView(row: ArchiveRunRow): ArchiveRunView {
     returnedModel: row.returned_model,
     executionPath: row.execution_path,
     evidenceLevel: row.evidence_level,
+    executionQualification: row.qualification_selected_at
+      ? {
+          selectedAt: row.qualification_selected_at.toISOString(),
+          executionRegion: row.qualification_execution_region,
+          accountTier: row.qualification_account_tier,
+          serviceTier: row.qualification_service_tier,
+          requestedServiceTier: row.qualification_requested_service_tier,
+          returnedServiceTier: row.qualification_returned_service_tier,
+          serviceAssurance: row.qualification_service_assurance ?? "unknown",
+          providerPolicyObservation:
+            row.qualification_provider_policy_observation_id &&
+            row.qualification_provider_policy_source_id &&
+            row.qualification_provider_policy_access_state
+              ? {
+                  id: row.qualification_provider_policy_observation_id,
+                  sourceId: row.qualification_provider_policy_source_id,
+                  accessState: row.qualification_provider_policy_access_state,
+                }
+              : null,
+          runnerAccessObservation:
+            row.qualification_runner_access_observation_id &&
+            row.qualification_runner_access_source_id &&
+            row.qualification_runner_access_state
+              ? {
+                  id: row.qualification_runner_access_observation_id,
+                  sourceId: row.qualification_runner_access_source_id,
+                  accessState: row.qualification_runner_access_state,
+                }
+              : null,
+          caveats: row.qualification_caveats ?? [],
+          contextKey: qualificationContextKey(row),
+        }
+      : null,
     evaluation:
       row.evaluation_id &&
       row.evaluation_status &&
@@ -512,6 +609,20 @@ const RUN_SELECT = `
     r.returned_model,
     r.execution_path,
     res.level AS evidence_level,
+    qualification.selected_at AS qualification_selected_at,
+    qualification.execution_region AS qualification_execution_region,
+    qualification.account_tier AS qualification_account_tier,
+    qualification.service_tier AS qualification_service_tier,
+    qualification.requested_service_tier AS qualification_requested_service_tier,
+    qualification.returned_service_tier AS qualification_returned_service_tier,
+    qualification.service_assurance AS qualification_service_assurance,
+    qualification.provider_policy_observation_id AS qualification_provider_policy_observation_id,
+    qualification.provider_policy_source_id AS qualification_provider_policy_source_id,
+    qualification.provider_policy_access_state AS qualification_provider_policy_access_state,
+    qualification.runner_access_observation_id AS qualification_runner_access_observation_id,
+    qualification.runner_access_source_id AS qualification_runner_access_source_id,
+    qualification.runner_access_state AS qualification_runner_access_state,
+    qualification.caveats AS qualification_caveats,
     ev.id AS evaluation_id,
     ev.status AS evaluation_status,
     e.slug AS evaluator_slug,
@@ -532,6 +643,8 @@ const RUN_SELECT = `
   JOIN modelapse.test_variants tvar ON tvar.id = tv.variant_id
   JOIN modelapse.test_families tf ON tf.id = tvar.family_id
   LEFT JOIN modelapse.run_evidence_summary res ON res.run_id = r.id
+  LEFT JOIN modelapse.run_execution_qualification qualification
+    ON qualification.run_id = r.id
   LEFT JOIN modelapse.test_version_evaluators tve
     ON tve.test_version_id = tv.id
   LEFT JOIN modelapse.evaluators e ON e.id = tve.evaluator_id

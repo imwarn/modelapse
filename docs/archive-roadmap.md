@@ -192,6 +192,8 @@ v0.18 must not automatically block Runs or infer model quality.
 
 ### Archive v0.19 — Run Execution Qualification Envelope
 
+**Implemented:** see `docs/run-execution-qualification.md` and ADR 0015.
+
 Bind a Run to the exact testability observations active at planning/execution time.
 
 Capture:

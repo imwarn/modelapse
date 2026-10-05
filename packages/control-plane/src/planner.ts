@@ -10,6 +10,7 @@ import {
 } from "./job.js";
 
 export interface RunnableModelTestabilityObservation {
+  readonly id: string;
   readonly scope: "provider" | "model";
   readonly accessState: "available" | "restricted" | "unavailable" | "unknown";
   readonly registrationRequirement:
@@ -142,6 +143,7 @@ export class PgRunPlanner {
       api_model_id: string;
       snapshot_id: string | null;
       endpoint_hostname: string;
+      policy_observation_id: string | null;
       policy_model_id: string | null;
       policy_access_state: RunnableModelTestabilityObservation["accessState"] | null;
       policy_registration_requirement: RunnableModelTestabilityObservation["registrationRequirement"] | null;
@@ -152,6 +154,7 @@ export class PgRunPlanner {
       policy_service_assurance: RunnableModelTestabilityObservation["serviceAssurance"] | null;
       policy_observed_at: Date | null;
       policy_source_id: string | null;
+      runner_observation_id: string | null;
       runner_model_id: string | null;
       runner_access_state: RunnableModelTestabilityObservation["accessState"] | null;
       runner_registration_requirement: RunnableModelTestabilityObservation["registrationRequirement"] | null;
@@ -173,6 +176,7 @@ export class PgRunPlanner {
          meb.api_model_id,
          meb.snapshot_id,
          pe.hostname AS endpoint_hostname,
+         policy.id AS policy_observation_id,
          policy.model_id AS policy_model_id,
          policy.access_state AS policy_access_state,
          policy.registration_requirement AS policy_registration_requirement,
@@ -183,6 +187,7 @@ export class PgRunPlanner {
          policy.service_assurance AS policy_service_assurance,
          policy.observed_at AS policy_observed_at,
          policy.source_id AS policy_source_id,
+         runner.id AS runner_observation_id,
          runner.model_id AS runner_model_id,
          runner.access_state AS runner_access_state,
          runner.registration_requirement AS runner_registration_requirement,
@@ -253,6 +258,7 @@ export class PgRunPlanner {
       endpointHostname: row.endpoint_hostname,
       testability: {
         providerPolicy:
+          row.policy_observation_id &&
           row.policy_access_state &&
           row.policy_registration_requirement &&
           row.policy_billing_requirement &&
@@ -261,6 +267,7 @@ export class PgRunPlanner {
           row.policy_observed_at &&
           row.policy_source_id
             ? {
+                id: row.policy_observation_id,
                 scope: row.policy_model_id ? "model" : "provider",
                 accessState: row.policy_access_state,
                 registrationRequirement: row.policy_registration_requirement,
@@ -274,6 +281,7 @@ export class PgRunPlanner {
               }
             : null,
         runnerAccess:
+          row.runner_observation_id &&
           row.runner_access_state &&
           row.runner_registration_requirement &&
           row.runner_billing_requirement &&
@@ -282,6 +290,7 @@ export class PgRunPlanner {
           row.runner_observed_at &&
           row.runner_source_id
             ? {
+                id: row.runner_observation_id,
                 scope: row.runner_model_id ? "model" : "provider",
                 accessState: row.runner_access_state,
                 registrationRequirement: row.runner_registration_requirement,
@@ -367,6 +376,45 @@ export class PgRunPlanner {
     }));
   }
 
+  private qualificationFor(
+    model: RunnableModel,
+    requestedServiceTier: string | undefined,
+  ): NonNullable<DirectProviderRunRequest["qualification"]> {
+    const policy = model.testability.providerPolicy;
+    const runner = model.testability.runnerAccess;
+    const caveats: string[] = [];
+
+    if (!policy) {
+      caveats.push("provider_policy_evidence_missing");
+    } else if (policy.accessState !== "available") {
+      caveats.push("provider_access_" + policy.accessState);
+    }
+
+    if (!runner) {
+      caveats.push("runner_access_evidence_missing");
+    } else if (runner.accessState !== "available") {
+      caveats.push("runner_access_" + runner.accessState);
+    }
+
+    const serviceAssurance = runner?.serviceAssurance ?? "unknown";
+    if (serviceAssurance === "operator_uncertain") {
+      caveats.push("service_assurance_operator_uncertain");
+    } else if (serviceAssurance === "unknown") {
+      caveats.push("service_assurance_unknown");
+    }
+
+    return {
+      selectedAt: new Date().toISOString(),
+      ...(policy ? { providerPolicyObservationId: policy.id } : {}),
+      ...(runner ? { runnerAccessObservationId: runner.id } : {}),
+      ...(runner?.accountTier ? { accountTier: runner.accountTier } : {}),
+      ...(runner?.serviceTier ? { serviceTier: runner.serviceTier } : {}),
+      ...(requestedServiceTier ? { requestedServiceTier } : {}),
+      serviceAssurance,
+      caveats,
+    };
+  }
+
   async plan(input: RunSelectionRequest): Promise<PlannedDirectRun> {
     const selection = parseRunSelectionRequest(input);
 
@@ -399,6 +447,10 @@ export class PgRunPlanner {
       modelId: model.id,
       model: model.apiModelId,
       ...(selection.config ? { config: selection.config } : {}),
+      qualification: this.qualificationFor(
+        model,
+        selection.config?.serviceTier,
+      ),
     };
 
     return { model, test, jobPayload };

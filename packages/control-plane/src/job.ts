@@ -7,11 +7,29 @@ export type DirectRunConfig = Pick<
   "temperature" | "topP" | "maxOutputTokens" | "reasoningEffort" | "serviceTier"
 >;
 
+export type ExecutionQualificationServiceAssurance =
+  | "documented_default"
+  | "documented_variant"
+  | "operator_uncertain"
+  | "unknown";
+
+export interface DirectRunQualificationPlan {
+  readonly selectedAt: string;
+  readonly providerPolicyObservationId?: string;
+  readonly runnerAccessObservationId?: string;
+  readonly accountTier?: string;
+  readonly serviceTier?: string;
+  readonly requestedServiceTier?: string;
+  readonly serviceAssurance: ExecutionQualificationServiceAssurance;
+  readonly caveats: readonly string[];
+}
+
 interface DirectProviderRunBase {
   readonly testCaseId: string;
   readonly modelId?: string;
   readonly model: string;
   readonly config?: DirectRunConfig;
+  readonly qualification?: DirectRunQualificationPlan;
 }
 
 export interface DirectOpenAIRunRequest extends DirectProviderRunBase {
@@ -114,6 +132,101 @@ export function parseDirectRunConfig(
   };
 }
 
+function parseDirectRunQualification(
+  value: unknown,
+): DirectRunQualificationPlan | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error("qualification must be an object");
+
+  rejectUnknownKeys(
+    value,
+    [
+      "selectedAt",
+      "providerPolicyObservationId",
+      "runnerAccessObservationId",
+      "accountTier",
+      "serviceTier",
+      "requestedServiceTier",
+      "serviceAssurance",
+      "caveats",
+    ],
+    "qualification",
+  );
+
+  if (
+    typeof value.selectedAt !== "string" ||
+    !Number.isFinite(Date.parse(value.selectedAt))
+  ) {
+    throw new Error("qualification.selectedAt must be an ISO timestamp");
+  }
+
+  for (const key of [
+    "providerPolicyObservationId",
+    "runnerAccessObservationId",
+  ] as const) {
+    const observationId = value[key];
+    if (
+      observationId !== undefined &&
+      (typeof observationId !== "string" || !UUID_RE.test(observationId))
+    ) {
+      throw new Error("qualification." + key + " must be a UUID");
+    }
+  }
+
+  for (const key of [
+    "accountTier",
+    "serviceTier",
+    "requestedServiceTier",
+  ] as const) {
+    const field = value[key];
+    if (
+      field !== undefined &&
+      (typeof field !== "string" || field.trim().length === 0)
+    ) {
+      throw new Error("qualification." + key + " must be a non-empty string");
+    }
+  }
+
+  if (
+    value.serviceAssurance !== "documented_default" &&
+    value.serviceAssurance !== "documented_variant" &&
+    value.serviceAssurance !== "operator_uncertain" &&
+    value.serviceAssurance !== "unknown"
+  ) {
+    throw new Error("qualification.serviceAssurance is invalid");
+  }
+
+  if (
+    !Array.isArray(value.caveats) ||
+    value.caveats.some(
+      (caveat) => typeof caveat !== "string" || caveat.trim().length === 0,
+    )
+  ) {
+    throw new Error("qualification.caveats must be a string array");
+  }
+
+  return {
+    selectedAt: value.selectedAt,
+    ...(typeof value.providerPolicyObservationId === "string"
+      ? { providerPolicyObservationId: value.providerPolicyObservationId }
+      : {}),
+    ...(typeof value.runnerAccessObservationId === "string"
+      ? { runnerAccessObservationId: value.runnerAccessObservationId }
+      : {}),
+    ...(typeof value.accountTier === "string"
+      ? { accountTier: value.accountTier }
+      : {}),
+    ...(typeof value.serviceTier === "string"
+      ? { serviceTier: value.serviceTier }
+      : {}),
+    ...(typeof value.requestedServiceTier === "string"
+      ? { requestedServiceTier: value.requestedServiceTier }
+      : {}),
+    serviceAssurance: value.serviceAssurance,
+    caveats: [...value.caveats],
+  };
+}
+
 export function parseDirectProviderRunRequest(
   value: unknown,
 ): DirectProviderRunRequest {
@@ -121,7 +234,7 @@ export function parseDirectProviderRunRequest(
 
   rejectUnknownKeys(
     value,
-    ["provider", "testCaseId", "modelId", "model", "config"],
+    ["provider", "testCaseId", "modelId", "model", "config", "qualification"],
     "job",
   );
 
@@ -142,6 +255,7 @@ export function parseDirectProviderRunRequest(
   }
 
   const config = parseDirectRunConfig(value.config);
+  const qualification = parseDirectRunQualification(value.qualification);
 
   return {
     provider: value.provider,
@@ -149,6 +263,7 @@ export function parseDirectProviderRunRequest(
     ...(typeof value.modelId === "string" ? { modelId: value.modelId } : {}),
     model: value.model,
     ...(config ? { config } : {}),
+    ...(qualification ? { qualification } : {}),
   };
 }
 
