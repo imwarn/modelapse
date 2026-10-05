@@ -4,6 +4,7 @@ import {
   IdempotencyConflictError,
   parseDirectProviderRunRequest,
   parseRunSelectionRequest,
+  type PgExecutionFleet,
   type PgRunJobQueue,
   type PgRunPlanner,
   type RunJob,
@@ -50,6 +51,14 @@ function apiStringArray(value: unknown): string[] | undefined {
 
 type RunApiRepository = Pick<RunRepository, "ping" | "getRun">;
 type ControlQueue = Pick<PgRunJobQueue, "ping" | "enqueue" | "get">;
+type ControlFleet = Pick<
+  PgExecutionFleet,
+  | "ping"
+  | "listEnvironments"
+  | "registerEnvironment"
+  | "setEnvironmentState"
+  | "declareCapability"
+>;
 type ControlPlanner = Pick<
   PgRunPlanner,
   "ping" | "listModels" | "listTests" | "plan"
@@ -92,6 +101,7 @@ type ArchiveRepository = Pick<
 export interface AppDependencies {
   readonly runs: RunApiRepository;
   readonly jobs?: ControlQueue;
+  readonly fleet?: ControlFleet;
   readonly planner?: ControlPlanner;
   readonly archive?: ArchiveRepository;
   readonly catalogDiscovery?: CatalogDiscoveryRepository;
@@ -129,6 +139,7 @@ function controlJob(job: RunJob) {
     id: job.id,
     kind: job.kind,
     status: job.status,
+    targetExecutionEnvironmentId: job.targetExecutionEnvironmentId,
     attempts: job.attempts,
     maxAttempts: job.maxAttempts,
     runId: job.runId,
@@ -196,6 +207,7 @@ export function createApp(deps: AppDependencies) {
     try {
       await deps.runs.ping();
       if (deps.jobs) await deps.jobs.ping();
+      if (deps.fleet) await deps.fleet.ping();
       if (deps.planner) await deps.planner.ping();
       if (deps.archive) await deps.archive.ping();
       if (deps.costLedger) await deps.costLedger.ping();
