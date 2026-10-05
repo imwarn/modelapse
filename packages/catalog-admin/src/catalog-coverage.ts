@@ -569,7 +569,9 @@ export class PgCatalogCoverage {
 
     const projectedRemoteIds = new Set(remoteItems.map((item) => item.remoteModelId));
     const currentBindingsNotObserved: CatalogCoverageMissingBinding[] =
-      bindingResult.rows
+      evidenceSources.length === 0
+        ? []
+        : bindingResult.rows
         .filter((row) => !projectedRemoteIds.has(row.api_model_id))
         .map((row) => ({
           bindingId: row.binding_id,
