@@ -92,3 +92,10 @@ The runner needs provider/signing secrets but does not expose an HTTP port.
 Both services need PostgreSQL. They must also see the correct CAS storage for the Test Case prompt/evidence lifecycle.
 
 Infrastructure-level egress rules should allow the runner only the required database/storage services and approved first-party provider endpoints.
+
+
+## Planner-owned cost evidence
+
+Archive v0.20 adds a planner-owned `cost` envelope to internal durable jobs. It carries a planning timestamp, optional Provider Testability pricing observation ID, native currency/rates and caveats.
+
+External callers of `POST /v1/control/run-jobs` cannot inject `qualification` or `cost`; use `POST /v1/control/runs` for normal planned execution. Queue idempotency ignores only the planner-generated selection timestamps, not the referenced evidence or prices.
