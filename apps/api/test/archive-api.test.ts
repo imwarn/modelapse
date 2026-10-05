@@ -99,6 +99,7 @@ const archiveRun = {
   returnedModel: "deepseek-flash",
   executionPath: "first_party_direct",
   evidenceLevel: "E4",
+  executionQualification: null,
   evaluation: {
     id: "00000000-0000-4000-8000-000000000025",
     status: "completed",
