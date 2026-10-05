@@ -274,6 +274,7 @@ export class PgRunRepository implements RunRepository {
             (
               run_id,
               selected_at,
+              execution_environment_id,
               execution_region,
               provider_policy_observation_id,
               runner_access_observation_id,
@@ -283,10 +284,11 @@ export class PgRunRepository implements RunRepository {
               service_assurance,
               caveats
             )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::text[])`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::text[])`,
           [
             runId,
             qualification.selectedAt,
+            qualification.executionEnvironmentId ?? null,
             qualification.executionRegion ?? null,
             qualification.providerPolicyObservationId ?? null,
             qualification.runnerAccessObservationId ?? null,
