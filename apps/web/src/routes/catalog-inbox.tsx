@@ -168,6 +168,7 @@ function CatalogInbox() {
         </a>
         <nav className="integrity-nav" aria-label="Catalog navigation">
           <a href="/catalog-integrity">Integrity dashboard</a>
+          <a href="/catalog-coverage">Coverage matrix</a>
           <a href="/changes">Public catalog changes</a>
         </nav>
       </header>
