@@ -9,3 +9,5 @@ export * from "./catalog-drift-review.js";
 export * from "./catalog-identity-case.js";
 
 export * from "./catalog-integrity.js";
+
+export * from "./catalog-coverage.js";

@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
 import {
+  PgCatalogCoverage,
   PgCatalogDiscovery,
   PgCatalogDriftReview,
   PgCatalogIdentityCase,
@@ -24,6 +25,7 @@ const runs = PgRunRepository.connect(databaseUrl);
 const jobs = PgRunJobQueue.connect(databaseUrl);
 const planner = PgRunPlanner.connect(databaseUrl);
 const archive = PgArchiveRepository.connect(databaseUrl);
+const catalogCoverage = PgCatalogCoverage.connect(databaseUrl);
 const catalogDiscovery = PgCatalogDiscovery.connect(databaseUrl);
 const catalogDriftReview = PgCatalogDriftReview.connect(databaseUrl);
 const catalogIdentityCase = PgCatalogIdentityCase.connect(databaseUrl);
@@ -35,6 +37,7 @@ const app = createApp({
   jobs,
   planner,
   archive,
+  catalogCoverage,
   catalogDiscovery,
   catalogDriftReview,
   catalogIdentityCase,
@@ -60,6 +63,7 @@ function shutdown(signal: string): void {
       jobs.close(),
       planner.close(),
       archive.close(),
+      catalogCoverage.close(),
       catalogDiscovery.close(),
       catalogDriftReview.close(),
       catalogIdentityCase.close(),

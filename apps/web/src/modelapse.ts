@@ -728,6 +728,109 @@ export interface CatalogIntegrityDashboard {
   }[];
 }
 
+export type CatalogCoverageDisposition =
+  | "canonical_observed"
+  | "candidate_discovered"
+  | "candidate_promotion_ready"
+  | "candidate_ignored"
+  | "candidate_matched";
+
+export interface CatalogCoverageSourceRecord {
+  readonly id: string;
+  readonly sourceType: string;
+  readonly url: string | null;
+  readonly title: string | null;
+  readonly retrievedAt: string;
+  readonly contentSha256: string | null;
+}
+
+export interface CatalogProviderCoverageSummary {
+  readonly provider: { readonly id: string; readonly slug: string; readonly name: string };
+  readonly generatedAt: string;
+  readonly latestEvidenceAt: string | null;
+  readonly summary: CatalogProviderCoverage["summary"];
+}
+
+export interface CatalogProviderCoverage {
+  readonly generatedAt: string;
+  readonly provider: { readonly id: string; readonly slug: string; readonly name: string };
+  readonly summary: {
+    readonly modelListSources: number;
+    readonly sourcesWithEvidence: number;
+    readonly sourceItemCount: number;
+    readonly uniqueProjectedRemoteIds: number;
+    readonly canonicalObserved: number;
+    readonly candidateDiscovered: number;
+    readonly candidatePromotionReady: number;
+    readonly candidateIgnored: number;
+    readonly candidateMatched: number;
+    readonly unprojectedSourceItems: number;
+    readonly currentBindingsNotObserved: number;
+  };
+  readonly sources: readonly {
+    readonly id: string;
+    readonly sourceKey: string;
+    readonly url: string;
+    readonly title: string;
+    readonly enabled: boolean;
+    readonly latestAttempt: {
+      readonly runId: string;
+      readonly status: string;
+      readonly startedAt: string;
+      readonly completedAt: string | null;
+    } | null;
+    readonly latestEvidence: {
+      readonly runId: string;
+      readonly status: "succeeded" | "partial";
+      readonly startedAt: string;
+      readonly completedAt: string | null;
+      readonly itemCount: number;
+      readonly observationsEmitted: number;
+      readonly source: CatalogCoverageSourceRecord;
+      readonly projectedItemCount: number;
+      readonly unprojectedItemCount: number;
+    } | null;
+  }[];
+  readonly remoteItems: readonly {
+    readonly remoteModelId: string;
+    readonly disposition: CatalogCoverageDisposition;
+    readonly observations: readonly {
+      readonly observerSourceId: string;
+      readonly runId: string;
+      readonly sourceRecordId: string;
+      readonly observedAt: string;
+      readonly providerSnapshotId: string | null;
+    }[];
+    readonly canonicalModel: {
+      readonly id: string;
+      readonly canonicalSlug: string;
+      readonly marketingName: string;
+    } | null;
+    readonly candidate: {
+      readonly id: string;
+      readonly status: "discovered" | "promotion_ready" | "ignored" | "matched";
+      readonly observationCount: number;
+      readonly resolvedModel: {
+        readonly id: string;
+        readonly canonicalSlug: string;
+        readonly marketingName: string;
+      } | null;
+    } | null;
+  }[];
+  readonly currentBindingsNotObserved: readonly {
+    readonly bindingId: string;
+    readonly apiModelId: string;
+    readonly model: {
+      readonly id: string;
+      readonly canonicalSlug: string;
+      readonly marketingName: string;
+    };
+    readonly endpointHostname: string;
+    readonly source: CatalogCoverageSourceRecord;
+    readonly interpretation: "not_observed_in_latest_model_list_evidence";
+  }[];
+}
+
 export interface ControlJob {
   readonly id: string;
   readonly kind: string;
@@ -1419,6 +1522,33 @@ export const compareArchive = createServerFn({ method: "POST" })
       if (error instanceof ApiRequestError && error.status === 404) {
         return null;
       }
+      throw error;
+    }
+  });
+
+export const getCatalogCoverageProviders = createServerFn({ method: "POST" })
+  .validator(parseOperatorInput)
+  .handler(async ({ data }): Promise<readonly CatalogProviderCoverageSummary[]> => {
+    requireOperator(data.operatorToken);
+    const result = await requestJson<{ providers: readonly CatalogProviderCoverageSummary[] }>(
+      "/v1/control/catalog/coverage",
+      { control: true },
+    );
+    return result.providers;
+  });
+
+export const getCatalogProviderCoverage = createServerFn({ method: "POST" })
+  .validator(parseCatalogProviderModelsInput)
+  .handler(async ({ data }): Promise<CatalogProviderCoverage | null> => {
+    requireOperator(data.operatorToken);
+    try {
+      const result = await requestJson<{ coverage: CatalogProviderCoverage }>(
+        `/v1/control/catalog/coverage/${data.providerId}`,
+        { control: true },
+      );
+      return result.coverage;
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 404) return null;
       throw error;
     }
   });

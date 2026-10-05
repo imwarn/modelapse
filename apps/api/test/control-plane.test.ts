@@ -374,3 +374,70 @@ describe("Catalog Integrity control API", () => {
     expect(JSON.stringify(payload)).not.toContain("responseBody");
   });
 });
+
+
+describe("Catalog Coverage control API", () => {
+  const providerId = "00000000-0000-4000-8000-000000000140";
+
+  it("keeps provider coverage behind control authentication and validates provider IDs", async () => {
+    const summary = {
+      provider: { id: providerId, slug: "fixture", name: "Fixture" },
+      generatedAt: "2026-10-05T00:00:00.000Z",
+      latestEvidenceAt: "2026-10-05T00:00:00.000Z",
+      summary: {
+        modelListSources: 1,
+        sourcesWithEvidence: 1,
+        sourceItemCount: 2,
+        uniqueProjectedRemoteIds: 2,
+        canonicalObserved: 1,
+        candidateDiscovered: 1,
+        candidatePromotionReady: 0,
+        candidateIgnored: 0,
+        candidateMatched: 0,
+        unprojectedSourceItems: 0,
+        currentBindingsNotObserved: 0,
+      },
+    };
+    const coverage = {
+      generatedAt: summary.generatedAt,
+      provider: summary.provider,
+      summary: summary.summary,
+      sources: [],
+      remoteItems: [],
+      currentBindingsNotObserved: [],
+    };
+
+    const app = createApp({
+      runs: baseRuns(),
+      controlToken: "control-secret",
+      catalogCoverage: {
+        listProviders: async () => [summary],
+        getProvider: async (requestedProviderId) =>
+          requestedProviderId === providerId ? coverage : null,
+      },
+    });
+
+    expect((await app.request("/v1/control/catalog/coverage")).status).toBe(401);
+
+    const listed = await app.request("/v1/control/catalog/coverage", {
+      headers: { authorization: "Bearer control-secret" },
+    });
+    expect(listed.status).toBe(200);
+    await expect(listed.json()).resolves.toEqual({ providers: [summary] });
+
+    const invalid = await app.request("/v1/control/catalog/coverage/not-a-uuid", {
+      headers: { authorization: "Bearer control-secret" },
+    });
+    expect(invalid.status).toBe(400);
+
+    const found = await app.request("/v1/control/catalog/coverage/" + providerId, {
+      headers: { authorization: "Bearer control-secret" },
+    });
+    expect(found.status).toBe(200);
+    const payload = await found.json();
+    expect(payload).toEqual({ coverage });
+    expect(JSON.stringify(payload)).not.toContain("response_body");
+    expect(JSON.stringify(payload)).not.toContain("responseBody");
+    expect(JSON.stringify(payload)).not.toContain("error_message");
+  });
+});

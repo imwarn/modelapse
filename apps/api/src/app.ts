@@ -18,6 +18,7 @@ import type {
   CatalogDriftReviewStatus,
   PgCatalogDiscovery,
   PgCatalogDriftReview,
+  PgCatalogCoverage,
   PgCatalogIdentityCase,
   PgCatalogIntegrity,
 } from "@modelapse/catalog-admin";
@@ -40,6 +41,7 @@ type CatalogDiscoveryRepository = Pick<
 type CatalogDriftReviewRepository = Pick<PgCatalogDriftReview, "list" | "decide">;
 type CatalogIdentityCaseRepository = Pick<PgCatalogIdentityCase, "get">;
 type CatalogIntegrityRepository = Pick<PgCatalogIntegrity, "getDashboard">;
+type CatalogCoverageRepository = Pick<PgCatalogCoverage, "listProviders" | "getProvider">;
 
 type ArchiveRepository = Pick<
   PgArchiveRepository,
@@ -64,6 +66,7 @@ export interface AppDependencies {
   readonly catalogDriftReview?: CatalogDriftReviewRepository;
   readonly catalogIdentityCase?: CatalogIdentityCaseRepository;
   readonly catalogIntegrity?: CatalogIntegrityRepository;
+  readonly catalogCoverage?: CatalogCoverageRepository;
   readonly controlToken?: string;
 }
 
@@ -391,6 +394,34 @@ export function createApp(deps: AppDependencies) {
     }
 
     return c.json({ run: publicRun(run) });
+  });
+
+  app.get("/v1/control/catalog/coverage", async (c) => {
+    if (!deps.catalogCoverage || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+    return c.json({ providers: await deps.catalogCoverage.listProviders() });
+  });
+
+  app.get("/v1/control/catalog/coverage/:providerId", async (c) => {
+    if (!deps.catalogCoverage || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+    const providerId = c.req.param("providerId");
+    if (!UUID_RE.test(providerId)) {
+      return c.json({ error: "invalid_provider_id" }, 400);
+    }
+    const coverage = await deps.catalogCoverage.getProvider(providerId);
+    if (!coverage) {
+      return c.json({ error: "catalog_coverage_provider_not_found" }, 404);
+    }
+    return c.json({ coverage });
   });
 
   app.get("/v1/control/catalog/integrity", async (c) => {
