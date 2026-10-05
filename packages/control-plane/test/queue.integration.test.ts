@@ -195,6 +195,31 @@ describe("PostgreSQL Run job queue", () => {
     expect(second.id).toBe(first.id);
     expect(first.status).toBe("queued");
 
+    const qualifiedKey = "qualification-" + randomUUID();
+    const qualificationBase = {
+      ...payload,
+      qualification: {
+        selectedAt: "2026-10-05T00:00:00.000Z",
+        serviceAssurance: "unknown" as const,
+        caveats: ["runner_access_evidence_missing"],
+      },
+    };
+    const qualified = await queue.enqueue({
+      payload: qualificationBase,
+      idempotencyKey: qualifiedKey,
+    });
+    const qualifiedRetry = await queue.enqueue({
+      payload: {
+        ...qualificationBase,
+        qualification: {
+          ...qualificationBase.qualification,
+          selectedAt: "2026-10-05T00:00:05.000Z",
+        },
+      },
+      idempotencyKey: qualifiedKey,
+    });
+    expect(qualifiedRetry.id).toBe(qualified.id);
+
     await expect(
       queue.enqueue({
         payload: { ...payload, model: "different-model" },
