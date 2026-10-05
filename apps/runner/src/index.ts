@@ -9,6 +9,7 @@ import {
 } from "@modelapse/catalog-admin";
 import {
   parseDirectProviderRunRequest,
+  PgExecutionFleet,
   PgRunJobQueue,
 } from "@modelapse/control-plane";
 import {
@@ -158,6 +159,40 @@ async function runStdinMode(): Promise<void> {
 
 async function runQueueMode(): Promise<void> {
   const queue = PgRunJobQueue.connect(databaseUrl, { max: 2 });
+  const executionEnvironmentSlug =
+    process.env.MODELAPSE_EXECUTION_ENVIRONMENT?.trim() || undefined;
+  const fleet = executionEnvironmentSlug
+    ? PgExecutionFleet.connect(databaseUrl, { max: 1 })
+    : null;
+  const executionEnvironment = executionEnvironmentSlug
+    ? await fleet!.resolveWorkerEnvironment(executionEnvironmentSlug)
+    : null;
+
+  if (executionEnvironmentSlug && !executionEnvironment) {
+    await queue.close();
+    await fleet?.close();
+    throw new Error(
+      "MODELAPSE_EXECUTION_ENVIRONMENT is not registered in the execution fleet",
+    );
+  }
+  if (executionEnvironment && !executionEnvironment.enabled) {
+    await queue.close();
+    await fleet?.close();
+    throw new Error(
+      "MODELAPSE_EXECUTION_ENVIRONMENT is currently disabled",
+    );
+  }
+  if (
+    executionEnvironment &&
+    executionRegion &&
+    executionEnvironment.region !== executionRegion
+  ) {
+    await queue.close();
+    await fleet?.close();
+    throw new Error(
+      "MODELAPSE_EXECUTION_REGION does not match the registered execution environment",
+    );
+  }
   const workerId =
     process.env.MODELAPSE_WORKER_ID ??
     hostname() + "-" + process.pid + "-" + randomUUID().slice(0, 8);
@@ -235,7 +270,12 @@ async function runQueueMode(): Promise<void> {
         credentials,
         signer: { keyId, privateKey },
         runnerBuild,
-        ...(executionRegion ? { executionRegion } : {}),
+        ...(executionEnvironment
+          ? { executionEnvironment }
+          : {}),
+        ...(!executionEnvironment && executionRegion
+          ? { executionRegion }
+          : {}),
         workerId,
         leaseSeconds,
         ...(collector ? { collector } : {}),
@@ -263,6 +303,7 @@ async function runQueueMode(): Promise<void> {
       await catalogObserverTask;
     }
     await queue.close();
+    await fleet?.close();
     await catalogObserver?.close();
   }
 }
