@@ -335,6 +335,13 @@ export class PgCatalogPresence {
       for (const run of completeRuns) {
         const currentIds = idsByRun.get(run.runId) ?? new Set<string>();
 
+        if (!previousRun) {
+          for (const remoteModelId of currentIds) previouslyObserved.add(remoteModelId);
+          previousRun = run;
+          previousIds = new Set(currentIds);
+          continue;
+        }
+
         for (const remoteModelId of [...currentIds].sort()) {
           if (!previousIds.has(remoteModelId)) {
             const kind: CatalogPresenceEventKind = previouslyObserved.has(remoteModelId)
