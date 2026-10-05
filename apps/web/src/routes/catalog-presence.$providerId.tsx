@@ -51,6 +51,7 @@ function CatalogPresenceTimeline() {
         </a>
         <nav className="integrity-nav">
           <a href={"/catalog-coverage/" + providerId}>Coverage detail</a>
+          <a href="/catalog-presence-review">Presence review</a>
           <a href="/catalog-integrity">Integrity</a>
           <a href="/catalog-inbox">Catalog Inbox</a>
         </nav>
