@@ -56,6 +56,10 @@ The caller must not provide provider, model API id, endpoint, credential, prompt
 
 The planner derives the internal durable job payload from catalog state.
 
+Archive v0.19 also resolves the exact current Provider Testability observations for `provider_policy` and `runner_access`. Their observation IDs, non-secret account/service-tier context, service assurance, and qualification caveats are frozen into the internal durable payload with a planning timestamp. A later registry update must not rebind an already queued Run.
+
+The client cannot provide or override this qualification envelope.
+
 ## Add the first DeepSeek model
 
 The current production bootstrap command is:
