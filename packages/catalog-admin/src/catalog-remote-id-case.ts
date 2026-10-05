@@ -510,6 +510,27 @@ export class PgCatalogRemoteIdCase {
       });
     }
 
+    const derivedPresenceEventIds = new Set(
+      presenceEvents.map((event) => event.id),
+    );
+    for (const row of reviewRows.rows) {
+      if (derivedPresenceEventIds.has(row.presence_event_id)) continue;
+      timeline.push({
+        id: "presence-anchor:" + row.presence_event_id,
+        kind: "presence_not_observed",
+        occurredAt: row.occurred_at.toISOString(),
+        title: "Not observed in complete model-list evidence",
+        description:
+          "Durable presence-review anchor retained after the derived comparison event aged outside the loaded presence window",
+        actor: null,
+        note: null,
+        source: null,
+        runId: row.run_id,
+        presenceEventId: row.presence_event_id,
+        modelId: null,
+      });
+    }
+
     const decisionsByReview = new Map<
       string,
       typeof reviewDecisionRows.rows
