@@ -7,6 +7,28 @@ import type {
 } from "@modelapse/domain";
 import type { NormalizedUsage } from "@modelapse/provider-adapter";
 
+export interface ExecutionQualificationEnvelopeInput {
+  readonly selectedAt: string;
+  readonly executionRegion?: string;
+  readonly providerPolicyObservationId?: string;
+  readonly runnerAccessObservationId?: string;
+  readonly accountTier?: string;
+  readonly serviceTier?: string;
+  readonly requestedServiceTier?: string;
+  readonly serviceAssurance:
+    | "documented_default"
+    | "documented_variant"
+    | "operator_uncertain"
+    | "unknown";
+  readonly caveats?: readonly string[];
+}
+
+export interface ExecutionQualificationOutcomeInput {
+  readonly returnedServiceTier?: string;
+  readonly caveats?: readonly string[];
+  readonly capturedAt: string;
+}
+
 export interface CreatePlannedRunInput {
   readonly testCaseId: string;
   readonly modelId?: string;
@@ -16,6 +38,7 @@ export interface CreatePlannedRunInput {
   readonly requestedModel: string;
   readonly runnerBuild: string;
   readonly config?: RunConfig;
+  readonly executionQualification?: ExecutionQualificationEnvelopeInput;
 }
 
 export interface ProviderMetadataInput {
@@ -44,6 +67,7 @@ export interface SealRunInput {
   readonly responseHeadersBlob: BlobDescriptor;
   readonly attestationPayloadBlob: BlobDescriptor;
   readonly providerMetadata?: ProviderMetadataInput;
+  readonly executionQualificationOutcome?: ExecutionQualificationOutcomeInput;
   readonly attestation: {
     readonly keyId: string;
     readonly algorithm: "Ed25519";
