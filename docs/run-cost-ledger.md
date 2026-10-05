@@ -6,7 +6,7 @@ Archive v0.20 makes collection cost an auditable part of each completed Run with
 
 The cost chain is deliberately split into two append-only records.
 
-1. `run_cost_envelopes` is created with the Run. It freezes the pricing observation selected by the Planner, the exact native-currency price fields from that observation, the selection timestamp, and caveats.
+1. `run_cost_envelopes` is created with every new Run. It freezes the pricing observation selected by the Planner when available, the exact native-currency price fields from that observation, the selection timestamp, and caveats. Non-planner paths still receive an explicit unknown-price envelope so their later usage is not lost from the ledger.
 2. `run_cost_facts` is created only when a Run seals as `completed`. It freezes normalized provider usage, a single-request quantity, the native currency, the estimate derived from the frozen price basis, and calculation caveats.
 
 The database validates that a referenced `provider_testability_observations` row belongs to the same provider/model/execution path and that the copied price fields exactly match the source observation. A caller cannot attach an arbitrary price to a Run.
