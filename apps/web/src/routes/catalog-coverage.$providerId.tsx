@@ -168,6 +168,17 @@ function CatalogCoverageProvider() {
                     {DISPOSITION_LABELS[item.disposition]}
                   </span>
                   <div className="coverage-matrix-links">
+                    <a
+                      className="text-link"
+                      href={
+                        "/catalog-remote-case/" +
+                        providerId +
+                        "?remoteModelId=" +
+                        encodeURIComponent(item.remoteModelId)
+                      }
+                    >
+                      Remote ID Case →
+                    </a>
                     {item.canonicalModel ? (
                       <a className="text-link" href={"/identity-cases/" + item.canonicalModel.id}>
                         {item.canonicalModel.marketingName} → Identity Case
@@ -213,7 +224,20 @@ function CatalogCoverageProvider() {
                     <dt>Source retrieved</dt><dd>{stamp(item.source.retrievedAt)}</dd>
                     <dt>Interpretation</dt><dd>{item.interpretation.replaceAll("_", " ")}</dd>
                   </dl>
-                  <a className="text-link" href={"/identity-cases/" + item.model.id}>Open Identity Case →</a>
+                  <div className="coverage-matrix-links">
+                    <a
+                      className="text-link"
+                      href={
+                        "/catalog-remote-case/" +
+                        providerId +
+                        "?remoteModelId=" +
+                        encodeURIComponent(item.apiModelId)
+                      }
+                    >
+                      Remote ID Case →
+                    </a>
+                    <a className="text-link" href={"/identity-cases/" + item.model.id}>Open Identity Case →</a>
+                  </div>
                 </article>
               ))}
               {coverage.currentBindingsNotObserved.length === 0 ? (
