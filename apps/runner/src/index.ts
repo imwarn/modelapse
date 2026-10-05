@@ -104,6 +104,8 @@ function summary(result: Awaited<ReturnType<typeof runDirectOpenAI>>) {
 const databaseUrl = requiredEnv("DATABASE_URL");
 const blobRoot = requiredEnv("MODELAPSE_BLOB_ROOT");
 const runnerBuild = requiredEnv("MODELAPSE_BUILD");
+const executionRegion =
+  process.env.MODELAPSE_EXECUTION_REGION?.trim() || undefined;
 const keyId = requiredEnv("MODELAPSE_ATTESTATION_KEY_ID");
 const providerTimeoutMs = positiveIntegerEnv(
   "MODELAPSE_PROVIDER_TIMEOUT_MS",
@@ -142,6 +144,7 @@ async function runStdinMode(): Promise<void> {
     credentials,
     signer: { keyId, privateKey },
     runnerBuild,
+    ...(executionRegion ? { executionRegion } : {}),
     ...(collector ? { collector } : {}),
   };
 
@@ -232,6 +235,7 @@ async function runQueueMode(): Promise<void> {
         credentials,
         signer: { keyId, privateKey },
         runnerBuild,
+        ...(executionRegion ? { executionRegion } : {}),
         workerId,
         leaseSeconds,
         ...(collector ? { collector } : {}),
