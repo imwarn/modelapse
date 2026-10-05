@@ -195,31 +195,6 @@ describe("PostgreSQL Run job queue", () => {
     expect(second.id).toBe(first.id);
     expect(first.status).toBe("queued");
 
-    const qualifiedKey = "qualification-" + randomUUID();
-    const qualificationBase = {
-      ...payload,
-      qualification: {
-        selectedAt: "2026-10-05T00:00:00.000Z",
-        serviceAssurance: "unknown" as const,
-        caveats: ["runner_access_evidence_missing"],
-      },
-    };
-    const qualified = await queue.enqueue({
-      payload: qualificationBase,
-      idempotencyKey: qualifiedKey,
-    });
-    const qualifiedRetry = await queue.enqueue({
-      payload: {
-        ...qualificationBase,
-        qualification: {
-          ...qualificationBase.qualification,
-          selectedAt: "2026-10-05T00:00:05.000Z",
-        },
-      },
-      idempotencyKey: qualifiedKey,
-    });
-    expect(qualifiedRetry.id).toBe(qualified.id);
-
     await expect(
       queue.enqueue({
         payload: { ...payload, model: "different-model" },
@@ -255,5 +230,33 @@ describe("PostgreSQL Run job queue", () => {
     });
     expect(failed.status).toBe("failed");
     expect(failed.lastError).toBe("fixture failure");
+  });
+
+  it("keeps planner timestamps outside qualification idempotency identity", async () => {
+    const idempotencyKey = "qualification-" + randomUUID();
+    const payload = {
+      provider: "openai" as const,
+      testCaseId: randomUUID(),
+      model: "gpt-test",
+      qualification: {
+        selectedAt: "2026-10-05T00:00:00.000Z",
+        serviceAssurance: "unknown" as const,
+        caveats: ["runner_access_evidence_missing"],
+      },
+    };
+
+    const first = await queue.enqueue({ payload, idempotencyKey });
+    const retry = await queue.enqueue({
+      payload: {
+        ...payload,
+        qualification: {
+          ...payload.qualification,
+          selectedAt: "2026-10-05T00:00:05.000Z",
+        },
+      },
+      idempotencyKey,
+    });
+
+    expect(retry.id).toBe(first.id);
   });
 });
