@@ -299,33 +299,40 @@ export class PgRunRepository implements RunRepository {
         );
       }
 
-      if (input.runCost) {
-        const cost = input.runCost;
-        await client.query(
-          `INSERT INTO modelapse.run_cost_envelopes
-            (
-              run_id,
-              selected_at,
-              pricing_observation_id,
-              pricing_currency,
-              input_price_per_million,
-              output_price_per_million,
-              request_price,
-              caveats
-            )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text[])`,
-          [
-            runId,
-            cost.selectedAt,
-            cost.pricingObservationId ?? null,
-            cost.currency ?? null,
-            cost.inputPricePerMillion ?? null,
-            cost.outputPricePerMillion ?? null,
-            cost.perRequest ?? null,
-            cost.caveats ?? [],
-          ],
-        );
-      }
+      const cost = input.runCost;
+      await client.query(
+        `INSERT INTO modelapse.run_cost_envelopes
+          (
+            run_id,
+            selected_at,
+            pricing_observation_id,
+            pricing_currency,
+            input_price_per_million,
+            output_price_per_million,
+            request_price,
+            caveats
+          )
+         VALUES (
+           $1,
+           COALESCE($2::timestamptz, now()),
+           $3,
+           $4,
+           $5,
+           $6,
+           $7,
+           $8::text[]
+         )`,
+        [
+          runId,
+          cost?.selectedAt ?? null,
+          cost?.pricingObservationId ?? null,
+          cost?.currency ?? null,
+          cost?.inputPricePerMillion ?? null,
+          cost?.outputPricePerMillion ?? null,
+          cost?.perRequest ?? null,
+          cost?.caveats ?? ["pricing_evidence_not_planned"],
+        ],
+      );
 
       await client.query("COMMIT");
     } catch (error) {
