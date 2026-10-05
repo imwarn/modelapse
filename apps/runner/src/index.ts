@@ -202,6 +202,7 @@ async function runQueueMode(): Promise<void> {
 
   if (leaseSeconds < minimumLeaseSeconds) {
     await queue.close();
+    await fleet?.close();
     throw new Error(
       "MODELAPSE_JOB_LEASE_SECONDS must be at least provider timeout + 30 seconds",
     );
