@@ -57,6 +57,7 @@ function CatalogCoverageProvider() {
         </a>
         <nav className="integrity-nav">
           <a href="/catalog-coverage">All providers</a>
+          <a href={"/catalog-presence/" + providerId}>Presence timeline</a>
           <a href="/catalog-integrity">Integrity</a>
           <a href="/catalog-inbox">Catalog Inbox</a>
         </nav>
