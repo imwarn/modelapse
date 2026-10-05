@@ -24,6 +24,7 @@ import type {
   PgCatalogIntegrity,
   PgCatalogPresence,
   PgCatalogPresenceReview,
+  PgCatalogRemoteIdCase,
 } from "@modelapse/catalog-admin";
 
 const UUID_RE =
@@ -47,6 +48,7 @@ type CatalogIntegrityRepository = Pick<PgCatalogIntegrity, "getDashboard">;
 type CatalogCoverageRepository = Pick<PgCatalogCoverage, "listProviders" | "getProvider">;
 type CatalogPresenceRepository = Pick<PgCatalogPresence, "getProvider">;
 type CatalogPresenceReviewRepository = Pick<PgCatalogPresenceReview, "list" | "decide">;
+type CatalogRemoteIdCaseRepository = Pick<PgCatalogRemoteIdCase, "get">;
 
 type ArchiveRepository = Pick<
   PgArchiveRepository,
@@ -74,6 +76,7 @@ export interface AppDependencies {
   readonly catalogCoverage?: CatalogCoverageRepository;
   readonly catalogPresence?: CatalogPresenceRepository;
   readonly catalogPresenceReview?: CatalogPresenceReviewRepository;
+  readonly catalogRemoteIdCase?: CatalogRemoteIdCaseRepository;
   readonly controlToken?: string;
 }
 
@@ -517,6 +520,29 @@ export function createApp(deps: AppDependencies) {
         409,
       );
     }
+  });
+
+  app.get("/v1/control/catalog/remote-cases/:providerId", async (c) => {
+    if (!deps.catalogRemoteIdCase || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+    const providerId = c.req.param("providerId");
+    const remoteModelId = c.req.query("remoteModelId");
+    if (!UUID_RE.test(providerId)) {
+      return c.json({ error: "invalid_provider_id" }, 400);
+    }
+    if (!remoteModelId || !remoteModelId.trim() || remoteModelId.length > 512) {
+      return c.json({ error: "invalid_remote_model_id" }, 400);
+    }
+
+    const remoteCase = await deps.catalogRemoteIdCase.get(providerId, remoteModelId);
+    if (!remoteCase) {
+      return c.json({ error: "catalog_remote_id_case_not_found" }, 404);
+    }
+    return c.json({ remoteCase });
   });
 
   app.get("/v1/control/catalog/coverage", async (c) => {
