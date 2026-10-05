@@ -37,6 +37,7 @@ export interface ArchiveRunExecutionQualificationView {
   readonly executionEnvironment: {
     readonly id: string;
     readonly slug: string;
+    readonly capabilityEventId: string | null;
   } | null;
   readonly executionRegion: string | null;
   readonly accountTier: string | null;
@@ -477,6 +478,7 @@ interface ArchiveRunRow {
   qualification_selected_at: Date | null;
   qualification_execution_environment_id: string | null;
   qualification_execution_environment_slug: string | null;
+  qualification_execution_capability_event_id: string | null;
   qualification_execution_region: string | null;
   qualification_account_tier: string | null;
   qualification_service_tier: string | null;
@@ -580,6 +582,8 @@ function runView(row: ArchiveRunRow): ArchiveRunView {
               ? {
                   id: row.qualification_execution_environment_id,
                   slug: row.qualification_execution_environment_slug,
+                  capabilityEventId:
+                    row.qualification_execution_capability_event_id,
                 }
               : null,
           executionRegion: row.qualification_execution_region,
@@ -693,6 +697,7 @@ const RUN_SELECT = `
     qualification.selected_at AS qualification_selected_at,
     qualification.execution_environment_id AS qualification_execution_environment_id,
     qualification.execution_environment_slug AS qualification_execution_environment_slug,
+    qualification.execution_capability_event_id AS qualification_execution_capability_event_id,
     qualification.execution_region AS qualification_execution_region,
     qualification.account_tier AS qualification_account_tier,
     qualification.service_tier AS qualification_service_tier,
