@@ -1,6 +1,7 @@
 import type { BlobStore } from "@modelapse/blob-store";
 import {
   parseDirectProviderRunRequest,
+  type ExecutionEnvironmentDescriptor,
   type PgRunJobQueue,
   type RunJob,
 } from "@modelapse/control-plane";
@@ -33,6 +34,7 @@ export interface QueueWorkerDependencies {
     readonly privateKey: string | import("node:crypto").KeyObject;
   };
   readonly runnerBuild: string;
+  readonly executionEnvironment?: ExecutionEnvironmentDescriptor;
   readonly executionRegion?: string;
   readonly workerId: string;
   readonly leaseSeconds: number;
@@ -52,6 +54,9 @@ export async function processOneQueuedRunJob(
   const job = await deps.queue.claimNext({
     workerId: deps.workerId,
     leaseSeconds: deps.leaseSeconds,
+    ...(deps.executionEnvironment
+      ? { executionEnvironmentId: deps.executionEnvironment.id }
+      : {}),
   });
   if (!job) return null;
 
@@ -65,6 +70,9 @@ export async function processOneQueuedRunJob(
       credentials: deps.credentials,
       signer: deps.signer,
       runnerBuild: deps.runnerBuild,
+      ...(deps.executionEnvironment
+        ? { executionEnvironment: deps.executionEnvironment }
+        : {}),
       ...(deps.executionRegion
         ? { executionRegion: deps.executionRegion }
         : {}),
