@@ -84,6 +84,12 @@ function view(row: RunJobRow): RunJob {
   };
 }
 
+function idempotencyComparable(request: DirectProviderRunRequest): unknown {
+  if (!request.qualification) return request;
+  const { selectedAt: _selectedAt, ...qualification } = request.qualification;
+  return { ...request, qualification };
+}
+
 export class IdempotencyConflictError extends Error {
   constructor() {
     super("Idempotency key is already associated with a different Run job");
@@ -162,7 +168,10 @@ export class PgRunJobQueue {
     if (!row) throw new Error("Idempotent Run job could not be reloaded");
 
     const existingPayload = parseDirectProviderRunRequest(row.payload);
-    if (JSON.stringify(existingPayload) !== JSON.stringify(payload)) {
+    if (
+      JSON.stringify(idempotencyComparable(existingPayload)) !==
+      JSON.stringify(idempotencyComparable(payload))
+    ) {
       throw new IdempotencyConflictError();
     }
 
