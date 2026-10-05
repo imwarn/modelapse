@@ -15,3 +15,5 @@ export * from "./catalog-coverage.js";
 export * from "./catalog-presence.js";
 
 export * from "./catalog-presence-review.js";
+
+export * from "./catalog-remote-id-case.js";
