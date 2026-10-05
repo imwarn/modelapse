@@ -10,6 +10,7 @@ import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   PgCatalogAdmin,
+  PgCatalogCoverage,
   PgCatalogDiscovery,
   PgCatalogDriftReview,
   PgCatalogIdentityCase,
@@ -1147,6 +1148,206 @@ describe("production catalog bootstrap", () => {
       expect(factCountsAfter.rows[0]).toEqual(factCountsBefore.rows[0]);
     } finally {
       await integrity.close();
+      await verification.end();
+    }
+  });
+
+  it("reconstructs provider catalog coverage from immutable observations without reading raw response bodies", async () => {
+    await catalog!.bootstrapDeepSeekSmoke({
+      runnerBuild: "coverage-prerequisite",
+    });
+    const known = await modelCatalog!.bootstrapDeepSeekFlash();
+    const missing = await modelCatalog!.registerFirstPartyModel({
+      providerSlug: "deepseek",
+      canonicalSlug: "coverage-missing",
+      marketingName: "Coverage Missing",
+      apiModelId: "coverage-missing",
+      sourceUrl: "https://api-docs.deepseek.com/guides/responses_api/",
+      sourceTitle: "DeepSeek Responses API guide",
+    });
+
+    const verification = new Pool({ connectionString: isolatedDatabaseUrl });
+    const discovery = PgCatalogDiscovery.connect(isolatedDatabaseUrl);
+    const coverage = PgCatalogCoverage.connect(isolatedDatabaseUrl);
+    const observer = PgCatalogObserver.connect(isolatedDatabaseUrl, {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            object: "list",
+            data: [
+              { id: "deepseek-flash" },
+              { id: "coverage-discovered" },
+              { id: "coverage-ready" },
+              { id: "coverage-ignored" },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      credentialResolver: () => undefined,
+    });
+
+    try {
+      await verification.query(
+        `INSERT INTO modelapse.catalog_observer_sources
+          (
+            provider_id,
+            source_key,
+            source_kind,
+            url,
+            title,
+            parser,
+            interval_seconds,
+            enabled,
+            next_run_at
+          )
+         VALUES (
+           $1,
+           'coverage-models-api',
+           'model_list',
+           'https://coverage.example.test/models',
+           'Coverage fixture model list',
+           'openai_models',
+           3600,
+           true,
+           '2099-04-01T00:00:00Z'
+         )
+         ON CONFLICT (provider_id, source_key) DO NOTHING`,
+        [known.providerId],
+      );
+
+      const collected = await observer.collectDue({
+        collectorBuild: "coverage-build",
+        providerSlug: "deepseek",
+        sourceKey: "coverage-models-api",
+        force: true,
+        now: "2099-04-01T00:00:00.000Z",
+      });
+      expect(collected).toEqual([
+        expect.objectContaining({
+          sourceKey: "coverage-models-api",
+          status: "succeeded",
+          itemCount: 4,
+        }),
+      ]);
+
+      const candidates = await discovery.listCandidates({
+        providerSlug: "deepseek",
+        limit: 200,
+      });
+      const ready = candidates.find(
+        (candidate) => candidate.remoteModelId === "coverage-ready",
+      );
+      const ignored = candidates.find(
+        (candidate) => candidate.remoteModelId === "coverage-ignored",
+      );
+      expect(ready).toBeDefined();
+      expect(ignored).toBeDefined();
+
+      await discovery.reconcileCandidate({
+        candidateId: ready!.id,
+        action: "mark_promotion_ready",
+        actor: "coverage-test",
+        decidedAt: "2099-04-01T00:10:00.000Z",
+      });
+      await discovery.reconcileCandidate({
+        candidateId: ignored!.id,
+        action: "ignore",
+        actor: "coverage-test",
+        decidedAt: "2099-04-01T00:11:00.000Z",
+      });
+
+      const factCountsBefore = await verification.query(
+        `SELECT
+           (SELECT count(*)::text FROM modelapse.catalog_source_snapshots) AS snapshots,
+           (SELECT count(*)::text FROM modelapse.alias_resolution_events) AS alias_observations,
+           (SELECT count(*)::text FROM modelapse.catalog_discovery_observations) AS discovery_observations,
+           (SELECT count(*)::text FROM modelapse.catalog_reconciliation_events) AS reconciliation_events`,
+      );
+
+      const detail = await coverage.getProvider(known.providerId);
+      expect(detail).not.toBeNull();
+
+      const fixtureSource = detail!.sources.find(
+        (source) => source.sourceKey === "coverage-models-api",
+      );
+      expect(fixtureSource).toMatchObject({
+        latestEvidence: {
+          status: "succeeded",
+          itemCount: 4,
+          projectedItemCount: 4,
+          unprojectedItemCount: 0,
+        },
+      });
+
+      expect(
+        detail!.remoteItems.find(
+          (item) => item.remoteModelId === "deepseek-flash",
+        ),
+      ).toMatchObject({
+        disposition: "canonical_observed",
+        canonicalModel: { id: known.modelId },
+      });
+      expect(
+        detail!.remoteItems.find(
+          (item) => item.remoteModelId === "coverage-discovered",
+        ),
+      ).toMatchObject({
+        disposition: "candidate_discovered",
+        candidate: { status: "discovered" },
+      });
+      expect(
+        detail!.remoteItems.find(
+          (item) => item.remoteModelId === "coverage-ready",
+        ),
+      ).toMatchObject({
+        disposition: "candidate_promotion_ready",
+        candidate: { status: "promotion_ready" },
+      });
+      expect(
+        detail!.remoteItems.find(
+          (item) => item.remoteModelId === "coverage-ignored",
+        ),
+      ).toMatchObject({
+        disposition: "candidate_ignored",
+        candidate: { status: "ignored" },
+      });
+      expect(
+        detail!.currentBindingsNotObserved.find(
+          (item) => item.model.id === missing.modelId,
+        ),
+      ).toMatchObject({
+        apiModelId: "coverage-missing",
+        interpretation: "not_observed_in_latest_model_list_evidence",
+      });
+
+      const listed = await coverage.listProviders();
+      expect(
+        listed.find((item) => item.provider.id === known.providerId),
+      ).toMatchObject({
+        provider: { slug: "deepseek" },
+        summary: {
+          canonicalObserved: expect.any(Number),
+          currentBindingsNotObserved: expect.any(Number),
+        },
+      });
+
+      expect(JSON.stringify(detail)).not.toContain("response_body");
+      expect(JSON.stringify(detail)).not.toContain("responseBody");
+      expect(JSON.stringify(detail)).not.toContain("raw-secret-provider-body");
+      expect(JSON.stringify(detail)).not.toContain("error_message");
+
+      const factCountsAfter = await verification.query(
+        `SELECT
+           (SELECT count(*)::text FROM modelapse.catalog_source_snapshots) AS snapshots,
+           (SELECT count(*)::text FROM modelapse.alias_resolution_events) AS alias_observations,
+           (SELECT count(*)::text FROM modelapse.catalog_discovery_observations) AS discovery_observations,
+           (SELECT count(*)::text FROM modelapse.catalog_reconciliation_events) AS reconciliation_events`,
+      );
+      expect(factCountsAfter.rows[0]).toEqual(factCountsBefore.rows[0]);
+    } finally {
+      await observer.close();
+      await coverage.close();
+      await discovery.close();
       await verification.end();
     }
   });
