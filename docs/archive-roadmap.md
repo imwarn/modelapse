@@ -216,6 +216,8 @@ Still no winner/ranking inference.
 
 ### Archive v0.20 — Cost Ledger / Budget-Aware Collection
 
+**Implemented:** see `docs/run-cost-ledger.md` and ADR 0016.
+
 Add immutable cost facts for completed Runs:
 
 - token/request quantities;
