@@ -238,7 +238,7 @@ function parseDirectRunQualification(
   };
 }
 
-const NON_NEGATIVE_DECIMAL_RE = /^\\d+(?:\\.\\d+)?$/;
+const NON_NEGATIVE_DECIMAL_RE = /^\d+(?:\.\d+)?$/;
 const CURRENCY_RE = /^[A-Z]{3}$/;
 
 function parseDirectRunCost(value: unknown): DirectRunCostPlan | undefined {
