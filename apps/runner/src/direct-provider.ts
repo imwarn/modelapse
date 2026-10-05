@@ -70,6 +70,25 @@ function qualificationEnvelope(
   };
 }
 
+function costEnvelope(request: DirectProviderRunRequest) {
+  const plan = request.cost;
+  return {
+    selectedAt: plan?.selectedAt ?? new Date().toISOString(),
+    ...(plan?.pricingObservationId
+      ? { pricingObservationId: plan.pricingObservationId }
+      : {}),
+    ...(plan?.currency ? { currency: plan.currency } : {}),
+    ...(plan?.inputPricePerMillion
+      ? { inputPricePerMillion: plan.inputPricePerMillion }
+      : {}),
+    ...(plan?.outputPricePerMillion
+      ? { outputPricePerMillion: plan.outputPricePerMillion }
+      : {}),
+    ...(plan?.perRequest ? { perRequest: plan.perRequest } : {}),
+    caveats: plan?.caveats ?? ["pricing_evidence_not_planned"],
+  };
+}
+
 function decodeVerifiedPrompt(
   bytes: Buffer,
   expectedSha256: string,
@@ -185,6 +204,7 @@ export async function runDirectProvider(
         request,
         deps.executionRegion,
       ),
+      runCost: costEnvelope(request),
     },
     collector: deps.collector ?? defaultCollector,
     evidenceLevel: "E4",
