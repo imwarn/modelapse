@@ -10,6 +10,7 @@ import type { NormalizedUsage } from "@modelapse/provider-adapter";
 export interface ExecutionQualificationEnvelopeInput {
   readonly selectedAt: string;
   readonly executionEnvironmentId?: string;
+  readonly executionCapabilityEventId?: string;
   readonly executionRegion?: string;
   readonly providerPolicyObservationId?: string;
   readonly runnerAccessObservationId?: string;
