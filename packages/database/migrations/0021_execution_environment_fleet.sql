@@ -181,8 +181,6 @@ CREATE OR REPLACE VIEW run_execution_qualification AS
 SELECT
   envelope.run_id,
   envelope.selected_at,
-  envelope.execution_environment_id,
-  environment.slug AS execution_environment_slug,
   envelope.execution_region,
   envelope.provider_policy_observation_id,
   policy.source_id AS provider_policy_source_id,
@@ -197,7 +195,9 @@ SELECT
   envelope.service_assurance,
   envelope.caveats || COALESCE(outcome.caveats, '{}'::text[]) AS caveats,
   outcome.captured_at,
-  envelope.created_at
+  envelope.created_at,
+  envelope.execution_environment_id,
+  environment.slug AS execution_environment_slug
 FROM run_execution_qualification_envelopes envelope
 LEFT JOIN execution_environments environment
   ON environment.id = envelope.execution_environment_id
