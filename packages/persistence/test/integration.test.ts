@@ -558,6 +558,22 @@ describe("PostgreSQL Run persistence", () => {
       outputTokens: 1,
       totalTokens: 2,
     });
+    expect(archived?.cost).toMatchObject({
+      pricingObservation: null,
+      pricing: null,
+      usage: {
+        inputTokens: "1",
+        outputTokens: "1",
+        totalTokens: "2",
+        requestCount: 1,
+      },
+      estimatedNativeCost: null,
+      caveats: expect.arrayContaining([
+        "pricing_evidence_not_planned",
+        "pricing_evidence_missing",
+        "native_cost_unavailable",
+      ]),
+    });
     expect(archived?.executionQualification).toMatchObject({
       executionRegion: "US",
       accountTier: "integration-paid",
