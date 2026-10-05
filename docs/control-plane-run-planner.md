@@ -60,6 +60,10 @@ Archive v0.19 also resolves the exact current Provider Testability observations 
 
 The client cannot provide or override this qualification envelope.
 
+Archive v0.20 also selects compatible sourced pricing evidence at planning time. The durable payload freezes the pricing observation ID, native currency and exact decimal rates alongside the same planning timestamp used for execution qualification. Model-specific, matching service/account-tier evidence is preferred; missing pricing remains an explicit caveat rather than blocking the Run.
+
+The client cannot provide or override the cost envelope. Completed Runs derive their cost fact later from actual provider usage and the frozen pricing basis; current prices are never used to reinterpret an older Run.
+
 ## Add the first DeepSeek model
 
 The current production bootstrap command is:
