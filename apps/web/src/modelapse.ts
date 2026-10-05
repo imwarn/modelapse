@@ -950,6 +950,106 @@ export interface CatalogPresenceReviewItem {
   };
 }
 
+export type CatalogRemoteIdCaseTimelineKind =
+  | "discovery_observation"
+  | "canonical_observation"
+  | "presence_appeared"
+  | "presence_not_observed"
+  | "presence_reobserved"
+  | "reconciliation"
+  | "promotion"
+  | "presence_review";
+
+export interface CatalogRemoteIdCase {
+  readonly generatedAt: string;
+  readonly provider: { readonly id: string; readonly slug: string; readonly name: string };
+  readonly remoteModelId: string;
+  readonly summary: {
+    readonly observationEvents: number;
+    readonly presenceTransitions: number;
+    readonly reconciliationEvents: number;
+    readonly reviewDecisions: number;
+    readonly firstObservedAt: string | null;
+    readonly lastObservedAt: string | null;
+    readonly openPresenceReviews: number;
+    readonly acknowledgedPresenceReviews: number;
+    readonly resolvedPresenceReviews: number;
+  };
+  readonly current: {
+    readonly candidate: {
+      readonly id: string;
+      readonly status: "discovered" | "matched" | "ignored" | "promotion_ready";
+      readonly firstSeenAt: string;
+      readonly lastSeenAt: string;
+      readonly observationCount: number;
+      readonly resolvedAt: string | null;
+      readonly resolvedModel: {
+        readonly id: string;
+        readonly canonicalSlug: string;
+        readonly marketingName: string;
+      } | null;
+    } | null;
+    readonly canonicalModel: {
+      readonly id: string;
+      readonly canonicalSlug: string;
+      readonly marketingName: string;
+      readonly status: string;
+    } | null;
+    readonly promotion: {
+      readonly id: string;
+      readonly modelId: string;
+      readonly promotedAt: string;
+      readonly actor: string;
+      readonly policyVersion: string;
+      readonly source: {
+        readonly id: string;
+        readonly sourceType: string;
+        readonly url: string | null;
+        readonly title: string | null;
+        readonly retrievedAt: string;
+        readonly contentSha256: string | null;
+      };
+    } | null;
+  };
+  readonly presenceReviews: readonly {
+    readonly eventId: string;
+    readonly occurredAt: string;
+    readonly status: CatalogPresenceReviewStatus;
+    readonly acknowledgedAt: string | null;
+    readonly resolvedAt: string | null;
+    readonly runId: string;
+    readonly previousCompleteRunId: string | null;
+    readonly observerSourceId: string;
+    readonly decisions: readonly {
+      readonly id: string;
+      readonly action: CatalogPresenceReviewAction;
+      readonly actor: string;
+      readonly note: string | null;
+      readonly decidedAt: string;
+    }[];
+  }[];
+  readonly timeline: readonly {
+    readonly id: string;
+    readonly kind: CatalogRemoteIdCaseTimelineKind;
+    readonly occurredAt: string;
+    readonly title: string;
+    readonly description: string;
+    readonly actor: string | null;
+    readonly note: string | null;
+    readonly source: {
+      readonly id: string;
+      readonly sourceType: string;
+      readonly url: string | null;
+      readonly title: string | null;
+      readonly retrievedAt: string;
+      readonly contentSha256: string | null;
+    } | null;
+    readonly runId: string | null;
+    readonly presenceEventId: string | null;
+    readonly modelId: string | null;
+  }[];
+}
+
 export interface ControlJob {
   readonly id: string;
   readonly kind: string;
@@ -1029,6 +1129,11 @@ interface DecidePresenceReviewInput extends OperatorInput {
   readonly eventId: string;
   readonly action: CatalogPresenceReviewAction;
   readonly note?: string;
+}
+
+interface CatalogRemoteIdCaseInput extends OperatorInput {
+  readonly providerId: string;
+  readonly remoteModelId: string;
 }
 
 interface ReadArchiveRunInput {
@@ -1412,6 +1517,24 @@ function parseDecidePresenceReviewInput(value: unknown): DecidePresenceReviewInp
   };
 }
 
+function parseCatalogRemoteIdCaseInput(value: unknown): CatalogRemoteIdCaseInput {
+  const operatorToken = parseOperatorToken(value);
+  if (!isRecord(value)) throw new Error("Remote ID Case request must be an object");
+  const providerId = value.providerId;
+  const remoteModelId = value.remoteModelId;
+  if (typeof providerId !== "string" || !UUID_RE.test(providerId)) {
+    throw new Error("providerId must be a UUID");
+  }
+  if (
+    typeof remoteModelId !== "string" ||
+    !remoteModelId.trim() ||
+    remoteModelId.length > 512
+  ) {
+    throw new Error("remoteModelId must be a non-empty string");
+  }
+  return { operatorToken, providerId, remoteModelId: remoteModelId.trim() };
+}
+
 function parseArchiveRunInput(value: unknown): ReadArchiveRunInput {
   if (!isRecord(value)) throw new Error("Archive Run request must be an object");
 
@@ -1747,6 +1870,23 @@ export const decideCatalogPresenceReview = createServerFn({ method: "POST" })
         ...(data.note ? { note: data.note } : {}),
       },
     });
+  });
+
+export const getCatalogRemoteIdCase = createServerFn({ method: "POST" })
+  .validator(parseCatalogRemoteIdCaseInput)
+  .handler(async ({ data }): Promise<CatalogRemoteIdCase | null> => {
+    requireOperator(data.operatorToken);
+    const params = new URLSearchParams({ remoteModelId: data.remoteModelId });
+    try {
+      const result = await requestJson<{ remoteCase: CatalogRemoteIdCase }>(
+        `/v1/control/catalog/remote-cases/${data.providerId}?${params.toString()}`,
+        { control: true },
+      );
+      return result.remoteCase;
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 404) return null;
+      throw error;
+    }
   });
 
 export const getCatalogCoverageProviders = createServerFn({ method: "POST" })

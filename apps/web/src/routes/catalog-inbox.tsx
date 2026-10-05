@@ -301,16 +301,29 @@ function CatalogInbox() {
                   <div><dt>source SHA</dt><dd>{selected.lastSource.contentSha256?.slice(0, 16) ?? "—"}</dd></div>
                 </dl>
 
-                {selected.lastSource.url ? (
+                <div className="presence-review-nav">
                   <a
                     className="text-link"
-                    href={selected.lastSource.url}
-                    target="_blank"
-                    rel="noreferrer"
+                    href={
+                      "/catalog-remote-case/" +
+                      selected.provider.id +
+                      "?remoteModelId=" +
+                      encodeURIComponent(selected.remoteModelId)
+                    }
                   >
-                    Open first-party source →
+                    Open Remote ID Case →
                   </a>
-                ) : null}
+                  {selected.lastSource.url ? (
+                    <a
+                      className="text-link"
+                      href={selected.lastSource.url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Open first-party source →
+                    </a>
+                  ) : null}
+                </div>
 
                 <label>
                   <span>Review note</span>

@@ -243,6 +243,17 @@ function CatalogPresenceReview() {
             <div className="presence-review-nav">
               <a
                 className="text-link"
+                href={
+                  "/catalog-remote-case/" +
+                  selected.provider.id +
+                  "?remoteModelId=" +
+                  encodeURIComponent(selected.remoteModelId)
+                }
+              >
+                Open Remote ID Case →
+              </a>
+              <a
+                className="text-link"
                 href={"/catalog-presence/" + selected.provider.id}
               >
                 Open provider presence timeline →

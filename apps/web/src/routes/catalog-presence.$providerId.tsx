@@ -164,6 +164,17 @@ function CatalogPresenceTimeline() {
                     </span>
                     <small>{event.sourceKey} · {event.interpretation.replaceAll("_", " ")}</small>
                     <div className="presence-event-links">
+                      <a
+                        className="text-link"
+                        href={
+                          "/catalog-remote-case/" +
+                          providerId +
+                          "?remoteModelId=" +
+                          encodeURIComponent(event.remoteModelId)
+                        }
+                      >
+                        Remote ID Case →
+                      </a>
                       {event.currentContext.canonicalModel ? (
                         <a className="text-link" href={"/identity-cases/" + event.currentContext.canonicalModel.id}>
                           Current Identity Case →
