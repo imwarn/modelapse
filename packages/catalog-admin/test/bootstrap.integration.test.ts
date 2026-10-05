@@ -16,6 +16,7 @@ import {
   PgCatalogIdentityCase,
   PgCatalogIntegrity,
   PgCatalogObserver,
+  PgCatalogPresence,
   PgModelCatalogAdmin,
 } from "../src/index.js";
 
@@ -1348,6 +1349,218 @@ describe("production catalog bootstrap", () => {
       await observer.close();
       await coverage.close();
       await discovery.close();
+      await verification.end();
+    }
+  });
+
+  it("derives catalog presence transitions only across complete reconstructable snapshots", async () => {
+    const verification = new Pool({ connectionString: isolatedDatabaseUrl });
+    const presence = PgCatalogPresence.connect(isolatedDatabaseUrl);
+    try {
+      const provider = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.providers (slug, name)
+         VALUES ('presence-fixture', 'Presence Fixture')
+         RETURNING id`,
+      );
+      const providerId = provider.rows[0]!.id;
+
+      const observerSource = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.catalog_observer_sources
+          (provider_id, source_key, source_kind, url, title, parser, interval_seconds)
+         VALUES (
+           $1,
+           'models-api',
+           'model_list',
+           'https://presence.example.test/models',
+           'Presence fixture catalog',
+           'openai_models',
+           3600
+         )
+         RETURNING id`,
+        [providerId],
+      );
+      const observerSourceId = observerSource.rows[0]!.id;
+
+      const runIds: string[] = [];
+      const sourceIds: string[] = [];
+      for (let index = 0; index < 4; index += 1) {
+        const second = String(index).padStart(2, "0");
+        const source = await verification.query<{ id: string }>(
+          `INSERT INTO modelapse.source_records
+            (source_type, url, title, retrieved_at, content_sha256)
+           VALUES (
+             'provider_catalog',
+             'https://presence.example.test/models',
+             'Presence fixture catalog',
+             $1,
+             $2
+           )
+           RETURNING id`,
+          [
+            `2099-05-01T00:0${index}:00.000Z`,
+            String(index + 1).repeat(64),
+          ],
+        );
+        const itemCount = index === 0 ? 2 : index === 1 ? 2 : 3;
+        const run = await verification.query<{ id: string }>(
+          `INSERT INTO modelapse.catalog_collection_runs
+            (
+              observer_source_id,
+              status,
+              started_at,
+              completed_at,
+              item_count,
+              observations_emitted,
+              collector_build
+            )
+           VALUES ($1, 'succeeded', $2, $3, $4, 0, 'presence-fixture')
+           RETURNING id`,
+          [
+            observerSourceId,
+            `2099-05-01T00:0${index}:00.000Z`,
+            `2099-05-01T00:0${index}:${second}.500Z`,
+            itemCount,
+          ],
+        );
+        await verification.query(
+          `INSERT INTO modelapse.catalog_source_snapshots
+            (
+              observer_source_id,
+              collection_run_id,
+              source_record_id,
+              retrieved_at,
+              content_sha256,
+              response_body
+            )
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [
+            observerSourceId,
+            run.rows[0]!.id,
+            source.rows[0]!.id,
+            `2099-05-01T00:0${index}:00.000Z`,
+            String(index + 1).repeat(64),
+            "raw-presence-snapshot-" + index,
+          ],
+        );
+        runIds.push(run.rows[0]!.id);
+        sourceIds.push(source.rows[0]!.id);
+      }
+
+      const remoteIds = ["presence-alpha", "presence-beta", "presence-gamma"];
+      const candidateIds = new Map<string, string>();
+      for (const remoteModelId of remoteIds) {
+        const candidate = await verification.query<{ id: string }>(
+          `INSERT INTO modelapse.catalog_discovery_candidates
+            (
+              provider_id,
+              remote_model_id,
+              first_seen_at,
+              last_seen_at,
+              first_source_record_id,
+              last_source_record_id,
+              first_collection_run_id,
+              last_collection_run_id,
+              observation_count,
+              status
+            )
+           VALUES ($1, $2, '2099-05-01T00:00:00Z', '2099-05-01T00:03:00Z', $3, $4, $5, $6, 1, 'discovered')
+           RETURNING id`,
+          [
+            providerId,
+            remoteModelId,
+            sourceIds[0]!,
+            sourceIds[3]!,
+            runIds[0]!,
+            runIds[3]!,
+          ],
+        );
+        candidateIds.set(remoteModelId, candidate.rows[0]!.id);
+      }
+
+      const observations = [
+        [0, "presence-alpha"],
+        [0, "presence-beta"],
+        [1, "presence-alpha"],
+        [1, "presence-gamma"],
+        [2, "presence-beta"],
+        [3, "presence-alpha"],
+        [3, "presence-beta"],
+        [3, "presence-gamma"],
+      ] as const;
+      for (const [runIndex, remoteModelId] of observations) {
+        await verification.query(
+          `INSERT INTO modelapse.catalog_discovery_observations
+            (candidate_id, collection_run_id, source_record_id, observed_at)
+           VALUES ($1, $2, $3, $4)`,
+          [
+            candidateIds.get(remoteModelId)!,
+            runIds[runIndex]!,
+            sourceIds[runIndex]!,
+            `2099-05-01T00:0${runIndex}:00.000Z`,
+          ],
+        );
+      }
+
+      const factCountsBefore = await verification.query(
+        `SELECT
+           (SELECT count(*)::text FROM modelapse.catalog_source_snapshots) AS snapshots,
+           (SELECT count(*)::text FROM modelapse.catalog_discovery_observations) AS observations,
+           (SELECT count(*)::text FROM modelapse.catalog_discovery_candidates) AS candidates`,
+      );
+
+      const history = await presence.getProvider(providerId, { runLimit: 10 });
+      expect(history).not.toBeNull();
+      expect(history!.summary).toMatchObject({
+        evidenceRuns: 4,
+        completeProjectionRuns: 3,
+        incompleteProjectionRuns: 1,
+        appearanceEvents: 1,
+        absenceEvents: 1,
+        reappearanceEvents: 1,
+      });
+
+      expect(history!.runs.find((run) => run.runId === runIds[2])).toMatchObject({
+        itemCount: 3,
+        projectedItemCount: 1,
+        completeProjection: false,
+      });
+
+      expect(history!.events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "not_observed_in_complete_snapshot",
+            remoteModelId: "presence-beta",
+            runId: runIds[1],
+            interpretation: "not_observed_in_complete_model_list_evidence",
+          }),
+          expect.objectContaining({
+            kind: "reobserved_in_complete_snapshot",
+            remoteModelId: "presence-beta",
+            runId: runIds[3],
+            previousCompleteRunId: runIds[1],
+          }),
+        ]),
+      );
+      expect(
+        history!.events.some(
+          (event) =>
+            event.runId === runIds[2] &&
+            event.kind === "not_observed_in_complete_snapshot",
+        ),
+      ).toBe(false);
+      expect(JSON.stringify(history)).not.toContain("raw-presence-snapshot");
+      expect(JSON.stringify(history)).not.toContain("response_body");
+      expect(JSON.stringify(history)).not.toContain("responseBody");
+
+      const factCountsAfter = await verification.query(
+        `SELECT
+           (SELECT count(*)::text FROM modelapse.catalog_source_snapshots) AS snapshots,
+           (SELECT count(*)::text FROM modelapse.catalog_discovery_observations) AS observations,
+           (SELECT count(*)::text FROM modelapse.catalog_discovery_candidates) AS candidates`,
+      );
+      expect(factCountsAfter.rows[0]).toEqual(factCountsBefore.rows[0]);
+    } finally {
+      await presence.close();
       await verification.end();
     }
   });

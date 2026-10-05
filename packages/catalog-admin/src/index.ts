@@ -11,3 +11,5 @@ export * from "./catalog-identity-case.js";
 export * from "./catalog-integrity.js";
 
 export * from "./catalog-coverage.js";
+
+export * from "./catalog-presence.js";

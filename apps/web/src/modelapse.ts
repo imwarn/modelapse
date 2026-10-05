@@ -831,6 +831,82 @@ export interface CatalogProviderCoverage {
   }[];
 }
 
+export type CatalogPresenceEventKind =
+  | "appeared_in_complete_snapshot"
+  | "not_observed_in_complete_snapshot"
+  | "reobserved_in_complete_snapshot";
+
+export interface CatalogPresenceHistory {
+  readonly generatedAt: string;
+  readonly provider: { readonly id: string; readonly slug: string; readonly name: string };
+  readonly summary: {
+    readonly modelListSources: number;
+    readonly evidenceRuns: number;
+    readonly completeProjectionRuns: number;
+    readonly incompleteProjectionRuns: number;
+    readonly appearanceEvents: number;
+    readonly absenceEvents: number;
+    readonly reappearanceEvents: number;
+    readonly latestCompleteAt: string | null;
+  };
+  readonly sources: readonly {
+    readonly id: string;
+    readonly sourceKey: string;
+    readonly title: string;
+    readonly url: string;
+    readonly enabled: boolean;
+    readonly evidenceRuns: number;
+    readonly completeProjectionRuns: number;
+    readonly latestCompleteAt: string | null;
+  }[];
+  readonly runs: readonly {
+    readonly runId: string;
+    readonly observerSourceId: string;
+    readonly sourceKey: string;
+    readonly sourceTitle: string;
+    readonly startedAt: string;
+    readonly completedAt: string | null;
+    readonly status: "succeeded" | "partial";
+    readonly itemCount: number;
+    readonly projectedItemCount: number;
+    readonly completeProjection: boolean;
+    readonly source: {
+      readonly id: string;
+      readonly sourceType: string;
+      readonly url: string | null;
+      readonly title: string | null;
+      readonly retrievedAt: string;
+      readonly contentSha256: string | null;
+    };
+  }[];
+  readonly events: readonly {
+    readonly id: string;
+    readonly kind: CatalogPresenceEventKind;
+    readonly remoteModelId: string;
+    readonly observerSourceId: string;
+    readonly sourceKey: string;
+    readonly occurredAt: string;
+    readonly runId: string;
+    readonly previousCompleteRunId: string | null;
+    readonly currentContext: {
+      readonly canonicalModel: {
+        readonly id: string;
+        readonly canonicalSlug: string;
+        readonly marketingName: string;
+      } | null;
+      readonly candidate: {
+        readonly id: string;
+        readonly status: "discovered" | "matched" | "ignored" | "promotion_ready";
+        readonly resolvedModelId: string | null;
+      } | null;
+    };
+    readonly interpretation:
+      | "observed_in_complete_model_list_evidence"
+      | "not_observed_in_complete_model_list_evidence"
+      | "observed_again_after_complete_snapshot_absence";
+  }[];
+}
+
 export interface ControlJob {
   readonly id: string;
   readonly kind: string;
@@ -1522,6 +1598,22 @@ export const compareArchive = createServerFn({ method: "POST" })
       if (error instanceof ApiRequestError && error.status === 404) {
         return null;
       }
+      throw error;
+    }
+  });
+
+export const getCatalogPresenceHistory = createServerFn({ method: "POST" })
+  .validator(parseCatalogProviderModelsInput)
+  .handler(async ({ data }): Promise<CatalogPresenceHistory | null> => {
+    requireOperator(data.operatorToken);
+    try {
+      const result = await requestJson<{ history: CatalogPresenceHistory }>(
+        `/v1/control/catalog/presence/${data.providerId}`,
+        { control: true },
+      );
+      return result.history;
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 404) return null;
       throw error;
     }
   });

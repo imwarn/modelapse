@@ -21,6 +21,7 @@ import type {
   PgCatalogCoverage,
   PgCatalogIdentityCase,
   PgCatalogIntegrity,
+  PgCatalogPresence,
 } from "@modelapse/catalog-admin";
 
 const UUID_RE =
@@ -42,6 +43,7 @@ type CatalogDriftReviewRepository = Pick<PgCatalogDriftReview, "list" | "decide"
 type CatalogIdentityCaseRepository = Pick<PgCatalogIdentityCase, "get">;
 type CatalogIntegrityRepository = Pick<PgCatalogIntegrity, "getDashboard">;
 type CatalogCoverageRepository = Pick<PgCatalogCoverage, "listProviders" | "getProvider">;
+type CatalogPresenceRepository = Pick<PgCatalogPresence, "getProvider">;
 
 type ArchiveRepository = Pick<
   PgArchiveRepository,
@@ -67,6 +69,7 @@ export interface AppDependencies {
   readonly catalogIdentityCase?: CatalogIdentityCaseRepository;
   readonly catalogIntegrity?: CatalogIntegrityRepository;
   readonly catalogCoverage?: CatalogCoverageRepository;
+  readonly catalogPresence?: CatalogPresenceRepository;
   readonly controlToken?: string;
 }
 
@@ -394,6 +397,35 @@ export function createApp(deps: AppDependencies) {
     }
 
     return c.json({ run: publicRun(run) });
+  });
+
+  app.get("/v1/control/catalog/presence/:providerId", async (c) => {
+    if (!deps.catalogPresence || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+    const providerId = c.req.param("providerId");
+    if (!UUID_RE.test(providerId)) {
+      return c.json({ error: "invalid_provider_id" }, 400);
+    }
+    const rawLimit = c.req.query("runLimit");
+    const runLimit = rawLimit === undefined ? undefined : Number(rawLimit);
+    if (
+      runLimit !== undefined &&
+      (!Number.isInteger(runLimit) || runLimit < 2 || runLimit > 100)
+    ) {
+      return c.json({ error: "invalid_run_limit" }, 400);
+    }
+
+    const history = await deps.catalogPresence.getProvider(providerId, {
+      ...(runLimit !== undefined ? { runLimit } : {}),
+    });
+    if (!history) {
+      return c.json({ error: "catalog_presence_provider_not_found" }, 404);
+    }
+    return c.json({ history });
   });
 
   app.get("/v1/control/catalog/coverage", async (c) => {

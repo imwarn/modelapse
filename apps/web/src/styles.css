@@ -2671,3 +2671,69 @@ footer {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* Archive v0.15 — Catalog Snapshot Evolution / Presence Timeline */
+.presence-hero {
+  min-height: 430px;
+}
+
+.presence-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.presence-run-list {
+  border-top: 1px solid var(--line);
+}
+
+.presence-run-row {
+  min-height: 104px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: minmax(240px, 0.8fr) minmax(150px, 0.3fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: center;
+}
+
+.presence-run-row > div:first-child {
+  display: grid;
+  gap: 6px;
+}
+
+.presence-run-row small {
+  color: var(--muted);
+  font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.presence-run-row .integrity-facts {
+  margin: 0;
+}
+
+.presence-event .timeline-body {
+  align-content: center;
+}
+
+.presence-event-links {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+}
+
+@media (max-width: 820px) {
+  .presence-summary-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .presence-run-row {
+    grid-template-columns: 1fr;
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 560px) {
+  .presence-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}

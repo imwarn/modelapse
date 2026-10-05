@@ -441,3 +441,63 @@ describe("Catalog Coverage control API", () => {
     expect(JSON.stringify(payload)).not.toContain("error_message");
   });
 });
+
+
+describe("Catalog Presence control API", () => {
+  const providerId = "00000000-0000-4000-8000-000000000150";
+
+  it("protects presence history and validates provider and run limit", async () => {
+    const history = {
+      generatedAt: "2026-10-05T01:00:00.000Z",
+      provider: { id: providerId, slug: "fixture", name: "Fixture" },
+      summary: {
+        modelListSources: 1,
+        evidenceRuns: 2,
+        completeProjectionRuns: 2,
+        incompleteProjectionRuns: 0,
+        appearanceEvents: 2,
+        absenceEvents: 1,
+        reappearanceEvents: 0,
+        latestCompleteAt: "2026-10-05T01:00:00.000Z",
+      },
+      sources: [],
+      runs: [],
+      events: [],
+    };
+
+    const app = createApp({
+      runs: baseRuns(),
+      controlToken: "control-secret",
+      catalogPresence: {
+        getProvider: async (requestedProviderId) =>
+          requestedProviderId === providerId ? history : null,
+      },
+    });
+
+    expect(
+      (await app.request("/v1/control/catalog/presence/" + providerId)).status,
+    ).toBe(401);
+
+    const invalidProvider = await app.request(
+      "/v1/control/catalog/presence/not-a-uuid",
+      { headers: { authorization: "Bearer control-secret" } },
+    );
+    expect(invalidProvider.status).toBe(400);
+
+    const invalidLimit = await app.request(
+      "/v1/control/catalog/presence/" + providerId + "?runLimit=1",
+      { headers: { authorization: "Bearer control-secret" } },
+    );
+    expect(invalidLimit.status).toBe(400);
+
+    const found = await app.request(
+      "/v1/control/catalog/presence/" + providerId + "?runLimit=20",
+      { headers: { authorization: "Bearer control-secret" } },
+    );
+    expect(found.status).toBe(200);
+    const payload = await found.json();
+    expect(payload).toEqual({ history });
+    expect(JSON.stringify(payload)).not.toContain("response_body");
+    expect(JSON.stringify(payload)).not.toContain("responseBody");
+  });
+});
