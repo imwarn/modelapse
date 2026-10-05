@@ -553,14 +553,11 @@ export class PgRunPlanner {
     requestedServiceTier: string | undefined,
     selectedAt: string,
   ): Promise<DirectRunFleetPlan | null> {
-    const enabled = await this.pool.query<{ count: number }>(
+    const registered = await this.pool.query<{ count: number }>(
       `SELECT count(*)::int AS count
-         FROM modelapse.execution_environments environment
-         JOIN modelapse.execution_environment_current_state state
-           ON state.environment_id = environment.id
-          AND state.enabled`,
+         FROM modelapse.execution_environments`,
     );
-    if ((enabled.rows[0]?.count ?? 0) === 0) return null;
+    if ((registered.rows[0]?.count ?? 0) === 0) return null;
 
     const preferredServiceTier =
       requestedServiceTier ??
