@@ -249,7 +249,7 @@ describe("DeepSeek first-party direct queue path", () => {
         currency: "USD",
         inputPricePerMillion: "2.500000",
         outputPricePerMillion: "10.000000",
-        caveats: [],
+        caveats: ["pricing_account_tier_generic"],
       },
     });
     expect(plan.executionEnvironment?.environmentId).toBe(
@@ -268,6 +268,32 @@ describe("DeepSeek first-party direct queue path", () => {
       executionEnvironmentId: secondaryEnvironment!.id,
     });
     expect(wrongWorkerClaim).toBeNull();
+
+    await fleet!.declareCapability({
+      environmentId: selectedEnvironment!.id,
+      providerId,
+      executionPath: "first_party_direct",
+      enabled: false,
+      selectionPriority: 10,
+      actor: "deepseek-fleet-integration",
+      note: "pause primary environment",
+    });
+    const disabledClaim = await queue!.claimNext({
+      workerId: "disabled-primary-worker",
+      leaseSeconds: 180,
+      executionEnvironmentId: selectedEnvironment!.id,
+    });
+    expect(disabledClaim).toBeNull();
+
+    await fleet!.declareCapability({
+      environmentId: selectedEnvironment!.id,
+      providerId,
+      executionPath: "first_party_direct",
+      enabled: true,
+      selectionPriority: 10,
+      actor: "deepseek-fleet-integration",
+      note: "resume primary environment",
+    });
 
     const completed = await processOneQueuedRunJob({
       queue: queue!,
