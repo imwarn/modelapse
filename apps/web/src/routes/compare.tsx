@@ -33,6 +33,16 @@ function evaluationClass(run: ArchiveRun | null): string {
   return "badge";
 }
 
+function contextRelation(
+  run: ArchiveRun,
+  reference: ArchiveRun | null,
+): "matched" | "mismatched" | "unknown" {
+  const context = run.executionQualification?.contextKey;
+  const referenceContext = reference?.executionQualification?.contextKey;
+  if (!context || !referenceContext) return "unknown";
+  return context === referenceContext ? "matched" : "mismatched";
+}
+
 function ArchiveComparePage() {
   const catalog = Route.useLoaderData();
   const defaultModelIds = catalog.models.slice(0, 2).map((model) => model.id);
@@ -42,6 +52,9 @@ function ArchiveComparePage() {
   const [temporal, setTemporal] = useState<ArchiveTemporalComparison | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const comparisonReferenceRun =
+    comparison?.rows.find((row) => row.latestRun)?.latestRun ?? null;
 
   const selectedModels = useMemo(
     () => catalog.models.filter((model) => modelIds.includes(model.id)),
@@ -240,6 +253,9 @@ function ArchiveComparePage() {
                           {evaluationLabel(run)}
                         </span>
                         <span className="badge">evidence {run.evidenceLevel ?? "—"}</span>
+                        <span className="badge">
+                          context {contextRelation(run, comparisonReferenceRun)}
+                        </span>
                       </div>
                       <dl className="comparison-facts">
                         <div>
@@ -343,6 +359,10 @@ function ArchiveComparePage() {
                       <span className={evaluationClass(run)}>{evaluationLabel(run)}</span>
                       <small>
                         {run.evidenceLevel ?? "—"} · {run.returnedModel ?? run.requestedModel}
+                        {" · "}
+                        {run.executionQualification?.contextKey
+                          ? "context captured"
+                          : "context unknown"}
                       </small>
                     </a>
                   ))}
