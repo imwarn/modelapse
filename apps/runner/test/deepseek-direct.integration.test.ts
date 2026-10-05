@@ -5,7 +5,12 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FileSystemContentAddressedBlobStore } from "@modelapse/blob-store";
 import { PgCatalogAdmin, PgModelCatalogAdmin } from "@modelapse/catalog-admin";
-import { PgRunJobQueue, PgRunPlanner } from "@modelapse/control-plane";
+import {
+  PgExecutionFleet,
+  PgRunJobQueue,
+  PgRunPlanner,
+  type ExecutionEnvironmentDescriptor,
+} from "@modelapse/control-plane";
 import { migrateDatabase } from "@modelapse/database";
 import {
   EnvironmentCredentialResolver,
@@ -43,6 +48,9 @@ describe("DeepSeek first-party direct queue path", () => {
   let catalog: PgCatalogAdmin | undefined;
   let modelCatalog: PgModelCatalogAdmin | undefined;
   let planner: PgRunPlanner | undefined;
+  let fleet: PgExecutionFleet | undefined;
+  let selectedEnvironment: ExecutionEnvironmentDescriptor | undefined;
+  let secondaryEnvironment: ExecutionEnvironmentDescriptor | undefined;
   let testCaseId = "";
   let modelId = "";
   let providerId = "";
@@ -66,6 +74,7 @@ describe("DeepSeek first-party direct queue path", () => {
     catalog = PgCatalogAdmin.connect(isolatedDatabaseUrl, blobStore);
     modelCatalog = PgModelCatalogAdmin.connect(isolatedDatabaseUrl);
     planner = PgRunPlanner.connect(isolatedDatabaseUrl, { max: 2 });
+    fleet = PgExecutionFleet.connect(isolatedDatabaseUrl, { max: 2 });
 
     const bootstrapped = await catalog.bootstrapDeepSeekSmoke({
       runnerBuild: "deepseek-bootstrap",
@@ -119,6 +128,38 @@ describe("DeepSeek first-party direct queue path", () => {
         [providerId, modelId, context.rows[0]!.canonical_source_id],
       );
       pricingObservationId = pricing.rows[0]!.id;
+
+      secondaryEnvironment = await fleet!.registerEnvironment({
+        slug: "us-paid-secondary",
+        region: "US",
+        accountTier: "paid-standard",
+        serviceAssurance: "documented_default",
+        actor: "deepseek-fleet-integration",
+      });
+      await fleet!.declareCapability({
+        environmentId: secondaryEnvironment.id,
+        providerId,
+        executionPath: "first_party_direct",
+        enabled: true,
+        selectionPriority: 20,
+        actor: "deepseek-fleet-integration",
+      });
+
+      selectedEnvironment = await fleet!.registerEnvironment({
+        slug: "us-paid-primary",
+        region: "US",
+        accountTier: "paid-standard",
+        serviceAssurance: "documented_default",
+        actor: "deepseek-fleet-integration",
+      });
+      await fleet!.declareCapability({
+        environmentId: selectedEnvironment.id,
+        providerId,
+        executionPath: "first_party_direct",
+        enabled: true,
+        selectionPriority: 10,
+        actor: "deepseek-fleet-integration",
+      });
     } finally {
       await verification.end();
     }
@@ -127,6 +168,7 @@ describe("DeepSeek first-party direct queue path", () => {
   afterAll(async () => {
     await queue?.close();
     await planner?.close();
+    await fleet?.close();
     await evaluations?.close();
     await repository?.close();
     await catalog?.close();
@@ -195,6 +237,13 @@ describe("DeepSeek first-party direct queue path", () => {
       modelId,
       model: "deepseek-flash",
       testCaseId,
+      fleet: {
+        environmentId: selectedEnvironment!.id,
+        environmentSlug: "us-paid-primary",
+        region: "US",
+        accountTier: "paid-standard",
+        serviceAssurance: "documented_default",
+      },
       cost: {
         pricingObservationId,
         currency: "USD",
@@ -203,11 +252,22 @@ describe("DeepSeek first-party direct queue path", () => {
         caveats: [],
       },
     });
+    expect(plan.executionEnvironment?.environmentId).toBe(
+      selectedEnvironment!.id,
+    );
 
     const job = await queue!.enqueue({
       payload: plan.jobPayload,
       idempotencyKey: "deepseek-" + randomUUID(),
     });
+    expect(job.targetExecutionEnvironmentId).toBe(selectedEnvironment!.id);
+
+    const wrongWorkerClaim = await queue!.claimNext({
+      workerId: "secondary-environment-worker",
+      leaseSeconds: 180,
+      executionEnvironmentId: secondaryEnvironment!.id,
+    });
+    expect(wrongWorkerClaim).toBeNull();
 
     const completed = await processOneQueuedRunJob({
       queue: queue!,
@@ -223,6 +283,7 @@ describe("DeepSeek first-party direct queue path", () => {
         privateKey,
       },
       runnerBuild: "deepseek-integration-build",
+      executionEnvironment: selectedEnvironment!,
       workerId: "deepseek-integration-worker",
       leaseSeconds: 180,
     });
@@ -268,6 +329,16 @@ describe("DeepSeek first-party direct queue path", () => {
         },
         provider: { slug: "deepseek" },
         evidenceLevel: "E4",
+        executionQualification: {
+          executionEnvironment: {
+            id: selectedEnvironment!.id,
+            slug: "us-paid-primary",
+          },
+          executionRegion: "US",
+          accountTier: "paid-standard",
+          serviceTier: null,
+          serviceAssurance: "documented_default",
+        },
         cost: {
           pricingObservation: { id: pricingObservationId },
           pricing: {
