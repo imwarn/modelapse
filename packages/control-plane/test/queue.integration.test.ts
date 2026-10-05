@@ -232,7 +232,7 @@ describe("PostgreSQL Run job queue", () => {
     expect(failed.lastError).toBe("fixture failure");
   });
 
-  it("keeps planner timestamps outside qualification idempotency identity", async () => {
+  it("keeps planner timestamps outside qualification and cost idempotency identity", async () => {
     const idempotencyKey = "qualification-" + randomUUID();
     const payload = {
       provider: "openai" as const,
@@ -243,6 +243,10 @@ describe("PostgreSQL Run job queue", () => {
         serviceAssurance: "unknown" as const,
         caveats: ["runner_access_evidence_missing"],
       },
+      cost: {
+        selectedAt: "2026-10-05T00:00:00.000Z",
+        caveats: ["pricing_evidence_missing"],
+      },
     };
 
     const first = await queue.enqueue({ payload, idempotencyKey });
@@ -251,6 +255,10 @@ describe("PostgreSQL Run job queue", () => {
         ...payload,
         qualification: {
           ...payload.qualification,
+          selectedAt: "2026-10-05T00:00:05.000Z",
+        },
+        cost: {
+          ...payload.cost,
           selectedAt: "2026-10-05T00:00:05.000Z",
         },
       },

@@ -379,6 +379,7 @@ export class PgRunPlanner {
   private qualificationFor(
     model: RunnableModel,
     requestedServiceTier: string | undefined,
+    selectedAt: string,
   ): NonNullable<DirectProviderRunRequest["qualification"]> {
     const policy = model.testability.providerPolicy;
     const runner = model.testability.runnerAccess;
@@ -404,13 +405,109 @@ export class PgRunPlanner {
     }
 
     return {
-      selectedAt: new Date().toISOString(),
+      selectedAt,
       ...(policy ? { providerPolicyObservationId: policy.id } : {}),
       ...(runner ? { runnerAccessObservationId: runner.id } : {}),
       ...(runner?.accountTier ? { accountTier: runner.accountTier } : {}),
       ...(runner?.serviceTier ? { serviceTier: runner.serviceTier } : {}),
       ...(requestedServiceTier ? { requestedServiceTier } : {}),
       serviceAssurance,
+      caveats,
+    };
+  }
+
+  private async costFor(
+    model: RunnableModel,
+    targetServiceTier: string | undefined,
+    selectedAt: string,
+  ): Promise<NonNullable<DirectProviderRunRequest["cost"]>> {
+    const accountTier = model.testability.runnerAccess?.accountTier ?? undefined;
+    const result = await this.pool.query<{
+      id: string;
+      pricing_currency: string;
+      input_price_per_million: string | null;
+      output_price_per_million: string | null;
+      request_price: string | null;
+      service_tier: string | null;
+      account_tier: string | null;
+    }>(
+      `SELECT
+         observation.id,
+         observation.pricing_currency,
+         observation.input_price_per_million::text,
+         observation.output_price_per_million::text,
+         observation.request_price::text,
+         observation.service_tier,
+         observation.account_tier
+       FROM modelapse.provider_testability_observations observation
+       WHERE observation.provider_id = $1
+         AND observation.execution_path = 'first_party_direct'
+         AND observation.pricing_currency IS NOT NULL
+         AND observation.observed_at <= now()
+         AND (observation.model_id = $2 OR observation.model_id IS NULL)
+         AND (
+           ($3::text IS NULL AND observation.service_tier IS NULL)
+           OR ($3::text IS NOT NULL AND (
+             observation.service_tier IS NULL OR observation.service_tier = $3
+           ))
+         )
+         AND (
+           ($4::text IS NULL AND observation.account_tier IS NULL)
+           OR ($4::text IS NOT NULL AND (
+             observation.account_tier IS NULL OR observation.account_tier = $4
+           ))
+         )
+       ORDER BY
+         (observation.model_id IS NOT NULL) DESC,
+         (observation.service_tier IS NOT DISTINCT FROM $3::text) DESC,
+         (observation.account_tier IS NOT DISTINCT FROM $4::text) DESC,
+         observation.observed_at DESC,
+         observation.id DESC
+       LIMIT 1`,
+      [
+        model.providerId,
+        model.id,
+        targetServiceTier ?? null,
+        accountTier ?? null,
+      ],
+    );
+
+    const pricing = result.rows[0];
+    if (!pricing) {
+      return {
+        selectedAt,
+        caveats: ["pricing_evidence_missing"],
+      };
+    }
+
+    const caveats: string[] = [];
+    if (
+      pricing.input_price_per_million === null &&
+      pricing.output_price_per_million === null &&
+      pricing.request_price === null
+    ) {
+      caveats.push("pricing_basis_empty");
+    }
+    if (targetServiceTier && pricing.service_tier === null) {
+      caveats.push("pricing_service_tier_generic");
+    }
+    if (accountTier && pricing.account_tier === null) {
+      caveats.push("pricing_account_tier_generic");
+    }
+
+    return {
+      selectedAt,
+      pricingObservationId: pricing.id,
+      currency: pricing.pricing_currency,
+      ...(pricing.input_price_per_million !== null
+        ? { inputPricePerMillion: pricing.input_price_per_million }
+        : {}),
+      ...(pricing.output_price_per_million !== null
+        ? { outputPricePerMillion: pricing.output_price_per_million }
+        : {}),
+      ...(pricing.request_price !== null
+        ? { perRequest: pricing.request_price }
+        : {}),
       caveats,
     };
   }
@@ -441,6 +538,13 @@ export class PgRunPlanner {
       throw new Error("DeepSeek direct runs do not support serviceTier");
     }
 
+    const selectedAt = new Date().toISOString();
+    const targetServiceTier =
+      selection.config?.serviceTier ??
+      model.testability.runnerAccess?.serviceTier ??
+      undefined;
+    const cost = await this.costFor(model, targetServiceTier, selectedAt);
+
     const jobPayload: DirectProviderRunRequest = {
       provider: model.provider,
       testCaseId: test.testCaseId,
@@ -450,7 +554,9 @@ export class PgRunPlanner {
       qualification: this.qualificationFor(
         model,
         selection.config?.serviceTier,
+        selectedAt,
       ),
+      cost,
     };
 
     return { model, test, jobPayload };

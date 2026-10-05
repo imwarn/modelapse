@@ -106,6 +106,27 @@ describe("Run job control API", () => {
     });
     expect(forgedQualification.status).toBe(400);
 
+    const forgedCost = await app.request("/v1/control/run-jobs", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer control-secret",
+      },
+      body: JSON.stringify({
+        provider: "openai",
+        testCaseId: TEST_CASE_ID,
+        model: "gpt-test",
+        cost: {
+          selectedAt: "2026-10-05T00:00:00.000Z",
+          currency: "USD",
+          inputPricePerMillion: "1.000000",
+          outputPricePerMillion: "2.000000",
+          caveats: [],
+        },
+      }),
+    });
+    expect(forgedCost.status).toBe(400);
+
     const accepted = await app.request("/v1/control/run-jobs", {
       method: "POST",
       headers: {
@@ -135,6 +156,109 @@ describe("Run job control API", () => {
         updatedAt: "2026-09-23T00:00:00.000Z",
         completedAt: null,
       },
+    });
+  });
+});
+
+
+describe("Cost Ledger control API", () => {
+  const providerId = "00000000-0000-4000-8000-000000000200";
+
+  it("keeps budget accounting operator-only and appends narrow policies", async () => {
+    let recorded: unknown;
+    const daily = [
+      {
+        day: "2026-10-05T00:00:00.000Z",
+        provider: { id: providerId, slug: "fixture", name: "Fixture" },
+        currency: "USD",
+        completedRuns: 2,
+        estimatedRuns: 1,
+        unknownCostRuns: 1,
+        estimatedNativeCost: "0.2500000000",
+      },
+    ];
+    const budgets = [
+      {
+        policyId: "00000000-0000-4000-8000-000000000201",
+        provider: { id: providerId, slug: "fixture", name: "Fixture" },
+        currency: "USD",
+        period: "day" as const,
+        budgetAmount: "10.0000000000",
+        effectiveFrom: "2026-10-05T00:00:00.000Z",
+        periodStart: "2026-10-05T00:00:00.000Z",
+        estimatedSpend: "0.2500000000",
+        unknownCostRuns: 1,
+        remainingBudget: "9.7500000000",
+      },
+    ];
+
+    const app = createApp({
+      runs: baseRuns(),
+      controlToken: "control-secret",
+      costLedger: {
+        ping: async () => undefined,
+        listDailyCosts: async () => daily,
+        listBudgetStatus: async () => budgets,
+        recordBudgetPolicy: async (input) => {
+          recorded = input;
+          return {
+            id: "00000000-0000-4000-8000-000000000202",
+            providerId,
+            currency: "USD",
+            period: "day",
+            budgetAmount: "10.0000000000",
+            effectiveFrom: "2026-10-05T00:00:00.000Z",
+            actor: "api-test",
+            note: null,
+            createdAt: "2026-10-05T00:00:00.000Z",
+          };
+        },
+      },
+    });
+
+    expect(
+      (await app.request("/v1/control/cost-ledger/daily")).status,
+    ).toBe(401);
+
+    const headers = { authorization: "Bearer control-secret" };
+    const listed = await app.request("/v1/control/cost-ledger/daily?days=7", {
+      headers,
+    });
+    expect(listed.status).toBe(200);
+    await expect(listed.json()).resolves.toEqual({ daily });
+
+    expect(
+      (
+        await app.request("/v1/control/cost-ledger/daily?days=0", {
+          headers,
+        })
+      ).status,
+    ).toBe(400);
+
+    const status = await app.request("/v1/control/cost-ledger/budgets", {
+      headers,
+    });
+    expect(status.status).toBe(200);
+    await expect(status.json()).resolves.toEqual({ budgets });
+
+    const created = await app.request("/v1/control/cost-ledger/budgets", {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({
+        providerId,
+        currency: "usd",
+        period: "day",
+        budgetAmount: "10.0000000000",
+        actor: "api-test",
+      }),
+    });
+    expect(created.status).toBe(201);
+    expect(recorded).toMatchObject({
+      providerId,
+      currency: "usd",
+      period: "day",
+      budgetAmount: "10.0000000000",
+      actor: "api-test",
     });
   });
 });

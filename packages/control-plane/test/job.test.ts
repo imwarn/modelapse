@@ -71,6 +71,51 @@ describe("direct provider Run job", () => {
     });
   });
 
+  it("preserves the planner-owned cost envelope", () => {
+    const pricingObservationId =
+      "00000000-0000-4000-8000-000000000023";
+
+    expect(
+      parseDirectProviderRunRequest({
+        provider: "openai",
+        testCaseId: TEST_CASE_ID,
+        model: "gpt-test",
+        cost: {
+          selectedAt: "2026-10-05T00:00:00.000Z",
+          pricingObservationId,
+          currency: "USD",
+          inputPricePerMillion: "1.250000",
+          outputPricePerMillion: "5.000000",
+          perRequest: "0.010000",
+          caveats: ["pricing_service_tier_generic"],
+        },
+      }),
+    ).toMatchObject({
+      cost: {
+        pricingObservationId,
+        currency: "USD",
+        inputPricePerMillion: "1.250000",
+        outputPricePerMillion: "5.000000",
+        perRequest: "0.010000",
+        caveats: ["pricing_service_tier_generic"],
+      },
+    });
+
+    expect(() =>
+      parseDirectProviderRunRequest({
+        provider: "openai",
+        testCaseId: TEST_CASE_ID,
+        model: "gpt-test",
+        cost: {
+          selectedAt: "2026-10-05T00:00:00.000Z",
+          currency: "USD",
+          inputPricePerMillion: "not-a-price",
+          caveats: [],
+        },
+      }),
+    ).toThrow(/decimal string/);
+  });
+
   it("keeps provider-specific parsers strict", () => {
     expect(() =>
       parseDirectOpenAIRunRequest({

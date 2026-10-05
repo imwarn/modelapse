@@ -85,9 +85,21 @@ function view(row: RunJobRow): RunJob {
 }
 
 function idempotencyComparable(request: DirectProviderRunRequest): unknown {
-  if (!request.qualification) return request;
-  const { selectedAt: _selectedAt, ...qualification } = request.qualification;
-  return { ...request, qualification };
+  const { qualification, cost, ...rest } = request;
+  const comparableQualification = qualification
+    ? (({ selectedAt: _selectedAt, ...value }) => value)(qualification)
+    : undefined;
+  const comparableCost = cost
+    ? (({ selectedAt: _selectedAt, ...value }) => value)(cost)
+    : undefined;
+
+  return {
+    ...rest,
+    ...(comparableQualification
+      ? { qualification: comparableQualification }
+      : {}),
+    ...(comparableCost ? { cost: comparableCost } : {}),
+  };
 }
 
 export class IdempotencyConflictError extends Error {

@@ -11,7 +11,12 @@ import {
   EnvironmentCredentialResolver,
   NodeEvidenceTransport,
 } from "@modelapse/evidence-transport";
-import { PgArchiveRepository, PgEvaluationRepository, PgRunRepository } from "@modelapse/persistence";
+import {
+  PgArchiveRepository,
+  PgCostLedger,
+  PgEvaluationRepository,
+  PgRunRepository,
+} from "@modelapse/persistence";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { processOneQueuedRunJob } from "../src/queue-worker.js";
@@ -40,6 +45,8 @@ describe("DeepSeek first-party direct queue path", () => {
   let planner: PgRunPlanner | undefined;
   let testCaseId = "";
   let modelId = "";
+  let providerId = "";
+  let pricingObservationId = "";
 
   beforeAll(async () => {
     await adminPool.query(`CREATE DATABASE "${databaseName}"`);
@@ -67,6 +74,54 @@ describe("DeepSeek first-party direct queue path", () => {
 
     const model = await modelCatalog.bootstrapDeepSeekFlash();
     modelId = model.modelId;
+
+    const verification = new Pool({ connectionString: isolatedDatabaseUrl });
+    try {
+      const context = await verification.query<{
+        provider_id: string;
+        canonical_source_id: string;
+      }>(
+        `SELECT provider_id, canonical_source_id
+           FROM modelapse.models
+          WHERE id = $1`,
+        [modelId],
+      );
+      providerId = context.rows[0]!.provider_id;
+      const pricing = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.provider_testability_observations
+          (
+            provider_id,
+            model_id,
+            execution_path,
+            subject_kind,
+            access_state,
+            pricing_currency,
+            input_price_per_million,
+            output_price_per_million,
+            source_id,
+            observed_at,
+            actor
+          )
+         VALUES (
+           $1,
+           $2,
+           'first_party_direct',
+           'provider_policy',
+           'available',
+           'USD',
+           2.500000,
+           10.000000,
+           $3,
+           now(),
+           'deepseek-cost-integration'
+         )
+         RETURNING id`,
+        [providerId, modelId, context.rows[0]!.canonical_source_id],
+      );
+      pricingObservationId = pricing.rows[0]!.id;
+    } finally {
+      await verification.end();
+    }
   });
 
   afterAll(async () => {
@@ -140,6 +195,13 @@ describe("DeepSeek first-party direct queue path", () => {
       modelId,
       model: "deepseek-flash",
       testCaseId,
+      cost: {
+        pricingObservationId,
+        currency: "USD",
+        inputPricePerMillion: "2.500000",
+        outputPricePerMillion: "10.000000",
+        caveats: [],
+      },
     });
 
     const job = await queue!.enqueue({
@@ -206,6 +268,22 @@ describe("DeepSeek first-party direct queue path", () => {
         },
         provider: { slug: "deepseek" },
         evidenceLevel: "E4",
+        cost: {
+          pricingObservation: { id: pricingObservationId },
+          pricing: {
+            currency: "USD",
+            inputPerMillion: "2.500000",
+            outputPerMillion: "10.000000",
+          },
+          usage: {
+            inputTokens: "9",
+            outputTokens: "1",
+            totalTokens: "10",
+            requestCount: 1,
+          },
+          estimatedNativeCost: "0.0000325000",
+          caveats: [],
+        },
         evaluation: {
           status: "completed",
           evaluatorSlug: "exact-text",
@@ -214,6 +292,64 @@ describe("DeepSeek first-party direct queue path", () => {
       });
     } finally {
       await archive.close();
+    }
+
+    const costLedger = PgCostLedger.connect(isolatedDatabaseUrl, { max: 1 });
+    const verification = new Pool({ connectionString: isolatedDatabaseUrl });
+    try {
+      const daily = await costLedger.listDailyCosts(7);
+      expect(daily).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            provider: expect.objectContaining({ id: providerId }),
+            currency: "USD",
+            estimatedRuns: 1,
+            unknownCostRuns: 0,
+            estimatedNativeCost: "0.0000325000",
+          }),
+        ]),
+      );
+
+      const policy = await costLedger.recordBudgetPolicy({
+        providerId,
+        currency: "USD",
+        period: "day",
+        budgetAmount: "1.0000000000",
+        actor: "deepseek-cost-integration",
+      });
+      const budgets = await costLedger.listBudgetStatus();
+      expect(budgets).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            policyId: policy.id,
+            provider: expect.objectContaining({ id: providerId }),
+            currency: "USD",
+            estimatedSpend: "0.0000325000",
+            unknownCostRuns: 0,
+          }),
+        ]),
+      );
+
+      await expect(
+        verification.query(
+          `UPDATE modelapse.run_cost_envelopes
+              SET pricing_currency = 'EUR'
+            WHERE run_id = $1`,
+          [run!.id],
+        ),
+      ).rejects.toThrow(/append-only/i);
+
+      await expect(
+        verification.query(
+          `UPDATE modelapse.collection_budget_policies
+              SET budget_amount = 2
+            WHERE id = $1`,
+          [policy.id],
+        ),
+      ).rejects.toThrow(/append-only/i);
+    } finally {
+      await verification.end();
+      await costLedger.close();
     }
 
     const requestBytes = await new FileSystemContentAddressedBlobStore(root).get(

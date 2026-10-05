@@ -24,12 +24,23 @@ export interface DirectRunQualificationPlan {
   readonly caveats: readonly string[];
 }
 
+export interface DirectRunCostPlan {
+  readonly selectedAt: string;
+  readonly pricingObservationId?: string;
+  readonly currency?: string;
+  readonly inputPricePerMillion?: string;
+  readonly outputPricePerMillion?: string;
+  readonly perRequest?: string;
+  readonly caveats: readonly string[];
+}
+
 interface DirectProviderRunBase {
   readonly testCaseId: string;
   readonly modelId?: string;
   readonly model: string;
   readonly config?: DirectRunConfig;
   readonly qualification?: DirectRunQualificationPlan;
+  readonly cost?: DirectRunCostPlan;
 }
 
 export interface DirectOpenAIRunRequest extends DirectProviderRunBase {
@@ -227,6 +238,91 @@ function parseDirectRunQualification(
   };
 }
 
+const NON_NEGATIVE_DECIMAL_RE = /^\d+(?:\.\d+)?$/;
+const CURRENCY_RE = /^[A-Z]{3}$/;
+
+function parseDirectRunCost(value: unknown): DirectRunCostPlan | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error("cost must be an object");
+
+  rejectUnknownKeys(
+    value,
+    [
+      "selectedAt",
+      "pricingObservationId",
+      "currency",
+      "inputPricePerMillion",
+      "outputPricePerMillion",
+      "perRequest",
+      "caveats",
+    ],
+    "cost",
+  );
+
+  if (
+    typeof value.selectedAt !== "string" ||
+    !Number.isFinite(Date.parse(value.selectedAt))
+  ) {
+    throw new Error("cost.selectedAt must be an ISO timestamp");
+  }
+
+  if (
+    value.pricingObservationId !== undefined &&
+    (typeof value.pricingObservationId !== "string" ||
+      !UUID_RE.test(value.pricingObservationId))
+  ) {
+    throw new Error("cost.pricingObservationId must be a UUID");
+  }
+
+  if (
+    value.currency !== undefined &&
+    (typeof value.currency !== "string" || !CURRENCY_RE.test(value.currency))
+  ) {
+    throw new Error("cost.currency must be a three-letter uppercase currency code");
+  }
+
+  for (const key of [
+    "inputPricePerMillion",
+    "outputPricePerMillion",
+    "perRequest",
+  ] as const) {
+    const field = value[key];
+    if (
+      field !== undefined &&
+      (typeof field !== "string" || !NON_NEGATIVE_DECIMAL_RE.test(field))
+    ) {
+      throw new Error("cost." + key + " must be a non-negative decimal string");
+    }
+  }
+
+  if (
+    !Array.isArray(value.caveats) ||
+    value.caveats.some(
+      (caveat) => typeof caveat !== "string" || caveat.trim().length === 0,
+    )
+  ) {
+    throw new Error("cost.caveats must be a string array");
+  }
+
+  return {
+    selectedAt: value.selectedAt,
+    ...(typeof value.pricingObservationId === "string"
+      ? { pricingObservationId: value.pricingObservationId }
+      : {}),
+    ...(typeof value.currency === "string" ? { currency: value.currency } : {}),
+    ...(typeof value.inputPricePerMillion === "string"
+      ? { inputPricePerMillion: value.inputPricePerMillion }
+      : {}),
+    ...(typeof value.outputPricePerMillion === "string"
+      ? { outputPricePerMillion: value.outputPricePerMillion }
+      : {}),
+    ...(typeof value.perRequest === "string"
+      ? { perRequest: value.perRequest }
+      : {}),
+    caveats: [...value.caveats],
+  };
+}
+
 export function parseDirectProviderRunRequest(
   value: unknown,
 ): DirectProviderRunRequest {
@@ -234,7 +330,7 @@ export function parseDirectProviderRunRequest(
 
   rejectUnknownKeys(
     value,
-    ["provider", "testCaseId", "modelId", "model", "config", "qualification"],
+    ["provider", "testCaseId", "modelId", "model", "config", "qualification", "cost"],
     "job",
   );
 
@@ -256,6 +352,7 @@ export function parseDirectProviderRunRequest(
 
   const config = parseDirectRunConfig(value.config);
   const qualification = parseDirectRunQualification(value.qualification);
+  const cost = parseDirectRunCost(value.cost);
 
   return {
     provider: value.provider,
@@ -264,6 +361,7 @@ export function parseDirectProviderRunRequest(
     model: value.model,
     ...(config ? { config } : {}),
     ...(qualification ? { qualification } : {}),
+    ...(cost ? { cost } : {}),
   };
 }
 

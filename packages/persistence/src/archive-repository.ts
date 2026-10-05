@@ -54,6 +54,28 @@ export interface ArchiveRunExecutionQualificationView {
   readonly contextKey: string | null;
 }
 
+export interface ArchiveRunCostView {
+  readonly selectedAt: string;
+  readonly pricingObservation: {
+    readonly id: string;
+    readonly sourceId: string;
+  } | null;
+  readonly pricing: {
+    readonly currency: string;
+    readonly inputPerMillion: string | null;
+    readonly outputPerMillion: string | null;
+    readonly perRequest: string | null;
+  } | null;
+  readonly usage: {
+    readonly inputTokens: string | null;
+    readonly outputTokens: string | null;
+    readonly totalTokens: string | null;
+    readonly requestCount: number;
+  } | null;
+  readonly estimatedNativeCost: string | null;
+  readonly caveats: readonly string[];
+}
+
 export interface ArchiveRunView {
   readonly id: string;
   readonly status: string;
@@ -81,6 +103,7 @@ export interface ArchiveRunView {
   readonly executionPath: string;
   readonly evidenceLevel: string | null;
   readonly executionQualification: ArchiveRunExecutionQualificationView | null;
+  readonly cost: ArchiveRunCostView | null;
   readonly evaluation: {
     readonly id: string;
     readonly status: string;
@@ -461,6 +484,19 @@ interface ArchiveRunRow {
   qualification_runner_access_source_id: string | null;
   qualification_runner_access_state: string | null;
   qualification_caveats: string[] | null;
+  cost_selected_at: Date | null;
+  cost_pricing_observation_id: string | null;
+  cost_pricing_source_id: string | null;
+  cost_pricing_currency: string | null;
+  cost_input_price_per_million: string | null;
+  cost_output_price_per_million: string | null;
+  cost_request_price: string | null;
+  cost_input_tokens: string | null;
+  cost_output_tokens: string | null;
+  cost_total_tokens: string | null;
+  cost_request_count: number | null;
+  cost_estimated_native_cost: string | null;
+  cost_caveats: string[] | null;
   evaluation_id: string | null;
   evaluation_status: string | null;
   evaluator_slug: string | null;
@@ -562,6 +598,37 @@ function runView(row: ArchiveRunRow): ArchiveRunView {
           contextKey: qualificationContextKey(row),
         }
       : null,
+    cost: row.cost_selected_at
+      ? {
+          selectedAt: row.cost_selected_at.toISOString(),
+          pricingObservation:
+            row.cost_pricing_observation_id && row.cost_pricing_source_id
+              ? {
+                  id: row.cost_pricing_observation_id,
+                  sourceId: row.cost_pricing_source_id,
+                }
+              : null,
+          pricing: row.cost_pricing_currency
+            ? {
+                currency: row.cost_pricing_currency,
+                inputPerMillion: row.cost_input_price_per_million,
+                outputPerMillion: row.cost_output_price_per_million,
+                perRequest: row.cost_request_price,
+              }
+            : null,
+          usage:
+            row.cost_request_count !== null
+              ? {
+                  inputTokens: row.cost_input_tokens,
+                  outputTokens: row.cost_output_tokens,
+                  totalTokens: row.cost_total_tokens,
+                  requestCount: row.cost_request_count,
+                }
+              : null,
+          estimatedNativeCost: row.cost_estimated_native_cost,
+          caveats: row.cost_caveats ?? [],
+        }
+      : null,
     evaluation:
       row.evaluation_id &&
       row.evaluation_status &&
@@ -623,6 +690,19 @@ const RUN_SELECT = `
     qualification.runner_access_source_id AS qualification_runner_access_source_id,
     qualification.runner_access_state AS qualification_runner_access_state,
     qualification.caveats AS qualification_caveats,
+    cost.selected_at AS cost_selected_at,
+    cost.pricing_observation_id AS cost_pricing_observation_id,
+    cost.pricing_source_id AS cost_pricing_source_id,
+    cost.pricing_currency AS cost_pricing_currency,
+    cost.input_price_per_million::text AS cost_input_price_per_million,
+    cost.output_price_per_million::text AS cost_output_price_per_million,
+    cost.request_price::text AS cost_request_price,
+    cost.input_tokens::text AS cost_input_tokens,
+    cost.output_tokens::text AS cost_output_tokens,
+    cost.total_tokens::text AS cost_total_tokens,
+    cost.request_count AS cost_request_count,
+    cost.estimated_native_cost::text AS cost_estimated_native_cost,
+    cost.caveats AS cost_caveats,
     ev.id AS evaluation_id,
     ev.status AS evaluation_status,
     e.slug AS evaluator_slug,
@@ -645,6 +725,8 @@ const RUN_SELECT = `
   LEFT JOIN modelapse.run_evidence_summary res ON res.run_id = r.id
   LEFT JOIN modelapse.run_execution_qualification qualification
     ON qualification.run_id = r.id
+  LEFT JOIN modelapse.run_cost_ledger cost
+    ON cost.run_id = r.id
   LEFT JOIN modelapse.test_version_evaluators tve
     ON tve.test_version_id = tv.id
   LEFT JOIN modelapse.evaluators e ON e.id = tve.evaluator_id
