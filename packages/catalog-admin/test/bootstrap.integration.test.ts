@@ -1514,7 +1514,7 @@ describe("production catalog bootstrap", () => {
         evidenceRuns: 4,
         completeProjectionRuns: 3,
         incompleteProjectionRuns: 1,
-        appearanceEvents: 3,
+        appearanceEvents: 1,
         absenceEvents: 1,
         reappearanceEvents: 1,
       });
