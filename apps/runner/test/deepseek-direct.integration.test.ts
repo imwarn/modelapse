@@ -383,7 +383,7 @@ describe("DeepSeek first-party direct queue path", () => {
             requestCount: 1,
           },
           estimatedNativeCost: "0.0000325000",
-          caveats: [],
+          caveats: ["pricing_account_tier_generic"],
         },
         evaluation: {
           status: "completed",
