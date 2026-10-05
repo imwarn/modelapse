@@ -176,6 +176,8 @@ These remain authoritative historical layers.
 
 ### Archive v0.18 — Provider Testability Registry / Access & Cost Evidence
 
+**Implemented:** see `docs/provider-testability.md`.
+
 Introduce an append-only, source-backed observation layer for:
 
 - provider-policy access;
@@ -221,6 +223,8 @@ Add immutable cost facts for completed Runs:
 - native-currency estimate;
 - optional normalized reporting currency as a derived view;
 - collection budget accounting.
+
+The pricing observation reference should be frozen against the Run using the same append-only evidence pattern as ADR 0015, so a later price change cannot reinterpret an older cost estimate.
 
 Schedulers may then choose repetition cadence based on budget policy, but cost must never change the historical Run payload or evaluation.
 
@@ -284,6 +288,8 @@ Provider onboarding should require:
 Only after the access/cost/qualification layers exist should public cross-provider views grow into broader benchmark-style surfaces.
 
 Public UI should show caveats next to results rather than hide them behind one aggregate score.
+
+Longitudinal views should also expose when execution context changed between Runs (region, account/service tier, assurance, evidence references), so an environment change is not misread as a model change.
 
 ## Scheduling principle
 

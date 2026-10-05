@@ -230,6 +230,11 @@ function ArchiveComparePage() {
               Inspect Test →
             </a>
           ) : null}
+          <p className="section-note">
+            Context badges compare each Run against the first available Run in
+            the selection. They are descriptive provenance, not a ranking or
+            quality verdict.
+          </p>
         </div>
 
         {comparison ? (

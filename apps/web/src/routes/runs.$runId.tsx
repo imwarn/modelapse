@@ -305,7 +305,10 @@ function ArchiveRunPage() {
             </div>
             <div>
               <dt>Service assurance</dt>
-              <dd>{run.executionQualification?.serviceAssurance ?? "unknown"}</dd>
+              <dd>
+                {run.executionQualification?.serviceAssurance.replaceAll("_", " ") ??
+                  "unknown"}
+              </dd>
             </div>
           </dl>
 

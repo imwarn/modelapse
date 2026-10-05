@@ -147,6 +147,11 @@ function ArchiveRunHistoryPage() {
               <div className="history-run-result">
                 <span className={evaluationClass(run)}>{evaluationLabel(run)}</span>
                 <span className="badge">evidence {run.evidenceLevel ?? "—"}</span>
+                <span className="badge">
+                  {run.executionQualification?.contextKey
+                    ? "context captured"
+                    : "context unknown"}
+                </span>
               </div>
               <div className="history-run-model">
                 <strong>{run.returnedModel ?? run.requestedModel}</strong>
