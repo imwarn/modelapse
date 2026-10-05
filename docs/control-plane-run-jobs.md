@@ -99,3 +99,14 @@ Infrastructure-level egress rules should allow the runner only the required data
 Archive v0.20 adds a planner-owned `cost` envelope to internal durable jobs. It carries a planning timestamp, optional Provider Testability pricing observation ID, native currency/rates and caveats.
 
 External callers of `POST /v1/control/run-jobs` cannot inject `qualification` or `cost`; use `POST /v1/control/runs` for normal planned execution. Queue idempotency ignores only the planner-generated selection timestamps, not the referenced evidence or prices.
+
+
+## Archive v0.21 execution environment routing
+
+Planned jobs may carry a planner-owned `fleet` envelope and persist `target_execution_environment_id` on the durable queue row.
+
+A queue-mode Runner configured with `MODELAPSE_EXECUTION_ENVIRONMENT=<slug>` resolves that immutable non-secret environment descriptor at startup and supplies its environment ID when claiming work. The queue returns only jobs targeted at that environment, and only while both the environment state and matching Provider capability are currently enabled.
+
+External `POST /v1/control/run-jobs` callers cannot inject `fleet`, just as they cannot inject qualification or cost evidence. Normal fleet-aware execution uses `POST /v1/control/runs`.
+
+The Fleet target does not change the at-least-once delivery guarantee.
