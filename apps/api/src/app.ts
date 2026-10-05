@@ -26,7 +26,7 @@ import type {
   PgCatalogPresenceReview,
   PgCatalogRemoteIdCase,
   PgProviderTestability,
-  type RecordProviderTestabilityObservationInput,
+  RecordProviderTestabilityObservationInput,
 } from "@modelapse/catalog-admin";
 
 const UUID_RE =
@@ -666,20 +666,20 @@ export function createApp(deps: AppDependencies) {
         subjectKind,
         accessState: accessState as RecordProviderTestabilityObservationInput["accessState"],
         ...(typeof body.registrationRequirement === "string"
-          ? { registrationRequirement: body.registrationRequirement as RecordProviderTestabilityObservationInput["registrationRequirement"] }
+          ? { registrationRequirement: body.registrationRequirement as NonNullable<RecordProviderTestabilityObservationInput["registrationRequirement"]> }
           : {}),
         ...(typeof body.billingRequirement === "string"
-          ? { billingRequirement: body.billingRequirement as RecordProviderTestabilityObservationInput["billingRequirement"] }
+          ? { billingRequirement: body.billingRequirement as NonNullable<RecordProviderTestabilityObservationInput["billingRequirement"]> }
           : {}),
         ...(typeof body.regionPolicy === "string"
-          ? { regionPolicy: body.regionPolicy as RecordProviderTestabilityObservationInput["regionPolicy"] }
+          ? { regionPolicy: body.regionPolicy as NonNullable<RecordProviderTestabilityObservationInput["regionPolicy"]> }
           : {}),
         ...(allowedRegions ? { allowedRegions } : {}),
         ...(blockedRegions ? { blockedRegions } : {}),
         ...(typeof body.accountTier === "string" ? { accountTier: body.accountTier } : {}),
         ...(typeof body.serviceTier === "string" ? { serviceTier: body.serviceTier } : {}),
         ...(typeof body.serviceAssurance === "string"
-          ? { serviceAssurance: body.serviceAssurance as RecordProviderTestabilityObservationInput["serviceAssurance"] }
+          ? { serviceAssurance: body.serviceAssurance as NonNullable<RecordProviderTestabilityObservationInput["serviceAssurance"]> }
           : {}),
         ...(pricing
           ? {
