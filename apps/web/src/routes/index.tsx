@@ -158,14 +158,24 @@ function ModelapseHome() {
             <small>AI Model Test & Evolution Archive</small>
           </span>
         </a>
-        <div className="integrity-links">
-          <a href="/provider-testability">Provider Testability</a>
-          <a href="/catalog-integrity">Catalog Integrity</a>
-          <div className="build-chip">
-            <span className="status-dot" />
-            build {snapshot.build.slice(0, 12)}
-          </div>
-        </div>
+        <nav className="home-header-nav" aria-label="Primary">
+          <a className="header-link" href="#archive">
+            Archive
+          </a>
+          <details className="operator-menu">
+            <summary className="header-link">Operator</summary>
+            <div className="operator-menu-panel">
+              <a href="#run">Run control</a>
+              <a href="/catalog-inbox">Catalog Inbox</a>
+              <a href="/provider-testability">Provider Testability</a>
+              <a href="/catalog-integrity">Catalog Integrity</a>
+              <div className="build-chip">
+                <span className="status-dot" />
+                build {snapshot.build.slice(0, 12)}
+              </div>
+            </div>
+          </details>
+        </nav>
       </header>
 
       <section className="hero">
@@ -198,10 +208,120 @@ function ModelapseHome() {
         </div>
       </section>
 
+      <section className="section archive-section" id="archive">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">PUBLIC ARCHIVE</p>
+            <h2>Recent sealed runs</h2>
+          </div>
+          <div className="archive-tools">
+            <div className="archive-primary-links">
+              <a className="header-link archive-compare-link" href="/compare">
+                Compare models →
+              </a>
+              <a className="header-link archive-compare-link" href="/changes">
+                Catalog changes →
+              </a>
+            </div>
+            <div className="archive-filters">
+            <select
+              aria-label="Filter Archive by model"
+              value={archiveModel}
+              onChange={(event) => setArchiveModel(event.target.value)}
+            >
+              <option value="">All models</option>
+              {snapshot.archive.models.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.marketingName}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Filter Archive by test"
+              value={archiveTest}
+              onChange={(event) => setArchiveTest(event.target.value)}
+            >
+              <option value="">All tests</option>
+              {snapshot.archive.tests.map((test) => (
+                <option key={test.testCaseId} value={test.testCaseId}>
+                  {test.familyName} · {test.caseSlug}
+                </option>
+              ))}
+            </select>
+            </div>
+          </div>
+        </div>
+
+        <div className="archive-table" role="table">
+          <div className="archive-row archive-header" role="row">
+            <span>Run</span>
+            <span>Model</span>
+            <span>Test</span>
+            <span>Evidence</span>
+            <span>Evaluation</span>
+            <span>Completed</span>
+          </div>
+
+          {filteredRuns.map((run) => (
+            <article className="archive-row" role="row" key={run.id}>
+              <span>
+                <a className="archive-run-link" href={`/runs/${run.id}`}>
+                  {run.id.slice(0, 8)} →
+                </a>
+                <small>{run.provider.slug}</small>
+              </span>
+              <span>
+                {run.model.id ? (
+                  <a className="archive-entity-link" href={`/models/${run.model.id}`}>
+                    {run.model.marketingName ?? run.requestedModel}
+                  </a>
+                ) : (
+                  <strong>{run.model.marketingName ?? run.requestedModel}</strong>
+                )}
+                <small>{run.returnedModel ?? run.requestedModel}</small>
+              </span>
+              <span>
+                <a
+                  className="archive-entity-link"
+                  href={`/tests/${run.test.testCaseId}`}
+                >
+                  {run.test.caseSlug}
+                </a>
+                <small>
+                  {run.test.familySlug} · v{run.test.version}
+                </small>
+              </span>
+              <span>
+                <b className="badge">{run.evidenceLevel ?? "—"}</b>
+                <small>{run.executionPath}</small>
+              </span>
+              <span>
+                <b className={evaluationClass(run)}>{evaluationLabel(run)}</b>
+                <small>
+                  {run.evaluation
+                    ? `${run.evaluation.evaluatorSlug}@${run.evaluation.evaluatorVersion}`
+                    : "—"}
+                </small>
+              </span>
+              <span>
+                <strong>{formatTimestamp(run.completedAt)}</strong>
+                <small>{run.status}</small>
+              </span>
+            </article>
+          ))}
+
+          {filteredRuns.length === 0 ? (
+            <div className="empty-state">
+              No sealed public Runs match these filters yet.
+            </div>
+          ) : null}
+        </div>
+      </section>
+
       <section className="section control-section" id="run">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">CONTROL PLANE</p>
+            <p className="eyebrow">OPERATOR · CONTROL PLANE</p>
             <h2>Run a verified test</h2>
           </div>
           <span
@@ -443,119 +563,6 @@ function ModelapseHome() {
             ) : null}
           </div>
         ) : null}
-      </section>
-
-      <section className="section archive-section" id="archive">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">PUBLIC ARCHIVE</p>
-            <h2>Recent sealed runs</h2>
-          </div>
-          <div className="archive-tools">
-            <div className="archive-primary-links">
-              <a className="header-link archive-compare-link" href="/compare">
-                Compare models →
-              </a>
-              <a className="header-link archive-compare-link" href="/changes">
-                Catalog changes →
-              </a>
-              <a className="header-link archive-compare-link" href="/catalog-inbox">
-                Catalog Inbox →
-              </a>
-            </div>
-            <div className="archive-filters">
-            <select
-              aria-label="Filter Archive by model"
-              value={archiveModel}
-              onChange={(event) => setArchiveModel(event.target.value)}
-            >
-              <option value="">All models</option>
-              {snapshot.archive.models.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.marketingName}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="Filter Archive by test"
-              value={archiveTest}
-              onChange={(event) => setArchiveTest(event.target.value)}
-            >
-              <option value="">All tests</option>
-              {snapshot.archive.tests.map((test) => (
-                <option key={test.testCaseId} value={test.testCaseId}>
-                  {test.familyName} · {test.caseSlug}
-                </option>
-              ))}
-            </select>
-            </div>
-          </div>
-        </div>
-
-        <div className="archive-table" role="table">
-          <div className="archive-row archive-header" role="row">
-            <span>Run</span>
-            <span>Model</span>
-            <span>Test</span>
-            <span>Evidence</span>
-            <span>Evaluation</span>
-            <span>Completed</span>
-          </div>
-
-          {filteredRuns.map((run) => (
-            <article className="archive-row" role="row" key={run.id}>
-              <span>
-                <a className="archive-run-link" href={`/runs/${run.id}`}>
-                  {run.id.slice(0, 8)} →
-                </a>
-                <small>{run.provider.slug}</small>
-              </span>
-              <span>
-                {run.model.id ? (
-                  <a className="archive-entity-link" href={`/models/${run.model.id}`}>
-                    {run.model.marketingName ?? run.requestedModel}
-                  </a>
-                ) : (
-                  <strong>{run.model.marketingName ?? run.requestedModel}</strong>
-                )}
-                <small>{run.returnedModel ?? run.requestedModel}</small>
-              </span>
-              <span>
-                <a
-                  className="archive-entity-link"
-                  href={`/tests/${run.test.testCaseId}`}
-                >
-                  {run.test.caseSlug}
-                </a>
-                <small>
-                  {run.test.familySlug} · v{run.test.version}
-                </small>
-              </span>
-              <span>
-                <b className="badge">{run.evidenceLevel ?? "—"}</b>
-                <small>{run.executionPath}</small>
-              </span>
-              <span>
-                <b className={evaluationClass(run)}>{evaluationLabel(run)}</b>
-                <small>
-                  {run.evaluation
-                    ? `${run.evaluation.evaluatorSlug}@${run.evaluation.evaluatorVersion}`
-                    : "—"}
-                </small>
-              </span>
-              <span>
-                <strong>{formatTimestamp(run.completedAt)}</strong>
-                <small>{run.status}</small>
-              </span>
-            </article>
-          ))}
-
-          {filteredRuns.length === 0 ? (
-            <div className="empty-state">
-              No sealed public Runs match these filters yet.
-            </div>
-          ) : null}
-        </div>
       </section>
 
       <footer>
