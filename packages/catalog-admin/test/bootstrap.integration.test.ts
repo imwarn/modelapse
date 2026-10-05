@@ -18,6 +18,7 @@ import {
   PgCatalogObserver,
   PgCatalogPresence,
   PgCatalogPresenceReview,
+  PgCatalogRemoteIdCase,
   PgModelCatalogAdmin,
 } from "../src/index.js";
 
@@ -1815,6 +1816,374 @@ describe("production catalog bootstrap", () => {
       expect(JSON.stringify(allItems)).not.toContain("response_body");
       expect(JSON.stringify(allItems)).not.toContain("responseBody");
     } finally {
+      await review.close();
+      await verification.end();
+    }
+  });
+
+  it("builds one remote ID evidence case across discovery, promotion, presence, and review facts", async () => {
+    const verification = new Pool({ connectionString: isolatedDatabaseUrl });
+    const review = PgCatalogPresenceReview.connect(isolatedDatabaseUrl);
+    const remoteCases = PgCatalogRemoteIdCase.connect(isolatedDatabaseUrl);
+    try {
+      const provider = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.providers (slug, name)
+         VALUES ('remote-case-fixture', 'Remote Case Fixture')
+         RETURNING id`,
+      );
+      const providerId = provider.rows[0]!.id;
+
+      const observerSource = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.catalog_observer_sources
+          (provider_id, source_key, source_kind, url, title, parser, interval_seconds)
+         VALUES (
+           $1,
+           'models-api',
+           'model_list',
+           'https://remote-case.example.test/models',
+           'Remote case fixture catalog',
+           'openai_models',
+           3600
+         )
+         RETURNING id`,
+        [providerId],
+      );
+      const observerSourceId = observerSource.rows[0]!.id;
+
+      const runIds: string[] = [];
+      const sourceIds: string[] = [];
+      const shas = ["a".repeat(64), "b".repeat(64), "c".repeat(64)];
+      for (let index = 0; index < 3; index += 1) {
+        const source = await verification.query<{ id: string }>(
+          `INSERT INTO modelapse.source_records
+            (source_type, url, title, retrieved_at, content_sha256)
+           VALUES (
+             'provider_catalog',
+             'https://remote-case.example.test/models',
+             'Remote case fixture catalog',
+             $1,
+             $2
+           )
+           RETURNING id`,
+          [`2099-07-01T00:0${index}:00.000Z`, shas[index]],
+        );
+        const run = await verification.query<{ id: string }>(
+          `INSERT INTO modelapse.catalog_collection_runs
+            (
+              observer_source_id,
+              status,
+              started_at,
+              completed_at,
+              item_count,
+              observations_emitted,
+              collector_build
+            )
+           VALUES (
+             $1,
+             'succeeded',
+             $2,
+             $3,
+             1,
+             1,
+             'remote-case-fixture'
+           )
+           RETURNING id`,
+          [
+            observerSourceId,
+            `2099-07-01T00:0${index}:00.000Z`,
+            `2099-07-01T00:0${index}:30.000Z`,
+          ],
+        );
+        await verification.query(
+          `INSERT INTO modelapse.catalog_source_snapshots
+            (
+              observer_source_id,
+              collection_run_id,
+              source_record_id,
+              retrieved_at,
+              content_sha256,
+              response_body
+            )
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [
+            observerSourceId,
+            run.rows[0]!.id,
+            source.rows[0]!.id,
+            `2099-07-01T00:0${index}:00.000Z`,
+            shas[index],
+            "raw-remote-case-secret-" + index,
+          ],
+        );
+        sourceIds.push(source.rows[0]!.id);
+        runIds.push(run.rows[0]!.id);
+      }
+
+      const model = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.models
+          (provider_id, canonical_slug, marketing_name, status, canonical_source_id)
+         VALUES ($1, 'remote-case-model', 'Remote Case Model', 'active', $2)
+         RETURNING id`,
+        [providerId, sourceIds[0]],
+      );
+      const modelId = model.rows[0]!.id;
+
+      const targetCandidate = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.catalog_discovery_candidates
+          (
+            provider_id,
+            remote_model_id,
+            first_seen_at,
+            last_seen_at,
+            first_source_record_id,
+            last_source_record_id,
+            first_collection_run_id,
+            last_collection_run_id,
+            observation_count,
+            status,
+            resolved_model_id,
+            resolved_at
+          )
+         VALUES (
+           $1,
+           'remote-case-target',
+           '2099-07-01T00:00:00Z',
+           '2099-07-01T00:00:00Z',
+           $2,
+           $2,
+           $3,
+           $3,
+           1,
+           'matched',
+           $4,
+           '2099-07-01T00:00:20Z'
+         )
+         RETURNING id`,
+        [providerId, sourceIds[0], runIds[0], modelId],
+      );
+      const targetCandidateId = targetCandidate.rows[0]!.id;
+
+      await verification.query(
+        `INSERT INTO modelapse.catalog_discovery_observations
+          (candidate_id, collection_run_id, source_record_id, observed_at)
+         VALUES ($1, $2, $3, '2099-07-01T00:00:00Z')`,
+        [targetCandidateId, runIds[0], sourceIds[0]],
+      );
+
+      await verification.query(
+        `INSERT INTO modelapse.catalog_reconciliation_events
+          (candidate_id, action, resolved_model_id, decided_at, actor, note)
+         VALUES (
+           $1,
+           'match_existing',
+           $2,
+           '2099-07-01T00:00:20Z',
+           'remote-case-test',
+           'matched to canonical model'
+         )`,
+        [targetCandidateId, modelId],
+      );
+
+      await verification.query(
+        `INSERT INTO modelapse.catalog_promotion_events
+          (
+            candidate_id,
+            model_id,
+            source_record_id,
+            canonical_slug,
+            marketing_name,
+            model_status,
+            actor,
+            promoted_at,
+            policy_version,
+            evidence
+          )
+         VALUES (
+           $1,
+           $2,
+           $3,
+           'remote-case-model',
+           'Remote Case Model',
+           'active',
+           'remote-case-test',
+           '2099-07-01T00:00:25Z',
+           'provider-catalog-v1',
+           $4::jsonb
+         )`,
+        [
+          targetCandidateId,
+          modelId,
+          sourceIds[0],
+          JSON.stringify({
+            sourceRecordId: sourceIds[0],
+            sourceType: "provider_catalog",
+            contentSha256: shas[0],
+          }),
+        ],
+      );
+
+      const alias = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.model_aliases (provider_id, alias)
+         VALUES ($1, 'remote-case-target')
+         RETURNING id`,
+        [providerId],
+      );
+      await verification.query(
+        `INSERT INTO modelapse.alias_resolution_events
+          (
+            alias_id,
+            resolved_model_id,
+            observed_at,
+            source_type,
+            source_id
+          )
+         VALUES (
+           $1,
+           $2,
+           '2099-07-01T00:01:00Z',
+           'provider_catalog',
+           $3
+         )`,
+        [alias.rows[0]!.id, modelId, sourceIds[1]],
+      );
+
+      const otherCandidate = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.catalog_discovery_candidates
+          (
+            provider_id,
+            remote_model_id,
+            first_seen_at,
+            last_seen_at,
+            first_source_record_id,
+            last_source_record_id,
+            first_collection_run_id,
+            last_collection_run_id,
+            observation_count,
+            status
+          )
+         VALUES (
+           $1,
+           'remote-case-other',
+           '2099-07-01T00:02:00Z',
+           '2099-07-01T00:02:00Z',
+           $2,
+           $2,
+           $3,
+           $3,
+           1,
+           'discovered'
+         )
+         RETURNING id`,
+        [providerId, sourceIds[2], runIds[2]],
+      );
+      await verification.query(
+        `INSERT INTO modelapse.catalog_discovery_observations
+          (candidate_id, collection_run_id, source_record_id, observed_at)
+         VALUES ($1, $2, $3, '2099-07-01T00:02:00Z')`,
+        [otherCandidate.rows[0]!.id, runIds[2], sourceIds[2]],
+      );
+
+      const openReviews = await review.list({ status: "open" });
+      const absence = openReviews.find(
+        (item) =>
+          item.provider.id === providerId &&
+          item.remoteModelId === "remote-case-target",
+      );
+      expect(absence).toMatchObject({
+        runId: runIds[2],
+        previousCompleteRunId: runIds[1],
+        interpretation: "not_observed_in_complete_model_list_evidence",
+      });
+
+      await review.decide({
+        providerId,
+        eventId: absence!.eventId,
+        action: "acknowledge",
+        actor: "remote-case-reviewer",
+        note: "checked model-list evidence",
+      });
+
+      const factsBefore = await verification.query(
+        `SELECT
+           (SELECT count(*)::text FROM modelapse.catalog_discovery_observations) AS discovery_observations,
+           (SELECT count(*)::text FROM modelapse.alias_resolution_events) AS alias_observations,
+           (SELECT count(*)::text FROM modelapse.catalog_reconciliation_events) AS reconciliations,
+           (SELECT count(*)::text FROM modelapse.catalog_promotion_events) AS promotions,
+           (SELECT count(*)::text FROM modelapse.catalog_presence_reviews) AS presence_reviews,
+           (SELECT count(*)::text FROM modelapse.catalog_presence_review_events) AS presence_review_events`,
+      );
+
+      const remoteCase = await remoteCases.get(providerId, "remote-case-target");
+      expect(remoteCase).not.toBeNull();
+      expect(remoteCase!.provider).toMatchObject({
+        id: providerId,
+        slug: "remote-case-fixture",
+      });
+      expect(remoteCase!.current).toMatchObject({
+        candidate: {
+          id: targetCandidateId,
+          status: "matched",
+          resolvedModel: { id: modelId },
+        },
+        canonicalModel: {
+          id: modelId,
+          canonicalSlug: "remote-case-model",
+          marketingName: "Remote Case Model",
+          status: "active",
+        },
+        promotion: {
+          modelId,
+          actor: "remote-case-test",
+          policyVersion: "provider-catalog-v1",
+        },
+      });
+      expect(remoteCase!.summary).toMatchObject({
+        observationEvents: 2,
+        presenceTransitions: 1,
+        reconciliationEvents: 1,
+        reviewDecisions: 1,
+        openPresenceReviews: 0,
+        acknowledgedPresenceReviews: 1,
+        resolvedPresenceReviews: 0,
+      });
+      expect(remoteCase!.presenceReviews).toEqual([
+        expect.objectContaining({
+          eventId: absence!.eventId,
+          status: "acknowledged",
+          decisions: [
+            expect.objectContaining({
+              action: "acknowledge",
+              actor: "remote-case-reviewer",
+            }),
+          ],
+        }),
+      ]);
+      expect(remoteCase!.timeline.map((event) => event.kind)).toEqual(
+        expect.arrayContaining([
+          "discovery_observation",
+          "reconciliation",
+          "promotion",
+          "canonical_observation",
+          "presence_not_observed",
+          "presence_review",
+        ]),
+      );
+      expect(JSON.stringify(remoteCase)).not.toContain("raw-remote-case-secret");
+      expect(JSON.stringify(remoteCase)).not.toContain("response_body");
+      expect(JSON.stringify(remoteCase)).not.toContain("responseBody");
+      expect(JSON.stringify(remoteCase)).not.toContain("raw_observation");
+
+      const factsAfter = await verification.query(
+        `SELECT
+           (SELECT count(*)::text FROM modelapse.catalog_discovery_observations) AS discovery_observations,
+           (SELECT count(*)::text FROM modelapse.alias_resolution_events) AS alias_observations,
+           (SELECT count(*)::text FROM modelapse.catalog_reconciliation_events) AS reconciliations,
+           (SELECT count(*)::text FROM modelapse.catalog_promotion_events) AS promotions,
+           (SELECT count(*)::text FROM modelapse.catalog_presence_reviews) AS presence_reviews,
+           (SELECT count(*)::text FROM modelapse.catalog_presence_review_events) AS presence_review_events`,
+      );
+      expect(factsAfter.rows[0]).toEqual(factsBefore.rows[0]);
+    } finally {
+      await remoteCases.close();
       await review.close();
       await verification.end();
     }
