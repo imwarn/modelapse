@@ -15,6 +15,7 @@ const queuedJob = {
   },
   status: "queued",
   idempotencyKey: "request-1",
+  targetExecutionEnvironmentId: null,
   attempts: 0,
   maxAttempts: 3,
   availableAt: "2026-09-23T00:00:00.000Z",
@@ -127,6 +128,29 @@ describe("Run job control API", () => {
     });
     expect(forgedCost.status).toBe(400);
 
+    const forgedFleet = await app.request("/v1/control/run-jobs", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer control-secret",
+      },
+      body: JSON.stringify({
+        provider: "openai",
+        testCaseId: TEST_CASE_ID,
+        model: "gpt-test",
+        fleet: {
+          selectedAt: "2026-10-06T00:00:00.000Z",
+          environmentId: "00000000-0000-4000-8000-000000000210",
+          environmentSlug: "us-paid",
+          region: "US",
+          serviceAssurance: "documented_default",
+          capabilityEventId: "00000000-0000-4000-8000-000000000211",
+          caveats: [],
+        },
+      }),
+    });
+    expect(forgedFleet.status).toBe(400);
+
     const accepted = await app.request("/v1/control/run-jobs", {
       method: "POST",
       headers: {
@@ -148,6 +172,7 @@ describe("Run job control API", () => {
         id: JOB_ID,
         kind: "openai_direct",
         status: "queued",
+        targetExecutionEnvironmentId: null,
         attempts: 0,
         maxAttempts: 3,
         runId: null,
@@ -156,6 +181,131 @@ describe("Run job control API", () => {
         updatedAt: "2026-09-23T00:00:00.000Z",
         completedAt: null,
       },
+    });
+  });
+});
+
+
+describe("Execution Fleet control API", () => {
+  const environmentId = "00000000-0000-4000-8000-000000000210";
+  const providerId = "00000000-0000-4000-8000-000000000211";
+
+  it("keeps non-secret environment and capability control operator-only", async () => {
+    let registered: unknown;
+    let stateInput: unknown;
+    let capabilityInput: unknown;
+    const environment = {
+      id: environmentId,
+      slug: "us-paid",
+      region: "US",
+      accountTier: "paid-standard",
+      serviceTier: "default",
+      serviceAssurance: "documented_default" as const,
+      enabled: true,
+      stateEventId: "00000000-0000-4000-8000-000000000212",
+      createdBy: "api-test",
+      note: null,
+      createdAt: "2026-10-06T00:00:00.000Z",
+    };
+
+    const app = createApp({
+      runs: baseRuns(),
+      controlToken: "control-secret",
+      fleet: {
+        ping: async () => undefined,
+        listEnvironments: async () => [{ ...environment, capabilities: [] }],
+        registerEnvironment: async (input) => {
+          registered = input;
+          return environment;
+        },
+        setEnvironmentState: async (input) => {
+          stateInput = input;
+          return {
+            eventId: "00000000-0000-4000-8000-000000000213",
+            enabled: input.enabled,
+          };
+        },
+        declareCapability: async (input) => {
+          capabilityInput = input;
+          return {
+            eventId: "00000000-0000-4000-8000-000000000214",
+            provider: { id: providerId, slug: "openai", name: "OpenAI" },
+            executionPath: "first_party_direct",
+            enabled: true,
+            selectionPriority: 10,
+            effectiveAt: "2026-10-06T00:00:00.000Z",
+            actor: "api-test",
+            note: null,
+          };
+        },
+      },
+    });
+
+    expect((await app.request("/v1/control/execution-fleet")).status).toBe(401);
+    const headers = { authorization: "Bearer control-secret" };
+
+    const list = await app.request("/v1/control/execution-fleet", { headers });
+    expect(list.status).toBe(200);
+    await expect(list.json()).resolves.toMatchObject({
+      environments: [{ id: environmentId, slug: "us-paid", region: "US" }],
+    });
+
+    const created = await app.request(
+      "/v1/control/execution-fleet/environments",
+      {
+        method: "POST",
+        headers: { ...headers, "content-type": "application/json" },
+        body: JSON.stringify({
+          slug: "us-paid",
+          region: "US",
+          accountTier: "paid-standard",
+          serviceTier: "default",
+          serviceAssurance: "documented_default",
+          actor: "api-test",
+        }),
+      },
+    );
+    expect(created.status).toBe(201);
+    expect(registered).toMatchObject({
+      slug: "us-paid",
+      region: "US",
+      accountTier: "paid-standard",
+      serviceTier: "default",
+    });
+
+    const state = await app.request(
+      `/v1/control/execution-fleet/environments/${environmentId}/state`,
+      {
+        method: "POST",
+        headers: { ...headers, "content-type": "application/json" },
+        body: JSON.stringify({
+          enabled: false,
+          actor: "api-test",
+        }),
+      },
+    );
+    expect(state.status).toBe(201);
+    expect(stateInput).toMatchObject({ environmentId, enabled: false });
+
+    const capability = await app.request(
+      `/v1/control/execution-fleet/environments/${environmentId}/capabilities`,
+      {
+        method: "POST",
+        headers: { ...headers, "content-type": "application/json" },
+        body: JSON.stringify({
+          providerId,
+          executionPath: "first_party_direct",
+          enabled: true,
+          selectionPriority: 10,
+          actor: "api-test",
+        }),
+      },
+    );
+    expect(capability.status).toBe(201);
+    expect(capabilityInput).toMatchObject({
+      environmentId,
+      providerId,
+      selectionPriority: 10,
     });
   });
 });
