@@ -76,14 +76,12 @@ function qualificationEnvelope(
     executionEnvironment?.region ??
     executionRegion?.trim() ??
     undefined;
-  const accountTier =
-    executionEnvironment?.accountTier ??
-    plan?.accountTier ??
-    undefined;
-  const serviceTier =
-    executionEnvironment?.serviceTier ??
-    plan?.serviceTier ??
-    undefined;
+  const accountTier = executionEnvironment
+    ? executionEnvironment.accountTier ?? undefined
+    : plan?.accountTier ?? undefined;
+  const serviceTier = executionEnvironment
+    ? executionEnvironment.serviceTier ?? undefined
+    : plan?.serviceTier ?? undefined;
   const serviceAssurance =
     executionEnvironment?.serviceAssurance ??
     plan?.serviceAssurance ??
