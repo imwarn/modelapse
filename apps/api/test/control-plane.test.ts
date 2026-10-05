@@ -87,6 +87,25 @@ describe("Run job control API", () => {
     });
     expect(invalid.status).toBe(400);
 
+    const forgedQualification = await app.request("/v1/control/run-jobs", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer control-secret",
+      },
+      body: JSON.stringify({
+        provider: "openai",
+        testCaseId: TEST_CASE_ID,
+        model: "gpt-test",
+        qualification: {
+          selectedAt: "2026-10-05T00:00:00.000Z",
+          serviceAssurance: "documented_default",
+          caveats: [],
+        },
+      }),
+    });
+    expect(forgedQualification.status).toBe(400);
+
     const accepted = await app.request("/v1/control/run-jobs", {
       method: "POST",
       headers: {
