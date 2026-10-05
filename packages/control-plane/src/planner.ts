@@ -7,6 +7,7 @@ import {
   type DirectProviderRunRequest,
   type DirectProviderSlug,
   type DirectRunConfig,
+  type DirectRunFleetPlan,
 } from "./job.js";
 
 export interface RunnableModelTestabilityObservation {
@@ -81,6 +82,7 @@ export interface RunSelectionRequest {
 export interface PlannedDirectRun {
   readonly model: RunnableModel;
   readonly test: RunnableTest;
+  readonly executionEnvironment: DirectRunFleetPlan | null;
   readonly jobPayload: DirectProviderRunRequest;
 }
 
@@ -380,6 +382,7 @@ export class PgRunPlanner {
     model: RunnableModel,
     requestedServiceTier: string | undefined,
     selectedAt: string,
+    fleet: DirectRunFleetPlan | null,
   ): NonNullable<DirectProviderRunRequest["qualification"]> {
     const policy = model.testability.providerPolicy;
     const runner = model.testability.runnerAccess;
@@ -397,7 +400,28 @@ export class PgRunPlanner {
       caveats.push("runner_access_" + runner.accessState);
     }
 
-    const serviceAssurance = runner?.serviceAssurance ?? "unknown";
+    if (!fleet) {
+      caveats.push("execution_fleet_unconfigured");
+    } else {
+      caveats.push(...fleet.caveats);
+      if (
+        runner?.accountTier &&
+        fleet.accountTier &&
+        runner.accountTier !== fleet.accountTier
+      ) {
+        caveats.push("runner_access_account_tier_differs_from_environment");
+      }
+      if (
+        runner?.serviceTier &&
+        fleet.serviceTier &&
+        runner.serviceTier !== fleet.serviceTier
+      ) {
+        caveats.push("runner_access_service_tier_differs_from_environment");
+      }
+    }
+
+    const serviceAssurance =
+      fleet?.serviceAssurance ?? runner?.serviceAssurance ?? "unknown";
     if (serviceAssurance === "operator_uncertain") {
       caveats.push("service_assurance_operator_uncertain");
     } else if (serviceAssurance === "unknown") {
@@ -408,8 +432,16 @@ export class PgRunPlanner {
       selectedAt,
       ...(policy ? { providerPolicyObservationId: policy.id } : {}),
       ...(runner ? { runnerAccessObservationId: runner.id } : {}),
-      ...(runner?.accountTier ? { accountTier: runner.accountTier } : {}),
-      ...(runner?.serviceTier ? { serviceTier: runner.serviceTier } : {}),
+      ...(fleet?.accountTier
+        ? { accountTier: fleet.accountTier }
+        : runner?.accountTier
+          ? { accountTier: runner.accountTier }
+          : {}),
+      ...(fleet?.serviceTier
+        ? { serviceTier: fleet.serviceTier }
+        : runner?.serviceTier
+          ? { serviceTier: runner.serviceTier }
+          : {}),
       ...(requestedServiceTier ? { requestedServiceTier } : {}),
       serviceAssurance,
       caveats,
@@ -420,8 +452,12 @@ export class PgRunPlanner {
     model: RunnableModel,
     targetServiceTier: string | undefined,
     selectedAt: string,
+    targetAccountTier?: string,
   ): Promise<NonNullable<DirectProviderRunRequest["cost"]>> {
-    const accountTier = model.testability.runnerAccess?.accountTier ?? undefined;
+    const accountTier =
+      targetAccountTier ??
+      model.testability.runnerAccess?.accountTier ??
+      undefined;
     const result = await this.pool.query<{
       id: string;
       pricing_currency: string;
@@ -512,6 +548,128 @@ export class PgRunPlanner {
     };
   }
 
+  private async fleetFor(
+    model: RunnableModel,
+    requestedServiceTier: string | undefined,
+    selectedAt: string,
+  ): Promise<DirectRunFleetPlan | null> {
+    const enabled = await this.pool.query<{ count: number }>(
+      `SELECT count(*)::int AS count
+         FROM modelapse.execution_environments environment
+         JOIN modelapse.execution_environment_current_state state
+           ON state.environment_id = environment.id
+          AND state.enabled`,
+    );
+    if ((enabled.rows[0]?.count ?? 0) === 0) return null;
+
+    const preferredServiceTier =
+      requestedServiceTier ??
+      model.testability.runnerAccess?.serviceTier ??
+      null;
+    const preferredAccountTier =
+      model.testability.runnerAccess?.accountTier ?? null;
+
+    const result = await this.pool.query<{
+      environment_id: string;
+      environment_slug: string;
+      region: string;
+      account_tier: string | null;
+      service_tier: string | null;
+      service_assurance:
+        | "documented_default"
+        | "documented_variant"
+        | "operator_uncertain"
+        | "unknown";
+      capability_event_id: string;
+      selection_priority: number;
+      policy_region_policy: "unrestricted" | "restricted" | "unknown" | null;
+      policy_allowed_regions: string[] | null;
+      policy_blocked_regions: string[] | null;
+    }>(
+      `SELECT
+         environment.id AS environment_id,
+         environment.slug AS environment_slug,
+         environment.region,
+         environment.account_tier,
+         environment.service_tier,
+         environment.service_assurance,
+         capability.id AS capability_event_id,
+         capability.selection_priority,
+         policy.region_policy AS policy_region_policy,
+         policy.allowed_regions AS policy_allowed_regions,
+         policy.blocked_regions AS policy_blocked_regions
+       FROM modelapse.execution_environments environment
+       JOIN modelapse.execution_environment_current_state state
+         ON state.environment_id = environment.id
+        AND state.enabled
+       JOIN modelapse.execution_environment_capabilities_current capability
+         ON capability.environment_id = environment.id
+        AND capability.provider_id = $1
+        AND capability.execution_path = 'first_party_direct'
+        AND capability.enabled
+       LEFT JOIN modelapse.provider_testability_observations policy
+         ON policy.id = $2
+       WHERE (
+           policy.id IS NULL
+           OR cardinality(policy.allowed_regions) = 0
+           OR environment.region = ANY(policy.allowed_regions)
+         )
+         AND (
+           policy.id IS NULL
+           OR NOT (environment.region = ANY(policy.blocked_regions))
+         )
+         AND (
+           $3::text IS NULL
+           OR environment.service_tier IS NULL
+           OR environment.service_tier = $3
+         )
+       ORDER BY
+         capability.selection_priority ASC,
+         (environment.service_tier IS NOT DISTINCT FROM $3::text) DESC,
+         (environment.account_tier IS NOT DISTINCT FROM $4::text) DESC,
+         environment.slug ASC,
+         environment.id ASC
+       LIMIT 1`,
+      [
+        model.providerId,
+        model.testability.providerPolicy?.id ?? null,
+        preferredServiceTier,
+        preferredAccountTier,
+      ],
+    );
+
+    const row = result.rows[0];
+    if (!row) {
+      throw new Error(
+        "No enabled execution environment has a compatible first-party capability for the selected Provider",
+      );
+    }
+
+    const caveats: string[] = [];
+    if (
+      row.policy_region_policy === "restricted" &&
+      (row.policy_allowed_regions?.length ?? 0) === 0 &&
+      (row.policy_blocked_regions?.length ?? 0) === 0
+    ) {
+      caveats.push("provider_region_policy_restricted_without_region_list");
+    }
+    if (requestedServiceTier && row.service_tier === null) {
+      caveats.push("environment_service_tier_generic");
+    }
+
+    return {
+      selectedAt,
+      environmentId: row.environment_id,
+      environmentSlug: row.environment_slug,
+      region: row.region,
+      ...(row.account_tier ? { accountTier: row.account_tier } : {}),
+      ...(row.service_tier ? { serviceTier: row.service_tier } : {}),
+      serviceAssurance: row.service_assurance,
+      capabilityEventId: row.capability_event_id,
+      caveats,
+    };
+  }
+
   async plan(input: RunSelectionRequest): Promise<PlannedDirectRun> {
     const selection = parseRunSelectionRequest(input);
 
@@ -539,11 +697,22 @@ export class PgRunPlanner {
     }
 
     const selectedAt = new Date().toISOString();
+    const fleet = await this.fleetFor(
+      model,
+      selection.config?.serviceTier,
+      selectedAt,
+    );
     const targetServiceTier =
       selection.config?.serviceTier ??
+      fleet?.serviceTier ??
       model.testability.runnerAccess?.serviceTier ??
       undefined;
-    const cost = await this.costFor(model, targetServiceTier, selectedAt);
+    const cost = await this.costFor(
+      model,
+      targetServiceTier,
+      selectedAt,
+      fleet?.accountTier,
+    );
 
     const jobPayload: DirectProviderRunRequest = {
       provider: model.provider,
@@ -555,10 +724,17 @@ export class PgRunPlanner {
         model,
         selection.config?.serviceTier,
         selectedAt,
+        fleet,
       ),
       cost,
+      ...(fleet ? { fleet } : {}),
     };
 
-    return { model, test, jobPayload };
+    return {
+      model,
+      test,
+      executionEnvironment: fleet,
+      jobPayload,
+    };
   }
 }
