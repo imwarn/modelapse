@@ -33,6 +33,7 @@ export interface QueueWorkerDependencies {
     readonly privateKey: string | import("node:crypto").KeyObject;
   };
   readonly runnerBuild: string;
+  readonly executionRegion?: string;
   readonly workerId: string;
   readonly leaseSeconds: number;
   readonly collector?: string;
@@ -64,6 +65,9 @@ export async function processOneQueuedRunJob(
       credentials: deps.credentials,
       signer: deps.signer,
       runnerBuild: deps.runnerBuild,
+      ...(deps.executionRegion
+        ? { executionRegion: deps.executionRegion }
+        : {}),
       ...(deps.collector ? { collector: deps.collector } : {}),
     };
 
