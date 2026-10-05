@@ -259,6 +259,38 @@ export class PgRunRepository implements RunRepository {
         );
       }
 
+      if (input.executionQualification) {
+        const qualification = input.executionQualification;
+        await client.query(
+          `INSERT INTO modelapse.run_execution_qualification_envelopes
+            (
+              run_id,
+              selected_at,
+              execution_region,
+              provider_policy_observation_id,
+              runner_access_observation_id,
+              account_tier,
+              service_tier,
+              requested_service_tier,
+              service_assurance,
+              caveats
+            )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::text[])`,
+          [
+            runId,
+            qualification.selectedAt,
+            qualification.executionRegion ?? null,
+            qualification.providerPolicyObservationId ?? null,
+            qualification.runnerAccessObservationId ?? null,
+            qualification.accountTier ?? null,
+            qualification.serviceTier ?? null,
+            qualification.requestedServiceTier ?? null,
+            qualification.serviceAssurance,
+            qualification.caveats ?? [],
+          ],
+        );
+      }
+
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");
@@ -413,6 +445,36 @@ export class PgRunRepository implements RunRepository {
               (run_id, response_headers_blob_sha256)
              VALUES ($1, $2)`,
             [input.runId, input.responseHeadersBlob.sha256],
+          );
+        }
+
+        if (input.executionQualificationOutcome) {
+          const outcome = input.executionQualificationOutcome;
+          await client.query(
+            `INSERT INTO modelapse.run_execution_qualification_outcomes
+              (run_id, returned_service_tier, caveats, captured_at)
+             SELECT
+               envelope.run_id,
+               $2::text,
+               COALESCE($3::text[], '{}'::text[]) ||
+                 CASE
+                   WHEN envelope.requested_service_tier IS NOT NULL
+                        AND $2::text IS NULL
+                     THEN ARRAY['returned_service_tier_unknown']::text[]
+                   WHEN envelope.requested_service_tier IS NOT NULL
+                        AND envelope.requested_service_tier <> $2::text
+                     THEN ARRAY['returned_service_tier_mismatch']::text[]
+                   ELSE '{}'::text[]
+                 END,
+               $4::timestamptz
+             FROM modelapse.run_execution_qualification_envelopes envelope
+             WHERE envelope.run_id = $1`,
+            [
+              input.runId,
+              outcome.returnedServiceTier ?? null,
+              outcome.caveats ?? [],
+              outcome.capturedAt,
+            ],
           );
         }
 
