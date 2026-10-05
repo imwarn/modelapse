@@ -127,6 +127,9 @@ export async function persistSealedProviderRun(
   });
 
   const normalized = input.sealed.normalized;
+  const normalizedReturnedServiceTier = returnedServiceTier(
+    normalized?.providerMetadata,
+  );
   const providerMetadata = {
     ...(normalized?.providerRequestId
       ? { providerRequestId: normalized.providerRequestId }
@@ -164,12 +167,8 @@ export async function persistSealedProviderRun(
     attestationPayloadBlob,
     providerMetadata,
     executionQualificationOutcome: {
-      ...(returnedServiceTier(normalized?.providerMetadata)
-        ? {
-            returnedServiceTier: returnedServiceTier(
-              normalized?.providerMetadata,
-            ),
-          }
+      ...(normalizedReturnedServiceTier
+        ? { returnedServiceTier: normalizedReturnedServiceTier }
         : {}),
       capturedAt: input.sealed.exchange.completedAt,
     },
