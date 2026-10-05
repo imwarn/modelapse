@@ -13,6 +13,14 @@ function jsonValue(value: unknown): unknown {
   return value === undefined ? null : value;
 }
 
+function tokenQuantity(value: number | undefined, label: string): number | null {
+  if (value === undefined) return null;
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(label + " must be a non-negative safe integer");
+  }
+  return value;
+}
+
 async function registerBlob(
   client: PoolClient,
   blob: BlobDescriptor,
@@ -291,6 +299,34 @@ export class PgRunRepository implements RunRepository {
         );
       }
 
+      if (input.runCost) {
+        const cost = input.runCost;
+        await client.query(
+          `INSERT INTO modelapse.run_cost_envelopes
+            (
+              run_id,
+              selected_at,
+              pricing_observation_id,
+              pricing_currency,
+              input_price_per_million,
+              output_price_per_million,
+              request_price,
+              caveats
+            )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text[])`,
+          [
+            runId,
+            cost.selectedAt,
+            cost.pricingObservationId ?? null,
+            cost.currency ?? null,
+            cost.inputPricePerMillion ?? null,
+            cost.outputPricePerMillion ?? null,
+            cost.perRequest ?? null,
+            cost.caveats ?? [],
+          ],
+        );
+      }
+
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");
@@ -445,6 +481,114 @@ export class PgRunRepository implements RunRepository {
               (run_id, response_headers_blob_sha256)
              VALUES ($1, $2)`,
             [input.runId, input.responseHeadersBlob.sha256],
+          );
+        }
+
+        if (input.status === "completed") {
+          const usage = input.providerMetadata?.usage;
+          const inputTokens = tokenQuantity(usage?.inputTokens, "usage.inputTokens");
+          const outputTokens = tokenQuantity(usage?.outputTokens, "usage.outputTokens");
+          const totalTokens = tokenQuantity(usage?.totalTokens, "usage.totalTokens");
+
+          await client.query(
+            `WITH basis AS (
+               SELECT
+                 envelope.run_id,
+                 envelope.pricing_observation_id,
+                 envelope.pricing_currency,
+                 envelope.input_price_per_million,
+                 envelope.output_price_per_million,
+                 envelope.request_price,
+                 $2::bigint AS input_tokens,
+                 $3::bigint AS output_tokens,
+                 $4::bigint AS total_tokens
+               FROM modelapse.run_cost_envelopes envelope
+               WHERE envelope.run_id = $1
+             ),
+             calculated AS (
+               SELECT
+                 basis.*,
+                 CASE
+                   WHEN pricing_currency IS NULL THEN NULL
+                   WHEN request_price IS NOT NULL
+                        AND input_price_per_million IS NULL
+                        AND output_price_per_million IS NULL
+                     THEN request_price
+                   WHEN input_price_per_million IS NOT NULL
+                        AND output_price_per_million IS NOT NULL
+                        AND input_tokens IS NOT NULL
+                        AND output_tokens IS NOT NULL
+                     THEN
+                       (input_tokens::numeric * input_price_per_million / 1000000::numeric) +
+                       (output_tokens::numeric * output_price_per_million / 1000000::numeric) +
+                       COALESCE(request_price, 0::numeric)
+                   ELSE NULL
+                 END AS estimated_native_cost
+               FROM basis
+             )
+             INSERT INTO modelapse.run_cost_facts
+               (
+                 run_id,
+                 input_tokens,
+                 output_tokens,
+                 total_tokens,
+                 request_count,
+                 native_currency,
+                 estimated_native_cost,
+                 caveats,
+                 captured_at
+               )
+             SELECT
+               run_id,
+               input_tokens,
+               output_tokens,
+               total_tokens,
+               1,
+               pricing_currency,
+               estimated_native_cost,
+               array_remove(ARRAY[
+                 CASE
+                   WHEN pricing_observation_id IS NULL OR pricing_currency IS NULL
+                     THEN 'pricing_evidence_missing'
+                 END,
+                 CASE
+                   WHEN pricing_currency IS NOT NULL
+                        AND request_price IS NULL
+                        AND input_price_per_million IS NULL
+                        AND output_price_per_million IS NULL
+                     THEN 'pricing_basis_empty'
+                   WHEN pricing_currency IS NOT NULL
+                        AND NOT (
+                          request_price IS NOT NULL
+                          AND input_price_per_million IS NULL
+                          AND output_price_per_million IS NULL
+                        )
+                        AND (
+                          input_price_per_million IS NULL
+                          OR output_price_per_million IS NULL
+                        )
+                     THEN 'pricing_basis_partial'
+                 END,
+                 CASE
+                   WHEN input_price_per_million IS NOT NULL
+                        AND output_price_per_million IS NOT NULL
+                        AND (input_tokens IS NULL OR output_tokens IS NULL)
+                     THEN 'usage_incomplete'
+                 END,
+                 CASE
+                   WHEN estimated_native_cost IS NULL
+                     THEN 'native_cost_unavailable'
+                 END
+               ]::text[], NULL),
+               $5::timestamptz
+             FROM calculated`,
+            [
+              input.runId,
+              inputTokens,
+              outputTokens,
+              totalTokens,
+              input.completedAt,
+            ],
           );
         }
 
