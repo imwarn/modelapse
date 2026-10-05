@@ -29,6 +29,16 @@ export interface ExecutionQualificationOutcomeInput {
   readonly capturedAt: string;
 }
 
+export interface RunCostEnvelopeInput {
+  readonly selectedAt: string;
+  readonly pricingObservationId?: string;
+  readonly currency?: string;
+  readonly inputPricePerMillion?: string;
+  readonly outputPricePerMillion?: string;
+  readonly perRequest?: string;
+  readonly caveats?: readonly string[];
+}
+
 export interface CreatePlannedRunInput {
   readonly testCaseId: string;
   readonly modelId?: string;
@@ -39,6 +49,7 @@ export interface CreatePlannedRunInput {
   readonly runnerBuild: string;
   readonly config?: RunConfig;
   readonly executionQualification?: ExecutionQualificationEnvelopeInput;
+  readonly runCost?: RunCostEnvelopeInput;
 }
 
 export interface ProviderMetadataInput {
