@@ -34,6 +34,18 @@ export interface DirectRunCostPlan {
   readonly caveats: readonly string[];
 }
 
+export interface DirectRunFleetPlan {
+  readonly selectedAt: string;
+  readonly environmentId: string;
+  readonly environmentSlug: string;
+  readonly region: string;
+  readonly accountTier?: string;
+  readonly serviceTier?: string;
+  readonly serviceAssurance: ExecutionQualificationServiceAssurance;
+  readonly capabilityEventId: string;
+  readonly caveats: readonly string[];
+}
+
 interface DirectProviderRunBase {
   readonly testCaseId: string;
   readonly modelId?: string;
@@ -41,6 +53,7 @@ interface DirectProviderRunBase {
   readonly config?: DirectRunConfig;
   readonly qualification?: DirectRunQualificationPlan;
   readonly cost?: DirectRunCostPlan;
+  readonly fleet?: DirectRunFleetPlan;
 }
 
 export interface DirectOpenAIRunRequest extends DirectProviderRunBase {
@@ -323,6 +336,89 @@ function parseDirectRunCost(value: unknown): DirectRunCostPlan | undefined {
   };
 }
 
+function parseDirectRunFleet(value: unknown): DirectRunFleetPlan | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error("fleet must be an object");
+
+  rejectUnknownKeys(
+    value,
+    [
+      "selectedAt",
+      "environmentId",
+      "environmentSlug",
+      "region",
+      "accountTier",
+      "serviceTier",
+      "serviceAssurance",
+      "capabilityEventId",
+      "caveats",
+    ],
+    "fleet",
+  );
+
+  if (
+    typeof value.selectedAt !== "string" ||
+    !Number.isFinite(Date.parse(value.selectedAt))
+  ) {
+    throw new Error("fleet.selectedAt must be an ISO timestamp");
+  }
+  for (const key of ["environmentId", "capabilityEventId"] as const) {
+    if (typeof value[key] !== "string" || !UUID_RE.test(value[key])) {
+      throw new Error("fleet." + key + " must be a UUID");
+    }
+  }
+  if (
+    typeof value.environmentSlug !== "string" ||
+    !/^[a-z0-9][a-z0-9-]*$/.test(value.environmentSlug)
+  ) {
+    throw new Error("fleet.environmentSlug is invalid");
+  }
+  if (typeof value.region !== "string" || !value.region.trim()) {
+    throw new Error("fleet.region must be a non-empty string");
+  }
+  for (const key of ["accountTier", "serviceTier"] as const) {
+    const field = value[key];
+    if (
+      field !== undefined &&
+      (typeof field !== "string" || !field.trim())
+    ) {
+      throw new Error("fleet." + key + " must be a non-empty string");
+    }
+  }
+  if (
+    value.serviceAssurance !== "documented_default" &&
+    value.serviceAssurance !== "documented_variant" &&
+    value.serviceAssurance !== "operator_uncertain" &&
+    value.serviceAssurance !== "unknown"
+  ) {
+    throw new Error("fleet.serviceAssurance is invalid");
+  }
+  if (
+    !Array.isArray(value.caveats) ||
+    value.caveats.some(
+      (caveat) => typeof caveat !== "string" || !caveat.trim(),
+    )
+  ) {
+    throw new Error("fleet.caveats must be a string array");
+  }
+
+  return {
+    selectedAt: value.selectedAt,
+    environmentId: value.environmentId as string,
+    environmentSlug: value.environmentSlug,
+    region: value.region,
+    ...(typeof value.accountTier === "string"
+      ? { accountTier: value.accountTier }
+      : {}),
+    ...(typeof value.serviceTier === "string"
+      ? { serviceTier: value.serviceTier }
+      : {}),
+    serviceAssurance: value.serviceAssurance,
+    capabilityEventId: value.capabilityEventId as string,
+    caveats: [...value.caveats],
+  };
+}
+
 export function parseDirectProviderRunRequest(
   value: unknown,
 ): DirectProviderRunRequest {
@@ -330,7 +426,16 @@ export function parseDirectProviderRunRequest(
 
   rejectUnknownKeys(
     value,
-    ["provider", "testCaseId", "modelId", "model", "config", "qualification", "cost"],
+    [
+      "provider",
+      "testCaseId",
+      "modelId",
+      "model",
+      "config",
+      "qualification",
+      "cost",
+      "fleet",
+    ],
     "job",
   );
 
@@ -353,6 +458,7 @@ export function parseDirectProviderRunRequest(
   const config = parseDirectRunConfig(value.config);
   const qualification = parseDirectRunQualification(value.qualification);
   const cost = parseDirectRunCost(value.cost);
+  const fleet = parseDirectRunFleet(value.fleet);
 
   return {
     provider: value.provider,
@@ -362,6 +468,7 @@ export function parseDirectProviderRunRequest(
     ...(config ? { config } : {}),
     ...(qualification ? { qualification } : {}),
     ...(cost ? { cost } : {}),
+    ...(fleet ? { fleet } : {}),
   };
 }
 

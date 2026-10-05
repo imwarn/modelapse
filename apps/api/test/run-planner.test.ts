@@ -42,6 +42,7 @@ const plan: PlannedDirectRun = {
       kind: "deterministic",
     },
   },
+  executionEnvironment: null,
   jobPayload: {
     provider: "deepseek",
     modelId: MODEL_ID,
@@ -57,6 +58,7 @@ const queuedJob = {
   payload: plan.jobPayload,
   status: "queued",
   idempotencyKey: "planner-1",
+  targetExecutionEnvironmentId: null,
   attempts: 0,
   maxAttempts: 3,
   availableAt: "2026-09-24T00:00:00.000Z",

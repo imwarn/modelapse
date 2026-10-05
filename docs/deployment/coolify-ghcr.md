@@ -283,3 +283,21 @@ GitHub Actions needs the five core Coolify environment secrets listed above, plu
 The production publish workflow is triggered from a successful `CI` workflow on `main`, not directly from a push.
 
 It also compares the CI commit with the current `main` SHA. If a newer merge has already landed, an older successful CI run is ignored. This prevents an out-of-order Actions completion from republishing an older build as `:main`.
+
+
+## Regional / account Runner fleet
+
+Archive v0.21 supports multiple Runner deployments sharing the same PostgreSQL queue while claiming only their assigned execution environment.
+
+For each Fleet Runner deployment set:
+
+```text
+MODELAPSE_RUNNER_MODE=queue
+MODELAPSE_EXECUTION_ENVIRONMENT=<registered-environment-slug>
+```
+
+Keep the Provider API key and attestation private key only in that deployment's secret environment. Do not put credentials in the execution Fleet registry.
+
+`MODELAPSE_EXECUTION_REGION` is retained for legacy/unassigned deployments. When both variables are present, the Runner refuses to start if the legacy region label disagrees with the registered environment region.
+
+Register the environment and Provider capability through the authenticated control API before sending Fleet-planned Runs. Once any execution environment has been registered, the Planner fails closed when no compatible enabled environment exists.

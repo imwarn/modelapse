@@ -5,7 +5,10 @@ import {
   type KeyObject,
 } from "node:crypto";
 import type { BlobStore } from "@modelapse/blob-store";
-import type { DirectProviderRunRequest } from "@modelapse/control-plane";
+import type {
+  DirectProviderRunRequest,
+  ExecutionEnvironmentDescriptor,
+} from "@modelapse/control-plane";
 import type {
   CredentialResolver,
   EvidenceTransport,
@@ -28,6 +31,7 @@ export interface DirectProviderRunDependencies {
     readonly privateKey: string | KeyObject;
   };
   readonly runnerBuild: string;
+  readonly executionEnvironment?: ExecutionEnvironmentDescriptor;
   readonly executionRegion?: string;
   readonly collector?: string;
 }
@@ -42,17 +46,65 @@ function publicKeyPem(privateKey: string | KeyObject): string {
 
 function qualificationEnvelope(
   request: DirectProviderRunRequest,
+  executionEnvironment: ExecutionEnvironmentDescriptor | undefined,
   executionRegion: string | undefined,
 ) {
   const plan = request.qualification;
-  const region = executionRegion?.trim() || undefined;
+  const fleet = request.fleet;
+
+  if (fleet) {
+    if (!executionEnvironment) {
+      throw new Error(
+        "Fleet-planned Run requires a configured execution environment",
+      );
+    }
+    if (
+      executionEnvironment.id !== fleet.environmentId ||
+      executionEnvironment.slug !== fleet.environmentSlug ||
+      executionEnvironment.region !== fleet.region ||
+      executionEnvironment.accountTier !== (fleet.accountTier ?? null) ||
+      executionEnvironment.serviceTier !== (fleet.serviceTier ?? null) ||
+      executionEnvironment.serviceAssurance !== fleet.serviceAssurance
+    ) {
+      throw new Error(
+        "Worker execution environment does not match the frozen fleet plan",
+      );
+    }
+  }
+
+  const region =
+    executionEnvironment?.region ??
+    executionRegion?.trim() ??
+    undefined;
+  const accountTier = executionEnvironment
+    ? executionEnvironment.accountTier ?? undefined
+    : plan?.accountTier ?? undefined;
+  const serviceTier = executionEnvironment
+    ? executionEnvironment.serviceTier ?? undefined
+    : plan?.serviceTier ?? undefined;
+  const serviceAssurance =
+    executionEnvironment?.serviceAssurance ??
+    plan?.serviceAssurance ??
+    ("unknown" as const);
+
   const caveats = new Set(
     plan?.caveats ?? ["testability_evidence_not_planned"],
   );
   if (!region) caveats.add("execution_region_unknown");
+  if (fleet && executionEnvironment) {
+    caveats.delete("execution_fleet_unconfigured");
+  }
 
   return {
     selectedAt: plan?.selectedAt ?? new Date().toISOString(),
+    ...(executionEnvironment
+      ? {
+          executionEnvironmentId: executionEnvironment.id,
+          ...(fleet
+            ? { executionCapabilityEventId: fleet.capabilityEventId }
+            : {}),
+        }
+      : {}),
     ...(region ? { executionRegion: region } : {}),
     ...(plan?.providerPolicyObservationId
       ? { providerPolicyObservationId: plan.providerPolicyObservationId }
@@ -60,12 +112,12 @@ function qualificationEnvelope(
     ...(plan?.runnerAccessObservationId
       ? { runnerAccessObservationId: plan.runnerAccessObservationId }
       : {}),
-    ...(plan?.accountTier ? { accountTier: plan.accountTier } : {}),
-    ...(plan?.serviceTier ? { serviceTier: plan.serviceTier } : {}),
+    ...(accountTier ? { accountTier } : {}),
+    ...(serviceTier ? { serviceTier } : {}),
     ...(plan?.requestedServiceTier
       ? { requestedServiceTier: plan.requestedServiceTier }
       : {}),
-    serviceAssurance: plan?.serviceAssurance ?? ("unknown" as const),
+    serviceAssurance,
     caveats: [...caveats],
   };
 }
@@ -202,6 +254,7 @@ export async function runDirectProvider(
       runnerBuild: deps.runnerBuild,
       executionQualification: qualificationEnvelope(
         request,
+        deps.executionEnvironment,
         deps.executionRegion,
       ),
       runCost: costEnvelope(request),

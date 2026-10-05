@@ -232,6 +232,8 @@ Schedulers may then choose repetition cadence based on budget policy, but cost m
 
 ### Archive v0.21 — Regional / Account Fleet
 
+**Implemented:** see `docs/regional-account-fleet.md` and ADR 0017.
+
 Support multiple controlled execution environments without exposing credentials:
 
 - region-specific workers;

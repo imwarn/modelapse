@@ -4,6 +4,7 @@ import {
   IdempotencyConflictError,
   parseDirectProviderRunRequest,
   parseRunSelectionRequest,
+  type PgExecutionFleet,
   type PgRunJobQueue,
   type PgRunPlanner,
   type RunJob,
@@ -50,6 +51,14 @@ function apiStringArray(value: unknown): string[] | undefined {
 
 type RunApiRepository = Pick<RunRepository, "ping" | "getRun">;
 type ControlQueue = Pick<PgRunJobQueue, "ping" | "enqueue" | "get">;
+type ControlFleet = Pick<
+  PgExecutionFleet,
+  | "ping"
+  | "listEnvironments"
+  | "registerEnvironment"
+  | "setEnvironmentState"
+  | "declareCapability"
+>;
 type ControlPlanner = Pick<
   PgRunPlanner,
   "ping" | "listModels" | "listTests" | "plan"
@@ -92,6 +101,7 @@ type ArchiveRepository = Pick<
 export interface AppDependencies {
   readonly runs: RunApiRepository;
   readonly jobs?: ControlQueue;
+  readonly fleet?: ControlFleet;
   readonly planner?: ControlPlanner;
   readonly archive?: ArchiveRepository;
   readonly catalogDiscovery?: CatalogDiscoveryRepository;
@@ -129,6 +139,7 @@ function controlJob(job: RunJob) {
     id: job.id,
     kind: job.kind,
     status: job.status,
+    targetExecutionEnvironmentId: job.targetExecutionEnvironmentId,
     attempts: job.attempts,
     maxAttempts: job.maxAttempts,
     runId: job.runId,
@@ -196,6 +207,7 @@ export function createApp(deps: AppDependencies) {
     try {
       await deps.runs.ping();
       if (deps.jobs) await deps.jobs.ping();
+      if (deps.fleet) await deps.fleet.ping();
       if (deps.planner) await deps.planner.ping();
       if (deps.archive) await deps.archive.ping();
       if (deps.costLedger) await deps.costLedger.ping();
@@ -1022,6 +1034,228 @@ export function createApp(deps: AppDependencies) {
     }
   });
 
+  app.get("/v1/control/execution-fleet", async (c) => {
+    if (!deps.fleet || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+    return c.json({ environments: await deps.fleet.listEnvironments() });
+  });
+
+  app.post("/v1/control/execution-fleet/environments", async (c) => {
+    if (!deps.fleet || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid_json" }, 400);
+    }
+    const body = apiRecord(raw);
+    if (!body) return c.json({ error: "invalid_execution_environment" }, 400);
+
+    const slug = body.slug;
+    const region = body.region;
+    const accountTier = body.accountTier;
+    const serviceTier = body.serviceTier;
+    const serviceAssurance = body.serviceAssurance;
+    const enabled = body.enabled;
+    const actor = body.actor;
+    const note = body.note;
+
+    if (
+      typeof slug !== "string" ||
+      !PROVIDER_SLUG_RE.test(slug) ||
+      typeof region !== "string" ||
+      !region.trim() ||
+      (accountTier !== undefined &&
+        (typeof accountTier !== "string" || !accountTier.trim())) ||
+      (serviceTier !== undefined &&
+        (typeof serviceTier !== "string" || !serviceTier.trim())) ||
+      (serviceAssurance !== "documented_default" &&
+        serviceAssurance !== "documented_variant" &&
+        serviceAssurance !== "operator_uncertain" &&
+        serviceAssurance !== "unknown") ||
+      (enabled !== undefined && typeof enabled !== "boolean") ||
+      typeof actor !== "string" ||
+      !actor.trim() ||
+      (note !== undefined && typeof note !== "string")
+    ) {
+      return c.json({ error: "invalid_execution_environment" }, 400);
+    }
+
+    try {
+      const environment = await deps.fleet.registerEnvironment({
+        slug,
+        region,
+        ...(typeof accountTier === "string" ? { accountTier } : {}),
+        ...(typeof serviceTier === "string" ? { serviceTier } : {}),
+        serviceAssurance,
+        ...(typeof enabled === "boolean" ? { enabled } : {}),
+        actor,
+        ...(typeof note === "string" ? { note } : {}),
+      });
+      return c.json({ environment }, 201);
+    } catch (error) {
+      return c.json(
+        {
+          error: "execution_environment_rejected",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Execution environment rejected",
+        },
+        409,
+      );
+    }
+  });
+
+  app.post(
+    "/v1/control/execution-fleet/environments/:environmentId/state",
+    async (c) => {
+      if (!deps.fleet || !controlToken) {
+        return c.json({ error: "control_plane_disabled" }, 503);
+      }
+      const authIssue = controlAuthIssue(
+        c.req.header("authorization"),
+        controlToken,
+      );
+      if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+      const environmentId = c.req.param("environmentId");
+      if (!UUID_RE.test(environmentId)) {
+        return c.json({ error: "invalid_environment_id" }, 400);
+      }
+      let raw: unknown;
+      try {
+        raw = await c.req.json();
+      } catch {
+        return c.json({ error: "invalid_json" }, 400);
+      }
+      const body = apiRecord(raw);
+      const enabled = body?.enabled;
+      const actor = body?.actor;
+      const note = body?.note;
+      const effectiveAt = body?.effectiveAt;
+      if (
+        typeof enabled !== "boolean" ||
+        typeof actor !== "string" ||
+        !actor.trim() ||
+        (note !== undefined && typeof note !== "string") ||
+        (effectiveAt !== undefined &&
+          (typeof effectiveAt !== "string" ||
+            !Number.isFinite(Date.parse(effectiveAt))))
+      ) {
+        return c.json({ error: "invalid_environment_state" }, 400);
+      }
+
+      try {
+        const state = await deps.fleet.setEnvironmentState({
+          environmentId,
+          enabled,
+          actor,
+          ...(typeof note === "string" ? { note } : {}),
+          ...(typeof effectiveAt === "string" ? { effectiveAt } : {}),
+        });
+        return c.json({ state }, 201);
+      } catch (error) {
+        return c.json(
+          {
+            error: "environment_state_rejected",
+            message:
+              error instanceof Error ? error.message : "State change rejected",
+          },
+          409,
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/v1/control/execution-fleet/environments/:environmentId/capabilities",
+    async (c) => {
+      if (!deps.fleet || !controlToken) {
+        return c.json({ error: "control_plane_disabled" }, 503);
+      }
+      const authIssue = controlAuthIssue(
+        c.req.header("authorization"),
+        controlToken,
+      );
+      if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+      const environmentId = c.req.param("environmentId");
+      if (!UUID_RE.test(environmentId)) {
+        return c.json({ error: "invalid_environment_id" }, 400);
+      }
+      let raw: unknown;
+      try {
+        raw = await c.req.json();
+      } catch {
+        return c.json({ error: "invalid_json" }, 400);
+      }
+      const body = apiRecord(raw);
+      const providerId = body?.providerId;
+      const executionPath = body?.executionPath;
+      const enabled = body?.enabled;
+      const selectionPriority = body?.selectionPriority;
+      const actor = body?.actor;
+      const note = body?.note;
+      const effectiveAt = body?.effectiveAt;
+
+      if (
+        typeof providerId !== "string" ||
+        !UUID_RE.test(providerId) ||
+        executionPath !== "first_party_direct" ||
+        typeof enabled !== "boolean" ||
+        (selectionPriority !== undefined &&
+          (typeof selectionPriority !== "number" ||
+            !Number.isInteger(selectionPriority) ||
+            selectionPriority < 0 ||
+            selectionPriority > 100000)) ||
+        typeof actor !== "string" ||
+        !actor.trim() ||
+        (note !== undefined && typeof note !== "string") ||
+        (effectiveAt !== undefined &&
+          (typeof effectiveAt !== "string" ||
+            !Number.isFinite(Date.parse(effectiveAt))))
+      ) {
+        return c.json({ error: "invalid_environment_capability" }, 400);
+      }
+
+      try {
+        const capability = await deps.fleet.declareCapability({
+          environmentId,
+          providerId,
+          executionPath,
+          enabled,
+          ...(typeof selectionPriority === "number"
+            ? { selectionPriority }
+            : {}),
+          actor,
+          ...(typeof note === "string" ? { note } : {}),
+          ...(typeof effectiveAt === "string" ? { effectiveAt } : {}),
+        });
+        return c.json({ capability }, 201);
+      } catch (error) {
+        return c.json(
+          {
+            error: "environment_capability_rejected",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Capability declaration rejected",
+          },
+          409,
+        );
+      }
+    },
+  );
+
   app.get("/v1/control/cost-ledger/daily", async (c) => {
     if (!deps.costLedger || !controlToken) {
       return c.json({ error: "control_plane_disabled" }, 503);
@@ -1187,6 +1421,7 @@ export function createApp(deps: AppDependencies) {
       return c.json(
         {
           selection: {
+            executionEnvironment: plan.executionEnvironment,
             model: {
               id: plan.model.id,
               provider: plan.model.provider,
@@ -1242,13 +1477,14 @@ export function createApp(deps: AppDependencies) {
 
     if (
       apiRecord(raw)?.qualification !== undefined ||
-      apiRecord(raw)?.cost !== undefined
+      apiRecord(raw)?.cost !== undefined ||
+      apiRecord(raw)?.fleet !== undefined
     ) {
       return c.json(
         {
           error: "invalid_run_job",
           message:
-            "qualification and cost are planner-owned; use /v1/control/runs to freeze execution and pricing evidence",
+            "qualification, cost, and fleet target are planner-owned; use /v1/control/runs to freeze execution context, pricing evidence, and worker selection",
         },
         400,
       );

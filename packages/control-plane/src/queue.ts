@@ -1,6 +1,7 @@
 import { Pool } from "pg";
 import {
   parseDirectProviderRunRequest,
+  UUID_RE,
   type DirectProviderRunRequest,
 } from "./job.js";
 
@@ -12,6 +13,7 @@ export interface RunJob {
   readonly payload: DirectProviderRunRequest;
   readonly status: RunJobStatus;
   readonly idempotencyKey: string | null;
+  readonly targetExecutionEnvironmentId: string | null;
   readonly attempts: number;
   readonly maxAttempts: number;
   readonly availableAt: string;
@@ -31,6 +33,7 @@ interface RunJobRow {
   payload: unknown;
   status: RunJobStatus;
   idempotency_key: string | null;
+  target_execution_environment_id: string | null;
   attempts: number;
   max_attempts: number;
   available_at: Date;
@@ -50,6 +53,7 @@ const SELECT_COLUMNS = `
   payload,
   status,
   idempotency_key,
+  target_execution_environment_id,
   attempts,
   max_attempts,
   available_at,
@@ -70,6 +74,7 @@ function view(row: RunJobRow): RunJob {
     payload: parseDirectProviderRunRequest(row.payload),
     status: row.status,
     idempotencyKey: row.idempotency_key,
+    targetExecutionEnvironmentId: row.target_execution_environment_id,
     attempts: row.attempts,
     maxAttempts: row.max_attempts,
     availableAt: row.available_at.toISOString(),
@@ -85,12 +90,15 @@ function view(row: RunJobRow): RunJob {
 }
 
 function idempotencyComparable(request: DirectProviderRunRequest): unknown {
-  const { qualification, cost, ...rest } = request;
+  const { qualification, cost, fleet, ...rest } = request;
   const comparableQualification = qualification
     ? (({ selectedAt: _selectedAt, ...value }) => value)(qualification)
     : undefined;
   const comparableCost = cost
     ? (({ selectedAt: _selectedAt, ...value }) => value)(cost)
+    : undefined;
+  const comparableFleet = fleet
+    ? (({ selectedAt: _selectedAt, ...value }) => value)(fleet)
     : undefined;
 
   return {
@@ -99,6 +107,7 @@ function idempotencyComparable(request: DirectProviderRunRequest): unknown {
       ? { qualification: comparableQualification }
       : {}),
     ...(comparableCost ? { cost: comparableCost } : {}),
+    ...(comparableFleet ? { fleet: comparableFleet } : {}),
   };
 }
 
@@ -153,14 +162,15 @@ export class PgRunJobQueue {
 
     const inserted = await this.pool.query<RunJobRow>(
       `INSERT INTO modelapse.run_jobs
-        (kind, payload, idempotency_key)
-       VALUES ($3, $1::jsonb, $2)
+        (kind, payload, idempotency_key, target_execution_environment_id)
+       VALUES ($3, $1::jsonb, $2, $4)
        ON CONFLICT (idempotency_key) DO NOTHING
        RETURNING ${SELECT_COLUMNS}`,
       [
         JSON.stringify(payload),
         idempotencyKey ?? null,
         payload.provider === "openai" ? "openai_direct" : "deepseek_direct",
+        payload.fleet?.environmentId ?? null,
       ],
     );
 
@@ -203,8 +213,15 @@ export class PgRunJobQueue {
   async claimNext(input: {
     readonly workerId: string;
     readonly leaseSeconds: number;
+    readonly executionEnvironmentId?: string;
   }): Promise<RunJob | null> {
     if (!input.workerId.trim()) throw new Error("workerId is required");
+    if (
+      input.executionEnvironmentId !== undefined &&
+      !UUID_RE.test(input.executionEnvironmentId)
+    ) {
+      throw new Error("executionEnvironmentId must be a UUID");
+    }
     if (
       !Number.isInteger(input.leaseSeconds) ||
       input.leaseSeconds < 30 ||
@@ -232,15 +249,39 @@ export class PgRunJobQueue {
 
       const result = await client.query<RunJobRow>(
         `WITH candidate AS (
-           SELECT id AS candidate_id
-             FROM modelapse.run_jobs
-            WHERE attempts < max_attempts
+           SELECT job.id AS candidate_id
+             FROM modelapse.run_jobs job
+            WHERE job.attempts < job.max_attempts
               AND (
-                (status = 'queued' AND available_at <= now())
+                (job.status = 'queued' AND job.available_at <= now())
                 OR
-                (status = 'running' AND lease_expires_at <= now())
+                (job.status = 'running' AND job.lease_expires_at <= now())
               )
-            ORDER BY available_at ASC, created_at ASC
+              AND (
+                ($3::uuid IS NULL AND job.target_execution_environment_id IS NULL)
+                OR
+                (
+                  $3::uuid IS NOT NULL
+                  AND job.target_execution_environment_id = $3
+                  AND EXISTS (
+                    SELECT 1
+                      FROM modelapse.execution_environment_current_state state
+                     WHERE state.environment_id = $3
+                       AND state.enabled
+                  )
+                  AND EXISTS (
+                    SELECT 1
+                      FROM modelapse.execution_environment_capabilities_current capability
+                      JOIN modelapse.providers provider
+                        ON provider.id = capability.provider_id
+                     WHERE capability.environment_id = $3
+                       AND capability.execution_path = 'first_party_direct'
+                       AND capability.enabled
+                       AND provider.slug = job.payload->>'provider'
+                  )
+                )
+              )
+            ORDER BY job.available_at ASC, job.created_at ASC
             FOR UPDATE SKIP LOCKED
             LIMIT 1
          )
@@ -259,7 +300,11 @@ export class PgRunJobQueue {
            FROM candidate
           WHERE j.id = candidate.candidate_id
           RETURNING ${SELECT_COLUMNS}`,
-        [input.workerId, input.leaseSeconds],
+        [
+          input.workerId,
+          input.leaseSeconds,
+          input.executionEnvironmentId ?? null,
+        ],
       );
 
       await client.query("COMMIT");

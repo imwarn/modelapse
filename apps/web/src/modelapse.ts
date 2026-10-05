@@ -352,6 +352,11 @@ export interface ArchiveCatalog {
 
 export interface ArchiveRunExecutionQualification {
   readonly selectedAt: string;
+  readonly executionEnvironment: {
+    readonly id: string;
+    readonly slug: string;
+    readonly capabilityEventId: string | null;
+  } | null;
   readonly executionRegion: string | null;
   readonly accountTier: string | null;
   readonly serviceTier: string | null;
