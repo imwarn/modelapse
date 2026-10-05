@@ -589,3 +589,80 @@ describe("Catalog Presence Review control API", () => {
     });
   });
 });
+
+
+describe("Catalog Remote ID Case control API", () => {
+  const providerId = "00000000-0000-4000-8000-000000000170";
+
+  it("keeps cross-workflow remote ID evidence behind control authentication", async () => {
+    const remoteCase = {
+      generatedAt: "2026-10-05T03:00:00.000Z",
+      provider: { id: providerId, slug: "fixture", name: "Fixture" },
+      remoteModelId: "fixture-model",
+      summary: {
+        observationEvents: 2,
+        presenceTransitions: 1,
+        reconciliationEvents: 1,
+        reviewDecisions: 1,
+        firstObservedAt: "2026-10-05T01:00:00.000Z",
+        lastObservedAt: "2026-10-05T02:00:00.000Z",
+        openPresenceReviews: 0,
+        acknowledgedPresenceReviews: 1,
+        resolvedPresenceReviews: 0,
+      },
+      current: {
+        candidate: null,
+        canonicalModel: null,
+        promotion: null,
+      },
+      presenceReviews: [],
+      timeline: [],
+    };
+
+    const app = createApp({
+      runs: baseRuns(),
+      controlToken: "control-secret",
+      catalogRemoteIdCase: {
+        get: async (requestedProviderId, remoteModelId) =>
+          requestedProviderId === providerId && remoteModelId === "fixture-model"
+            ? remoteCase
+            : null,
+      },
+    });
+
+    expect(
+      (
+        await app.request(
+          "/v1/control/catalog/remote-cases/" +
+            providerId +
+            "?remoteModelId=fixture-model",
+        )
+      ).status,
+    ).toBe(401);
+
+    const invalidProvider = await app.request(
+      "/v1/control/catalog/remote-cases/not-a-uuid?remoteModelId=fixture-model",
+      { headers: { authorization: "Bearer control-secret" } },
+    );
+    expect(invalidProvider.status).toBe(400);
+
+    const missingRemoteId = await app.request(
+      "/v1/control/catalog/remote-cases/" + providerId,
+      { headers: { authorization: "Bearer control-secret" } },
+    );
+    expect(missingRemoteId.status).toBe(400);
+
+    const found = await app.request(
+      "/v1/control/catalog/remote-cases/" +
+        providerId +
+        "?remoteModelId=fixture-model",
+      { headers: { authorization: "Bearer control-secret" } },
+    );
+    expect(found.status).toBe(200);
+    const payload = await found.json();
+    expect(payload).toEqual({ remoteCase });
+    expect(JSON.stringify(payload)).not.toContain("response_body");
+    expect(JSON.stringify(payload)).not.toContain("responseBody");
+    expect(JSON.stringify(payload)).not.toContain("raw_observation");
+  });
+});
