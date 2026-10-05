@@ -501,3 +501,91 @@ describe("Catalog Presence control API", () => {
     expect(JSON.stringify(payload)).not.toContain("responseBody");
   });
 });
+
+
+describe("Catalog Presence Review control API", () => {
+  const providerId = "00000000-0000-4000-8000-000000000160";
+  const eventId = "presence-event-fixture";
+
+  it("protects review reads and accepts explicit review decisions", async () => {
+    const item = {
+      eventId,
+      occurredAt: "2026-10-05T02:00:00.000Z",
+      interpretation: "not_observed_in_complete_model_list_evidence" as const,
+      provider: { id: providerId, slug: "fixture", name: "Fixture" },
+      observerSource: {
+        id: "00000000-0000-4000-8000-000000000161",
+        sourceKey: "models-api",
+        title: "Fixture Models",
+        url: "https://fixture.example.test/models",
+      },
+      runId: "00000000-0000-4000-8000-000000000162",
+      previousCompleteRunId: "00000000-0000-4000-8000-000000000163",
+      remoteModelId: "fixture-model",
+      currentContext: { canonicalModel: null, candidate: null },
+      review: {
+        status: "open" as const,
+        acknowledgedAt: null,
+        resolvedAt: null,
+        latestDecision: null,
+      },
+    };
+
+    const app = createApp({
+      runs: baseRuns(),
+      controlToken: "control-secret",
+      catalogPresenceReview: {
+        list: async () => [item],
+        decide: async ({ eventId: requestedEventId, action }) => ({
+          eventId: requestedEventId,
+          eventAuditId: "00000000-0000-4000-8000-000000000164",
+          status:
+            action === "acknowledge"
+              ? "acknowledged"
+              : action === "resolve"
+                ? "resolved"
+                : "open",
+        }),
+      },
+    });
+
+    expect((await app.request("/v1/control/catalog/presence-reviews")).status).toBe(401);
+
+    const invalidStatus = await app.request(
+      "/v1/control/catalog/presence-reviews?status=unsupported",
+      { headers: { authorization: "Bearer control-secret" } },
+    );
+    expect(invalidStatus.status).toBe(400);
+
+    const listed = await app.request(
+      "/v1/control/catalog/presence-reviews?status=open&limit=20",
+      { headers: { authorization: "Bearer control-secret" } },
+    );
+    expect(listed.status).toBe(200);
+    await expect(listed.json()).resolves.toEqual({ items: [item] });
+
+    const decided = await app.request(
+      "/v1/control/catalog/presence-reviews/decide",
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer control-secret",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          providerId,
+          eventId,
+          action: "acknowledge",
+          actor: "test",
+          note: "checked first-party evidence",
+        }),
+      },
+    );
+    expect(decided.status).toBe(200);
+    await expect(decided.json()).resolves.toEqual({
+      eventId,
+      eventAuditId: "00000000-0000-4000-8000-000000000164",
+      status: "acknowledged",
+    });
+  });
+});

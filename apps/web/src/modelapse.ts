@@ -907,6 +907,49 @@ export interface CatalogPresenceHistory {
   }[];
 }
 
+export type CatalogPresenceReviewStatus = "open" | "acknowledged" | "resolved";
+export type CatalogPresenceReviewAction = "acknowledge" | "resolve" | "reopen";
+
+export interface CatalogPresenceReviewItem {
+  readonly eventId: string;
+  readonly occurredAt: string;
+  readonly interpretation: "not_observed_in_complete_model_list_evidence";
+  readonly provider: { readonly id: string; readonly slug: string; readonly name: string };
+  readonly observerSource: {
+    readonly id: string;
+    readonly sourceKey: string;
+    readonly title: string;
+    readonly url: string;
+  };
+  readonly runId: string;
+  readonly previousCompleteRunId: string | null;
+  readonly remoteModelId: string;
+  readonly currentContext: {
+    readonly canonicalModel: {
+      readonly id: string;
+      readonly canonicalSlug: string;
+      readonly marketingName: string;
+    } | null;
+    readonly candidate: {
+      readonly id: string;
+      readonly status: "discovered" | "matched" | "ignored" | "promotion_ready";
+      readonly resolvedModelId: string | null;
+    } | null;
+  };
+  readonly review: {
+    readonly status: CatalogPresenceReviewStatus;
+    readonly acknowledgedAt: string | null;
+    readonly resolvedAt: string | null;
+    readonly latestDecision: {
+      readonly id: string;
+      readonly action: CatalogPresenceReviewAction;
+      readonly actor: string;
+      readonly note: string | null;
+      readonly decidedAt: string;
+    } | null;
+  };
+}
+
 export interface ControlJob {
   readonly id: string;
   readonly kind: string;
@@ -974,6 +1017,17 @@ interface DriftReviewInboxInput extends OperatorInput { readonly status?: Catalo
 interface DecideDriftReviewInput extends OperatorInput {
   readonly eventId: string;
   readonly action: "acknowledge" | "resolve" | "reopen";
+  readonly note?: string;
+}
+
+interface PresenceReviewInboxInput extends OperatorInput {
+  readonly status?: CatalogPresenceReviewStatus;
+}
+
+interface DecidePresenceReviewInput extends OperatorInput {
+  readonly providerId: string;
+  readonly eventId: string;
+  readonly action: CatalogPresenceReviewAction;
   readonly note?: string;
 }
 
@@ -1315,6 +1369,49 @@ function parseDecideDriftReviewInput(value: unknown): DecideDriftReviewInput {
   return { operatorToken, eventId, action, ...(typeof note === "string" ? { note } : {}) };
 }
 
+function parsePresenceReviewInboxInput(value: unknown): PresenceReviewInboxInput {
+  const operatorToken = parseOperatorToken(value);
+  if (!isRecord(value)) throw new Error("Presence review request must be an object");
+  const status = value.status;
+  if (
+    status !== undefined &&
+    status !== "open" &&
+    status !== "acknowledged" &&
+    status !== "resolved"
+  ) {
+    throw new Error("Invalid catalog presence review status");
+  }
+  return { operatorToken, ...(status ? { status } : {}) };
+}
+
+function parseDecidePresenceReviewInput(value: unknown): DecidePresenceReviewInput {
+  const operatorToken = parseOperatorToken(value);
+  if (!isRecord(value)) throw new Error("Presence review decision must be an object");
+  const providerId = value.providerId;
+  const eventId = value.eventId;
+  const action = value.action;
+  const note = value.note;
+  if (typeof providerId !== "string" || !UUID_RE.test(providerId)) {
+    throw new Error("providerId must be a UUID");
+  }
+  if (typeof eventId !== "string" || !eventId.trim()) {
+    throw new Error("eventId is required");
+  }
+  if (action !== "acknowledge" && action !== "resolve" && action !== "reopen") {
+    throw new Error("Unsupported catalog presence review action");
+  }
+  if (note !== undefined && typeof note !== "string") {
+    throw new Error("note must be a string");
+  }
+  return {
+    operatorToken,
+    providerId,
+    eventId,
+    action,
+    ...(typeof note === "string" ? { note } : {}),
+  };
+}
+
 function parseArchiveRunInput(value: unknown): ReadArchiveRunInput {
   if (!isRecord(value)) throw new Error("Archive Run request must be an object");
 
@@ -1616,6 +1713,40 @@ export const getCatalogPresenceHistory = createServerFn({ method: "POST" })
       if (error instanceof ApiRequestError && error.status === 404) return null;
       throw error;
     }
+  });
+
+export const getCatalogPresenceReviewInbox = createServerFn({ method: "POST" })
+  .validator(parsePresenceReviewInboxInput)
+  .handler(async ({ data }): Promise<readonly CatalogPresenceReviewItem[]> => {
+    requireOperator(data.operatorToken);
+    const params = new URLSearchParams({ limit: "200" });
+    if (data.status) params.set("status", data.status);
+    const result = await requestJson<{ items: readonly CatalogPresenceReviewItem[] }>(
+      `/v1/control/catalog/presence-reviews?${params.toString()}`,
+      { control: true },
+    );
+    return result.items;
+  });
+
+export const decideCatalogPresenceReview = createServerFn({ method: "POST" })
+  .validator(parseDecidePresenceReviewInput)
+  .handler(async ({ data }) => {
+    requireOperator(data.operatorToken);
+    return requestJson<{
+      eventId: string;
+      eventAuditId: string;
+      status: CatalogPresenceReviewStatus;
+    }>("/v1/control/catalog/presence-reviews/decide", {
+      method: "POST",
+      control: true,
+      body: {
+        providerId: data.providerId,
+        eventId: data.eventId,
+        action: data.action,
+        actor: "web-operator",
+        ...(data.note ? { note: data.note } : {}),
+      },
+    });
   });
 
 export const getCatalogCoverageProviders = createServerFn({ method: "POST" })

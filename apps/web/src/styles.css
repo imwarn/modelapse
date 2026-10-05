@@ -2737,3 +2737,12 @@ footer {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* Archive v0.16 — Catalog Presence Review / Lifecycle Triage */
+.presence-review-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  align-items: center;
+}

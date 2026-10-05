@@ -16,12 +16,14 @@ import type {
 import type {
   CatalogDiscoveryStatus,
   CatalogDriftReviewStatus,
+  CatalogPresenceReviewStatus,
   PgCatalogDiscovery,
   PgCatalogDriftReview,
   PgCatalogCoverage,
   PgCatalogIdentityCase,
   PgCatalogIntegrity,
   PgCatalogPresence,
+  PgCatalogPresenceReview,
 } from "@modelapse/catalog-admin";
 
 const UUID_RE =
@@ -44,6 +46,7 @@ type CatalogIdentityCaseRepository = Pick<PgCatalogIdentityCase, "get">;
 type CatalogIntegrityRepository = Pick<PgCatalogIntegrity, "getDashboard">;
 type CatalogCoverageRepository = Pick<PgCatalogCoverage, "listProviders" | "getProvider">;
 type CatalogPresenceRepository = Pick<PgCatalogPresence, "getProvider">;
+type CatalogPresenceReviewRepository = Pick<PgCatalogPresenceReview, "list" | "decide">;
 
 type ArchiveRepository = Pick<
   PgArchiveRepository,
@@ -70,6 +73,7 @@ export interface AppDependencies {
   readonly catalogIntegrity?: CatalogIntegrityRepository;
   readonly catalogCoverage?: CatalogCoverageRepository;
   readonly catalogPresence?: CatalogPresenceRepository;
+  readonly catalogPresenceReview?: CatalogPresenceReviewRepository;
   readonly controlToken?: string;
 }
 
@@ -426,6 +430,93 @@ export function createApp(deps: AppDependencies) {
       return c.json({ error: "catalog_presence_provider_not_found" }, 404);
     }
     return c.json({ history });
+  });
+
+  app.get("/v1/control/catalog/presence-reviews", async (c) => {
+    if (!deps.catalogPresenceReview || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+    const status = c.req.query("status") as CatalogPresenceReviewStatus | undefined;
+    const rawLimit = c.req.query("limit");
+    if (status && !["open", "acknowledged", "resolved"].includes(status)) {
+      return c.json({ error: "invalid_presence_review_status" }, 400);
+    }
+    const limit = rawLimit === undefined ? undefined : Number(rawLimit);
+    if (
+      limit !== undefined &&
+      (!Number.isInteger(limit) || limit < 1 || limit > 200)
+    ) {
+      return c.json({ error: "invalid_limit" }, 400);
+    }
+    return c.json({
+      items: await deps.catalogPresenceReview.list({
+        ...(status ? { status } : {}),
+        ...(limit !== undefined ? { limit } : {}),
+      }),
+    });
+  });
+
+  app.post("/v1/control/catalog/presence-reviews/decide", async (c) => {
+    if (!deps.catalogPresenceReview || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid_json" }, 400);
+    }
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return c.json({ error: "invalid_presence_review" }, 400);
+    }
+    const body = raw as Record<string, unknown>;
+    const providerId = body.providerId;
+    const eventId = body.eventId;
+    const action = body.action;
+    const actor = body.actor;
+    const note = body.note;
+
+    if (
+      typeof providerId !== "string" ||
+      !UUID_RE.test(providerId) ||
+      typeof eventId !== "string" ||
+      !eventId.trim() ||
+      (action !== "acknowledge" && action !== "resolve" && action !== "reopen") ||
+      typeof actor !== "string" ||
+      !actor.trim() ||
+      (note !== undefined && typeof note !== "string")
+    ) {
+      return c.json({ error: "invalid_presence_review" }, 400);
+    }
+
+    try {
+      return c.json(
+        await deps.catalogPresenceReview.decide({
+          providerId,
+          eventId,
+          action,
+          actor,
+          ...(typeof note === "string" ? { note } : {}),
+        }),
+      );
+    } catch (error) {
+      return c.json(
+        {
+          error: "presence_review_rejected",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Catalog presence review rejected",
+        },
+        409,
+      );
+    }
   });
 
   app.get("/v1/control/catalog/coverage", async (c) => {

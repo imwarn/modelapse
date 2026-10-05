@@ -17,6 +17,7 @@ import {
   PgCatalogIntegrity,
   PgCatalogObserver,
   PgCatalogPresence,
+  PgCatalogPresenceReview,
   PgModelCatalogAdmin,
 } from "../src/index.js";
 
@@ -1561,6 +1562,260 @@ describe("production catalog bootstrap", () => {
       expect(factCountsAfter.rows[0]).toEqual(factCountsBefore.rows[0]);
     } finally {
       await presence.close();
+      await verification.end();
+    }
+  });
+
+  it("reviews derived presence gaps without mutating catalog identity facts", async () => {
+    const verification = new Pool({ connectionString: isolatedDatabaseUrl });
+    const review = PgCatalogPresenceReview.connect(isolatedDatabaseUrl);
+    try {
+      const provider = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.providers (slug, name)
+         VALUES ('presence-review-fixture', 'Presence Review Fixture')
+         RETURNING id`,
+      );
+      const providerId = provider.rows[0]!.id;
+
+      const observerSource = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.catalog_observer_sources
+          (provider_id, source_key, source_kind, url, title, parser, interval_seconds)
+         VALUES (
+           $1,
+           'models-api',
+           'model_list',
+           'https://presence-review.example.test/models',
+           'Presence review fixture catalog',
+           'openai_models',
+           3600
+         )
+         RETURNING id`,
+        [providerId],
+      );
+      const observerSourceId = observerSource.rows[0]!.id;
+
+      const runIds: string[] = [];
+      const sourceIds: string[] = [];
+      for (let index = 0; index < 2; index += 1) {
+        const source = await verification.query<{ id: string }>(
+          `INSERT INTO modelapse.source_records
+            (source_type, url, title, retrieved_at, content_sha256)
+           VALUES (
+             'provider_catalog',
+             'https://presence-review.example.test/models',
+             'Presence review fixture catalog',
+             $1,
+             $2
+           )
+           RETURNING id`,
+          [
+            `2099-06-01T00:0${index}:00.000Z`,
+            String(index + 7).repeat(64),
+          ],
+        );
+        const run = await verification.query<{ id: string }>(
+          `INSERT INTO modelapse.catalog_collection_runs
+            (
+              observer_source_id,
+              status,
+              started_at,
+              completed_at,
+              item_count,
+              observations_emitted,
+              collector_build
+            )
+           VALUES (
+             $1,
+             'succeeded',
+             $2,
+             $3,
+             $4,
+             $4,
+             'presence-review-fixture'
+           )
+           RETURNING id`,
+          [
+            observerSourceId,
+            `2099-06-01T00:0${index}:00.000Z`,
+            `2099-06-01T00:0${index}:30.000Z`,
+            index === 0 ? 2 : 1,
+          ],
+        );
+        await verification.query(
+          `INSERT INTO modelapse.catalog_source_snapshots
+            (
+              observer_source_id,
+              collection_run_id,
+              source_record_id,
+              retrieved_at,
+              content_sha256,
+              response_body
+            )
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [
+            observerSourceId,
+            run.rows[0]!.id,
+            source.rows[0]!.id,
+            `2099-06-01T00:0${index}:00.000Z`,
+            String(index + 7).repeat(64),
+            "raw-presence-review-" + index,
+          ],
+        );
+        runIds.push(run.rows[0]!.id);
+        sourceIds.push(source.rows[0]!.id);
+      }
+
+      const candidateIds = new Map<string, string>();
+      for (const remoteModelId of ["presence-review-alpha", "presence-review-beta"]) {
+        const candidate = await verification.query<{ id: string }>(
+          `INSERT INTO modelapse.catalog_discovery_candidates
+            (
+              provider_id,
+              remote_model_id,
+              first_seen_at,
+              last_seen_at,
+              first_source_record_id,
+              last_source_record_id,
+              first_collection_run_id,
+              last_collection_run_id,
+              observation_count,
+              status
+            )
+           VALUES (
+             $1,
+             $2,
+             '2099-06-01T00:00:00Z',
+             '2099-06-01T00:01:00Z',
+             $3,
+             $4,
+             $5,
+             $6,
+             1,
+             'discovered'
+           )
+           RETURNING id`,
+          [
+            providerId,
+            remoteModelId,
+            sourceIds[0]!,
+            sourceIds[1]!,
+            runIds[0]!,
+            runIds[1]!,
+          ],
+        );
+        candidateIds.set(remoteModelId, candidate.rows[0]!.id);
+      }
+
+      for (const [runIndex, remoteModelId] of [
+        [0, "presence-review-alpha"],
+        [0, "presence-review-beta"],
+        [1, "presence-review-alpha"],
+      ] as const) {
+        await verification.query(
+          `INSERT INTO modelapse.catalog_discovery_observations
+            (candidate_id, collection_run_id, source_record_id, observed_at)
+           VALUES ($1, $2, $3, $4)`,
+          [
+            candidateIds.get(remoteModelId)!,
+            runIds[runIndex]!,
+            sourceIds[runIndex]!,
+            `2099-06-01T00:0${runIndex}:00.000Z`,
+          ],
+        );
+      }
+
+      const factsBefore = await verification.query(
+        `SELECT
+           (SELECT count(*)::text FROM modelapse.models) AS models,
+           (SELECT count(*)::text FROM modelapse.model_execution_bindings) AS bindings,
+           (SELECT count(*)::text FROM modelapse.catalog_discovery_candidates) AS candidates,
+           (SELECT count(*)::text FROM modelapse.catalog_discovery_observations) AS observations`,
+      );
+
+      const open = await review.list({ status: "open" });
+      const item = open.find(
+        (candidate) =>
+          candidate.provider.id === providerId &&
+          candidate.remoteModelId === "presence-review-beta",
+      );
+      expect(item).toMatchObject({
+        interpretation: "not_observed_in_complete_model_list_evidence",
+        review: { status: "open" },
+        previousCompleteRunId: runIds[0],
+        runId: runIds[1],
+      });
+
+      const acknowledged = await review.decide({
+        providerId,
+        eventId: item!.eventId,
+        action: "acknowledge",
+        actor: "presence-review-test",
+        note: "checked provider catalog evidence",
+      });
+      expect(acknowledged.status).toBe("acknowledged");
+
+      const acknowledgedItems = await review.list({ status: "acknowledged" });
+      expect(
+        acknowledgedItems.find((candidate) => candidate.eventId === item!.eventId),
+      ).toMatchObject({
+        review: {
+          status: "acknowledged",
+          latestDecision: {
+            action: "acknowledge",
+            actor: "presence-review-test",
+          },
+        },
+      });
+
+      const resolved = await review.decide({
+        providerId,
+        eventId: item!.eventId,
+        action: "resolve",
+        actor: "presence-review-test",
+        note: "review completed without lifecycle inference",
+      });
+      expect(resolved.status).toBe("resolved");
+
+      const reopened = await review.decide({
+        providerId,
+        eventId: item!.eventId,
+        action: "reopen",
+        actor: "presence-review-test",
+      });
+      expect(reopened.status).toBe("open");
+
+      const audit = await verification.query<{ count: string }>(
+        `SELECT count(*)::text AS count
+           FROM modelapse.catalog_presence_review_events
+          WHERE presence_event_id = $1`,
+        [item!.eventId],
+      );
+      expect(audit.rows[0]?.count).toBe("3");
+
+      await expect(
+        verification.query(
+          `UPDATE modelapse.catalog_presence_review_events
+              SET note = 'mutated'
+            WHERE presence_event_id = $1`,
+          [item!.eventId],
+        ),
+      ).rejects.toThrow();
+
+      const factsAfter = await verification.query(
+        `SELECT
+           (SELECT count(*)::text FROM modelapse.models) AS models,
+           (SELECT count(*)::text FROM modelapse.model_execution_bindings) AS bindings,
+           (SELECT count(*)::text FROM modelapse.catalog_discovery_candidates) AS candidates,
+           (SELECT count(*)::text FROM modelapse.catalog_discovery_observations) AS observations`,
+      );
+      expect(factsAfter.rows[0]).toEqual(factsBefore.rows[0]);
+
+      const allItems = await review.list();
+      expect(JSON.stringify(allItems)).not.toContain("raw-presence-review");
+      expect(JSON.stringify(allItems)).not.toContain("response_body");
+      expect(JSON.stringify(allItems)).not.toContain("responseBody");
+    } finally {
+      await review.close();
       await verification.end();
     }
   });

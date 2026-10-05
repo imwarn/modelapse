@@ -63,6 +63,7 @@ function CatalogIntegrity() {
         </a>
         <nav className="integrity-nav" aria-label="Catalog workflows">
           <a href="/catalog-coverage">Coverage Matrix</a>
+          <a href="/catalog-presence-review">Presence Review</a>
           <a href="/catalog-inbox">Catalog Inbox</a>
           <a href="/identity-review">Identity Review</a>
         </nav>
