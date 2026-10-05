@@ -372,6 +372,28 @@ export interface ArchiveRunExecutionQualification {
   readonly contextKey: string | null;
 }
 
+export interface ArchiveRunCost {
+  readonly selectedAt: string;
+  readonly pricingObservation: {
+    readonly id: string;
+    readonly sourceId: string;
+  } | null;
+  readonly pricing: {
+    readonly currency: string;
+    readonly inputPerMillion: string | null;
+    readonly outputPerMillion: string | null;
+    readonly perRequest: string | null;
+  } | null;
+  readonly usage: {
+    readonly inputTokens: string | null;
+    readonly outputTokens: string | null;
+    readonly totalTokens: string | null;
+    readonly requestCount: number;
+  } | null;
+  readonly estimatedNativeCost: string | null;
+  readonly caveats: readonly string[];
+}
+
 export interface ArchiveRun {
   readonly id: string;
   readonly status: string;
@@ -399,6 +421,7 @@ export interface ArchiveRun {
   readonly executionPath: string;
   readonly evidenceLevel: string | null;
   readonly executionQualification: ArchiveRunExecutionQualification | null;
+  readonly cost: ArchiveRunCost | null;
   readonly evaluation: {
     readonly id: string;
     readonly status: string;
