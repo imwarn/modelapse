@@ -4,6 +4,34 @@ import { createServerFn } from "@tanstack/react-start";
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+export interface RunnableModelTestabilityObservation {
+  readonly scope: "provider" | "model";
+  readonly accessState: "available" | "restricted" | "unavailable" | "unknown";
+  readonly registrationRequirement:
+    | "open_signup"
+    | "restricted_signup"
+    | "invite_only"
+    | "enterprise_only"
+    | "unknown";
+  readonly billingRequirement:
+    | "free"
+    | "paid_account"
+    | "prepaid_credit"
+    | "subscription"
+    | "enterprise_contract"
+    | "unknown";
+  readonly regionPolicy: "unrestricted" | "restricted" | "unknown";
+  readonly accountTier: string | null;
+  readonly serviceTier: string | null;
+  readonly serviceAssurance:
+    | "documented_default"
+    | "documented_variant"
+    | "operator_uncertain"
+    | "unknown";
+  readonly observedAt: string;
+  readonly sourceId: string;
+}
+
 export interface RunnableModel {
   readonly id: string;
   readonly providerId: string;
@@ -14,6 +42,10 @@ export interface RunnableModel {
   readonly apiModelId: string;
   readonly snapshotId: string | null;
   readonly endpointHostname: string;
+  readonly testability: {
+    readonly providerPolicy: RunnableModelTestabilityObservation | null;
+    readonly runnerAccess: RunnableModelTestabilityObservation | null;
+  };
 }
 
 export interface RunnableTest {
@@ -1050,6 +1082,82 @@ export interface CatalogRemoteIdCase {
   }[];
 }
 
+export type ProviderTestabilitySubjectKind = "provider_policy" | "runner_access";
+export type ProviderTestabilityAccessState =
+  | "available"
+  | "restricted"
+  | "unavailable"
+  | "unknown";
+export type ProviderTestabilityServiceAssurance =
+  | "documented_default"
+  | "documented_variant"
+  | "operator_uncertain"
+  | "unknown";
+
+export interface ProviderTestabilityObservation {
+  readonly id: string;
+  readonly providerId: string;
+  readonly model: {
+    readonly id: string;
+    readonly canonicalSlug: string;
+    readonly marketingName: string;
+  } | null;
+  readonly executionPath: string;
+  readonly subjectKind: ProviderTestabilitySubjectKind;
+  readonly accessState: ProviderTestabilityAccessState;
+  readonly registrationRequirement: string;
+  readonly billingRequirement: string;
+  readonly regionPolicy: string;
+  readonly allowedRegions: readonly string[];
+  readonly blockedRegions: readonly string[];
+  readonly accountTier: string | null;
+  readonly serviceTier: string | null;
+  readonly serviceAssurance: ProviderTestabilityServiceAssurance;
+  readonly pricing: {
+    readonly currency: string;
+    readonly inputPerMillion: string | null;
+    readonly outputPerMillion: string | null;
+    readonly perRequest: string | null;
+  } | null;
+  readonly source: {
+    readonly id: string;
+    readonly sourceType: string;
+    readonly url: string | null;
+    readonly title: string | null;
+    readonly retrievedAt: string;
+    readonly contentSha256: string | null;
+  };
+  readonly observedAt: string;
+  readonly actor: string;
+  readonly note: string | null;
+  readonly createdAt: string;
+}
+
+export interface ProviderTestabilityProviderSummary {
+  readonly provider: { readonly id: string; readonly slug: string; readonly name: string };
+  readonly modelCount: number;
+  readonly currentObservationCount: number;
+  readonly providerPolicyCount: number;
+  readonly runnerAccessCount: number;
+  readonly restrictedOrUnavailableCount: number;
+  readonly uncertainServiceCount: number;
+  readonly latestObservedAt: string | null;
+}
+
+export interface ProviderTestabilityProvider {
+  readonly generatedAt: string;
+  readonly provider: { readonly id: string; readonly slug: string; readonly name: string };
+  readonly models: readonly {
+    readonly id: string;
+    readonly canonicalSlug: string;
+    readonly marketingName: string;
+    readonly status: string;
+  }[];
+  readonly summary: Omit<ProviderTestabilityProviderSummary, "provider">;
+  readonly current: readonly ProviderTestabilityObservation[];
+  readonly history: readonly ProviderTestabilityObservation[];
+}
+
 export interface ControlJob {
   readonly id: string;
   readonly kind: string;
@@ -1134,6 +1242,42 @@ interface DecidePresenceReviewInput extends OperatorInput {
 interface CatalogRemoteIdCaseInput extends OperatorInput {
   readonly providerId: string;
   readonly remoteModelId: string;
+}
+
+interface ProviderTestabilityProviderInput extends OperatorInput {
+  readonly providerId: string;
+}
+
+interface RecordProviderTestabilityObservationWebInput extends OperatorInput {
+  readonly providerId: string;
+  readonly modelId?: string;
+  readonly subjectKind: ProviderTestabilitySubjectKind;
+  readonly accessState: ProviderTestabilityAccessState;
+  readonly registrationRequirement: string;
+  readonly billingRequirement: string;
+  readonly regionPolicy: string;
+  readonly allowedRegions?: readonly string[];
+  readonly blockedRegions?: readonly string[];
+  readonly accountTier?: string;
+  readonly serviceTier?: string;
+  readonly serviceAssurance: ProviderTestabilityServiceAssurance;
+  readonly pricing?: {
+    readonly currency: string;
+    readonly inputPerMillion?: number;
+    readonly outputPerMillion?: number;
+    readonly perRequest?: number;
+  };
+  readonly source: {
+    readonly sourceType:
+      | "provider_docs"
+      | "provider_pricing"
+      | "provider_policy"
+      | "operator_verification";
+    readonly url?: string;
+    readonly title: string;
+    readonly contentSha256?: string;
+  };
+  readonly note?: string;
 }
 
 interface ReadArchiveRunInput {
@@ -1535,6 +1679,142 @@ function parseCatalogRemoteIdCaseInput(value: unknown): CatalogRemoteIdCaseInput
   return { operatorToken, providerId, remoteModelId: remoteModelId.trim() };
 }
 
+function parseProviderTestabilityProviderInput(
+  value: unknown,
+): ProviderTestabilityProviderInput {
+  const operatorToken = parseOperatorToken(value);
+  if (!isRecord(value)) throw new Error("Provider testability request must be an object");
+  const providerId = value.providerId;
+  if (typeof providerId !== "string" || !UUID_RE.test(providerId)) {
+    throw new Error("providerId must be a UUID");
+  }
+  return { operatorToken, providerId };
+}
+
+function parseProviderTestabilityObservationInput(
+  value: unknown,
+): RecordProviderTestabilityObservationWebInput {
+  const operatorToken = parseOperatorToken(value);
+  if (!isRecord(value)) throw new Error("Provider testability observation must be an object");
+
+  const providerId = value.providerId;
+  const modelId = value.modelId;
+  const subjectKind = value.subjectKind;
+  const accessState = value.accessState;
+  const registrationRequirement = value.registrationRequirement;
+  const billingRequirement = value.billingRequirement;
+  const regionPolicy = value.regionPolicy;
+  const allowedRegions = value.allowedRegions;
+  const blockedRegions = value.blockedRegions;
+  const accountTier = value.accountTier;
+  const serviceTier = value.serviceTier;
+  const serviceAssurance = value.serviceAssurance;
+  const pricing = value.pricing;
+  const source = value.source;
+  const note = value.note;
+
+  if (typeof providerId !== "string" || !UUID_RE.test(providerId)) {
+    throw new Error("providerId must be a UUID");
+  }
+  if (modelId !== undefined && (typeof modelId !== "string" || !UUID_RE.test(modelId))) {
+    throw new Error("modelId must be a UUID");
+  }
+  if (subjectKind !== "provider_policy" && subjectKind !== "runner_access") {
+    throw new Error("Invalid testability subject kind");
+  }
+  if (!["available", "restricted", "unavailable", "unknown"].includes(String(accessState))) {
+    throw new Error("Invalid testability access state");
+  }
+  if (
+    typeof registrationRequirement !== "string" ||
+    typeof billingRequirement !== "string" ||
+    typeof regionPolicy !== "string" ||
+    !["documented_default", "documented_variant", "operator_uncertain", "unknown"].includes(
+      String(serviceAssurance),
+    )
+  ) {
+    throw new Error("Invalid provider testability classification");
+  }
+  for (const [label, regions] of [
+    ["allowedRegions", allowedRegions],
+    ["blockedRegions", blockedRegions],
+  ] as const) {
+    if (
+      regions !== undefined &&
+      (!Array.isArray(regions) || regions.some((region) => typeof region !== "string"))
+    ) {
+      throw new Error(label + " must be a string array");
+    }
+  }
+  if (accountTier !== undefined && typeof accountTier !== "string") {
+    throw new Error("accountTier must be a string");
+  }
+  if (serviceTier !== undefined && typeof serviceTier !== "string") {
+    throw new Error("serviceTier must be a string");
+  }
+  if (note !== undefined && typeof note !== "string") {
+    throw new Error("note must be a string");
+  }
+  if (!isRecord(source) || typeof source.sourceType !== "string" || typeof source.title !== "string") {
+    throw new Error("source is required");
+  }
+  if (source.url !== undefined && typeof source.url !== "string") {
+    throw new Error("source.url must be a string");
+  }
+  if (source.contentSha256 !== undefined && typeof source.contentSha256 !== "string") {
+    throw new Error("source.contentSha256 must be a string");
+  }
+
+  let normalizedPricing: RecordProviderTestabilityObservationWebInput["pricing"];
+  if (pricing !== undefined) {
+    if (!isRecord(pricing) || typeof pricing.currency !== "string") {
+      throw new Error("pricing.currency is required");
+    }
+    for (const key of ["inputPerMillion", "outputPerMillion", "perRequest"] as const) {
+      const candidate = pricing[key];
+      if (candidate !== undefined && typeof candidate !== "number") {
+        throw new Error("pricing." + key + " must be a number");
+      }
+    }
+    normalizedPricing = {
+      currency: pricing.currency,
+      ...(typeof pricing.inputPerMillion === "number"
+        ? { inputPerMillion: pricing.inputPerMillion }
+        : {}),
+      ...(typeof pricing.outputPerMillion === "number"
+        ? { outputPerMillion: pricing.outputPerMillion }
+        : {}),
+      ...(typeof pricing.perRequest === "number" ? { perRequest: pricing.perRequest } : {}),
+    };
+  }
+
+  return {
+    operatorToken,
+    providerId,
+    ...(typeof modelId === "string" ? { modelId } : {}),
+    subjectKind,
+    accessState: accessState as ProviderTestabilityAccessState,
+    registrationRequirement,
+    billingRequirement,
+    regionPolicy,
+    ...(Array.isArray(allowedRegions) ? { allowedRegions: allowedRegions as string[] } : {}),
+    ...(Array.isArray(blockedRegions) ? { blockedRegions: blockedRegions as string[] } : {}),
+    ...(typeof accountTier === "string" ? { accountTier } : {}),
+    ...(typeof serviceTier === "string" ? { serviceTier } : {}),
+    serviceAssurance: serviceAssurance as ProviderTestabilityServiceAssurance,
+    ...(normalizedPricing ? { pricing: normalizedPricing } : {}),
+    source: {
+      sourceType: source.sourceType as RecordProviderTestabilityObservationWebInput["source"]["sourceType"],
+      ...(typeof source.url === "string" ? { url: source.url } : {}),
+      title: source.title,
+      ...(typeof source.contentSha256 === "string"
+        ? { contentSha256: source.contentSha256 }
+        : {}),
+    },
+    ...(typeof note === "string" ? { note } : {}),
+  };
+}
+
 function parseArchiveRunInput(value: unknown): ReadArchiveRunInput {
   if (!isRecord(value)) throw new Error("Archive Run request must be an object");
 
@@ -1820,6 +2100,64 @@ export const compareArchive = createServerFn({ method: "POST" })
       }
       throw error;
     }
+  });
+
+export const getProviderTestabilityProviders = createServerFn({ method: "POST" })
+  .validator(parseOperatorInput)
+  .handler(async ({ data }): Promise<readonly ProviderTestabilityProviderSummary[]> => {
+    requireOperator(data.operatorToken);
+    const result = await requestJson<{
+      providers: readonly ProviderTestabilityProviderSummary[];
+    }>("/v1/control/provider-testability", { control: true });
+    return result.providers;
+  });
+
+export const getProviderTestabilityProvider = createServerFn({ method: "POST" })
+  .validator(parseProviderTestabilityProviderInput)
+  .handler(async ({ data }): Promise<ProviderTestabilityProvider | null> => {
+    requireOperator(data.operatorToken);
+    try {
+      const result = await requestJson<{ provider: ProviderTestabilityProvider }>(
+        `/v1/control/provider-testability/${data.providerId}`,
+        { control: true },
+      );
+      return result.provider;
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 404) return null;
+      throw error;
+    }
+  });
+
+export const recordProviderTestabilityObservation = createServerFn({ method: "POST" })
+  .validator(parseProviderTestabilityObservationInput)
+  .handler(async ({ data }) => {
+    requireOperator(data.operatorToken);
+    return requestJson<{ observationId: string; sourceRecordId: string }>(
+      "/v1/control/provider-testability/observations",
+      {
+        method: "POST",
+        control: true,
+        body: {
+          providerId: data.providerId,
+          ...(data.modelId ? { modelId: data.modelId } : {}),
+          executionPath: "first_party_direct",
+          subjectKind: data.subjectKind,
+          accessState: data.accessState,
+          registrationRequirement: data.registrationRequirement,
+          billingRequirement: data.billingRequirement,
+          regionPolicy: data.regionPolicy,
+          ...(data.allowedRegions ? { allowedRegions: data.allowedRegions } : {}),
+          ...(data.blockedRegions ? { blockedRegions: data.blockedRegions } : {}),
+          ...(data.accountTier ? { accountTier: data.accountTier } : {}),
+          ...(data.serviceTier ? { serviceTier: data.serviceTier } : {}),
+          serviceAssurance: data.serviceAssurance,
+          ...(data.pricing ? { pricing: data.pricing } : {}),
+          source: data.source,
+          actor: "web-operator",
+          ...(data.note ? { note: data.note } : {}),
+        },
+      },
+    );
   });
 
 export const getCatalogPresenceHistory = createServerFn({ method: "POST" })

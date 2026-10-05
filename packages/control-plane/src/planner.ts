@@ -9,6 +9,34 @@ import {
   type DirectRunConfig,
 } from "./job.js";
 
+export interface RunnableModelTestabilityObservation {
+  readonly scope: "provider" | "model";
+  readonly accessState: "available" | "restricted" | "unavailable" | "unknown";
+  readonly registrationRequirement:
+    | "open_signup"
+    | "restricted_signup"
+    | "invite_only"
+    | "enterprise_only"
+    | "unknown";
+  readonly billingRequirement:
+    | "free"
+    | "paid_account"
+    | "prepaid_credit"
+    | "subscription"
+    | "enterprise_contract"
+    | "unknown";
+  readonly regionPolicy: "unrestricted" | "restricted" | "unknown";
+  readonly accountTier: string | null;
+  readonly serviceTier: string | null;
+  readonly serviceAssurance:
+    | "documented_default"
+    | "documented_variant"
+    | "operator_uncertain"
+    | "unknown";
+  readonly observedAt: string;
+  readonly sourceId: string;
+}
+
 export interface RunnableModel {
   readonly id: string;
   readonly providerId: string;
@@ -19,6 +47,10 @@ export interface RunnableModel {
   readonly apiModelId: string;
   readonly snapshotId: string | null;
   readonly endpointHostname: string;
+  readonly testability: {
+    readonly providerPolicy: RunnableModelTestabilityObservation | null;
+    readonly runnerAccess: RunnableModelTestabilityObservation | null;
+  };
 }
 
 export interface RunnableTest {
@@ -110,6 +142,26 @@ export class PgRunPlanner {
       api_model_id: string;
       snapshot_id: string | null;
       endpoint_hostname: string;
+      policy_model_id: string | null;
+      policy_access_state: RunnableModelTestabilityObservation["accessState"] | null;
+      policy_registration_requirement: RunnableModelTestabilityObservation["registrationRequirement"] | null;
+      policy_billing_requirement: RunnableModelTestabilityObservation["billingRequirement"] | null;
+      policy_region_policy: RunnableModelTestabilityObservation["regionPolicy"] | null;
+      policy_account_tier: string | null;
+      policy_service_tier: string | null;
+      policy_service_assurance: RunnableModelTestabilityObservation["serviceAssurance"] | null;
+      policy_observed_at: Date | null;
+      policy_source_id: string | null;
+      runner_model_id: string | null;
+      runner_access_state: RunnableModelTestabilityObservation["accessState"] | null;
+      runner_registration_requirement: RunnableModelTestabilityObservation["registrationRequirement"] | null;
+      runner_billing_requirement: RunnableModelTestabilityObservation["billingRequirement"] | null;
+      runner_region_policy: RunnableModelTestabilityObservation["regionPolicy"] | null;
+      runner_account_tier: string | null;
+      runner_service_tier: string | null;
+      runner_service_assurance: RunnableModelTestabilityObservation["serviceAssurance"] | null;
+      runner_observed_at: Date | null;
+      runner_source_id: string | null;
     }>(
       `SELECT DISTINCT ON (m.id)
          m.id,
@@ -120,7 +172,27 @@ export class PgRunPlanner {
          m.status,
          meb.api_model_id,
          meb.snapshot_id,
-         pe.hostname AS endpoint_hostname
+         pe.hostname AS endpoint_hostname,
+         policy.model_id AS policy_model_id,
+         policy.access_state AS policy_access_state,
+         policy.registration_requirement AS policy_registration_requirement,
+         policy.billing_requirement AS policy_billing_requirement,
+         policy.region_policy AS policy_region_policy,
+         policy.account_tier AS policy_account_tier,
+         policy.service_tier AS policy_service_tier,
+         policy.service_assurance AS policy_service_assurance,
+         policy.observed_at AS policy_observed_at,
+         policy.source_id AS policy_source_id,
+         runner.model_id AS runner_model_id,
+         runner.access_state AS runner_access_state,
+         runner.registration_requirement AS runner_registration_requirement,
+         runner.billing_requirement AS runner_billing_requirement,
+         runner.region_policy AS runner_region_policy,
+         runner.account_tier AS runner_account_tier,
+         runner.service_tier AS runner_service_tier,
+         runner.service_assurance AS runner_service_assurance,
+         runner.observed_at AS runner_observed_at,
+         runner.source_id AS runner_source_id
        FROM modelapse.models m
        JOIN modelapse.providers p ON p.id = m.provider_id
        JOIN modelapse.model_execution_bindings meb
@@ -135,6 +207,30 @@ export class PgRunPlanner {
         AND pe.source_id IS NOT NULL
         AND (pe.valid_from IS NULL OR pe.valid_from <= now())
         AND (pe.valid_to IS NULL OR pe.valid_to > now())
+       LEFT JOIN LATERAL (
+         SELECT observation.*
+           FROM modelapse.provider_testability_current observation
+          WHERE observation.provider_id = m.provider_id
+            AND observation.execution_path = 'first_party_direct'
+            AND observation.subject_kind = 'provider_policy'
+            AND (observation.model_id = m.id OR observation.model_id IS NULL)
+          ORDER BY (observation.model_id IS NOT NULL) DESC,
+                   observation.observed_at DESC,
+                   observation.id DESC
+          LIMIT 1
+       ) policy ON true
+       LEFT JOIN LATERAL (
+         SELECT observation.*
+           FROM modelapse.provider_testability_current observation
+          WHERE observation.provider_id = m.provider_id
+            AND observation.execution_path = 'first_party_direct'
+            AND observation.subject_kind = 'runner_access'
+            AND (observation.model_id = m.id OR observation.model_id IS NULL)
+          ORDER BY (observation.model_id IS NOT NULL) DESC,
+                   observation.observed_at DESC,
+                   observation.id DESC
+          LIMIT 1
+       ) runner ON true
        WHERE m.status IN ('preview', 'active')
          AND m.canonical_source_id IS NOT NULL
          AND p.slug IN ('openai', 'deepseek')
@@ -155,6 +251,50 @@ export class PgRunPlanner {
       apiModelId: row.api_model_id,
       snapshotId: row.snapshot_id,
       endpointHostname: row.endpoint_hostname,
+      testability: {
+        providerPolicy:
+          row.policy_access_state &&
+          row.policy_registration_requirement &&
+          row.policy_billing_requirement &&
+          row.policy_region_policy &&
+          row.policy_service_assurance &&
+          row.policy_observed_at &&
+          row.policy_source_id
+            ? {
+                scope: row.policy_model_id ? "model" : "provider",
+                accessState: row.policy_access_state,
+                registrationRequirement: row.policy_registration_requirement,
+                billingRequirement: row.policy_billing_requirement,
+                regionPolicy: row.policy_region_policy,
+                accountTier: row.policy_account_tier,
+                serviceTier: row.policy_service_tier,
+                serviceAssurance: row.policy_service_assurance,
+                observedAt: row.policy_observed_at.toISOString(),
+                sourceId: row.policy_source_id,
+              }
+            : null,
+        runnerAccess:
+          row.runner_access_state &&
+          row.runner_registration_requirement &&
+          row.runner_billing_requirement &&
+          row.runner_region_policy &&
+          row.runner_service_assurance &&
+          row.runner_observed_at &&
+          row.runner_source_id
+            ? {
+                scope: row.runner_model_id ? "model" : "provider",
+                accessState: row.runner_access_state,
+                registrationRequirement: row.runner_registration_requirement,
+                billingRequirement: row.runner_billing_requirement,
+                regionPolicy: row.runner_region_policy,
+                accountTier: row.runner_account_tier,
+                serviceTier: row.runner_service_tier,
+                serviceAssurance: row.runner_service_assurance,
+                observedAt: row.runner_observed_at.toISOString(),
+                sourceId: row.runner_source_id,
+              }
+            : null,
+      },
     }));
   }
 

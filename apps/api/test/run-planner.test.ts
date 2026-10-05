@@ -20,6 +20,10 @@ const plan: PlannedDirectRun = {
     apiModelId: "deepseek-flash",
     snapshotId: null,
     endpointHostname: "api.deepseek.com",
+    testability: {
+      providerPolicy: null,
+      runnerAccess: null,
+    },
   },
   test: {
     testCaseId: TEST_CASE_ID,

@@ -19,6 +19,7 @@ import {
   PgCatalogPresence,
   PgCatalogPresenceReview,
   PgCatalogRemoteIdCase,
+  PgProviderTestability,
   PgModelCatalogAdmin,
 } from "../src/index.js";
 
@@ -2185,6 +2186,206 @@ describe("production catalog bootstrap", () => {
     } finally {
       await remoteCases.close();
       await review.close();
+      await verification.end();
+    }
+  });
+
+  it("archives provider testability access, cost, region, and environment evidence append-only", async () => {
+    const verification = new Pool({ connectionString: isolatedDatabaseUrl });
+    const registry = PgProviderTestability.connect(isolatedDatabaseUrl);
+    try {
+      const provider = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.providers (slug, name)
+         VALUES ('testability-fixture', 'Testability Fixture')
+         RETURNING id`,
+      );
+      const providerId = provider.rows[0]!.id;
+
+      const model = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.models
+          (provider_id, canonical_slug, marketing_name, status)
+         VALUES ($1, 'testability-model', 'Testability Model', 'active')
+         RETURNING id`,
+        [providerId],
+      );
+      const modelId = model.rows[0]!.id;
+
+      const otherProvider = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.providers (slug, name)
+         VALUES ('testability-other', 'Testability Other')
+         RETURNING id`,
+      );
+      const otherModel = await verification.query<{ id: string }>(
+        `INSERT INTO modelapse.models
+          (provider_id, canonical_slug, marketing_name, status)
+         VALUES ($1, 'other-model', 'Other Model', 'active')
+         RETURNING id`,
+        [otherProvider.rows[0]!.id],
+      );
+
+      const policy = await registry.recordObservation({
+        providerId,
+        executionPath: "first_party_direct",
+        subjectKind: "provider_policy",
+        accessState: "restricted",
+        registrationRequirement: "restricted_signup",
+        billingRequirement: "prepaid_credit",
+        regionPolicy: "restricted",
+        allowedRegions: ["US", "JP"],
+        blockedRegions: ["ZZ"],
+        serviceAssurance: "documented_variant",
+        pricing: {
+          currency: "USD",
+          inputPerMillion: 1.25,
+          outputPerMillion: 4.5,
+        },
+        source: {
+          sourceType: "provider_policy",
+          url: "https://testability.example.test/policy",
+          title: "Fixture access policy",
+          contentSha256: "d".repeat(64),
+        },
+        observedAt: "2099-08-01T00:00:00Z",
+        actor: "testability-test",
+        note: "documented provider policy",
+      });
+
+      const uncertain = await registry.recordObservation({
+        providerId,
+        modelId,
+        executionPath: "first_party_direct",
+        subjectKind: "runner_access",
+        accessState: "available",
+        accountTier: "paid-standard",
+        serviceTier: "default",
+        serviceAssurance: "operator_uncertain",
+        source: {
+          sourceType: "operator_verification",
+          title: "Runner access verification",
+        },
+        observedAt: "2099-08-01T00:01:00Z",
+        actor: "testability-test",
+        note: "access works but representative service is not yet calibrated",
+      });
+
+      const before = await registry.getProvider(providerId);
+      expect(before).not.toBeNull();
+      expect(before!.summary).toMatchObject({
+        modelCount: 1,
+        currentObservationCount: 2,
+        providerPolicyCount: 1,
+        runnerAccessCount: 1,
+        restrictedOrUnavailableCount: 1,
+        uncertainServiceCount: 1,
+      });
+      expect(before!.current).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: policy.observationId,
+            subjectKind: "provider_policy",
+            accessState: "restricted",
+            allowedRegions: ["US", "JP"],
+            pricing: expect.objectContaining({
+              currency: "USD",
+              inputPerMillion: "1.250000",
+              outputPerMillion: "4.500000",
+            }),
+            source: expect.objectContaining({
+              sourceType: "provider_policy",
+              contentSha256: "d".repeat(64),
+            }),
+          }),
+          expect.objectContaining({
+            id: uncertain.observationId,
+            subjectKind: "runner_access",
+            serviceAssurance: "operator_uncertain",
+            accountTier: "paid-standard",
+            serviceTier: "default",
+          }),
+        ]),
+      );
+
+      const confirmed = await registry.recordObservation({
+        providerId,
+        modelId,
+        executionPath: "first_party_direct",
+        subjectKind: "runner_access",
+        accessState: "available",
+        accountTier: "paid-standard",
+        serviceTier: "default",
+        serviceAssurance: "documented_default",
+        source: {
+          sourceType: "operator_verification",
+          title: "Runner access re-verification",
+        },
+        observedAt: "2099-08-01T00:02:00Z",
+        actor: "testability-test",
+        note: "later evidence supersedes only the current projection",
+      });
+
+      const after = await registry.getProvider(providerId);
+      expect(after).not.toBeNull();
+      expect(after!.summary).toMatchObject({
+        currentObservationCount: 2,
+        uncertainServiceCount: 0,
+      });
+      expect(
+        after!.current.find(
+          (item) =>
+            item.subjectKind === "runner_access" &&
+            item.model?.id === modelId,
+        ),
+      ).toMatchObject({
+        id: confirmed.observationId,
+        serviceAssurance: "documented_default",
+      });
+      expect(after!.history.map((item) => item.id)).toEqual(
+        expect.arrayContaining([
+          policy.observationId,
+          uncertain.observationId,
+          confirmed.observationId,
+        ]),
+      );
+
+      const listed = await registry.listProviders();
+      expect(
+        listed.find((item) => item.provider.id === providerId),
+      ).toMatchObject({
+        providerPolicyCount: 1,
+        runnerAccessCount: 1,
+        uncertainServiceCount: 0,
+      });
+
+      await expect(
+        verification.query(
+          `UPDATE modelapse.provider_testability_observations
+              SET note = 'rewritten'
+            WHERE id = $1`,
+          [policy.observationId],
+        ),
+      ).rejects.toThrow(/append-only/);
+
+      await expect(
+        registry.recordObservation({
+          providerId,
+          modelId: otherModel.rows[0]!.id,
+          executionPath: "first_party_direct",
+          subjectKind: "runner_access",
+          accessState: "available",
+          serviceAssurance: "unknown",
+          source: {
+            sourceType: "operator_verification",
+            title: "Invalid cross-provider model",
+          },
+          actor: "testability-test",
+        }),
+      ).rejects.toThrow(/model provider mismatch/);
+
+      expect(JSON.stringify(after)).not.toContain("api_key");
+      expect(JSON.stringify(after)).not.toContain("password");
+      expect(JSON.stringify(after)).not.toContain("response_body");
+    } finally {
+      await registry.close();
       await verification.end();
     }
   });

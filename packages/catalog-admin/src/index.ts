@@ -17,3 +17,5 @@ export * from "./catalog-presence.js";
 export * from "./catalog-presence-review.js";
 
 export * from "./catalog-remote-id-case.js";
+
+export * from "./provider-testability.js";

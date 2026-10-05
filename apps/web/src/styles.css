@@ -2796,3 +2796,91 @@ footer {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* Archive v0.18 — Provider Testability Registry */
+.testability-provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 14px;
+}
+
+.testability-provider-card {
+  display: grid;
+  gap: 8px;
+  text-align: left;
+  min-height: 140px;
+}
+
+.testability-provider-card.selected {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.testability-card-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  font-size: 0.82rem;
+}
+
+.testability-form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.testability-form-grid label,
+.testability-note {
+  display: grid;
+  gap: 7px;
+}
+
+.testability-note {
+  margin-top: 16px;
+}
+
+.testability-run-context {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: flex-start;
+  margin: 18px 0;
+  padding: 16px;
+  border: 1px solid var(--line, currentColor);
+  border-radius: 12px;
+}
+
+.testability-run-context > div:first-child {
+  display: grid;
+  gap: 5px;
+  max-width: 620px;
+}
+
+.testability-run-facts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  align-items: center;
+}
+
+@media (max-width: 980px) {
+  .testability-form-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .testability-run-context {
+    flex-direction: column;
+  }
+
+  .testability-run-facts {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 620px) {
+  .testability-form-grid {
+    grid-template-columns: 1fr;
+  }
+}

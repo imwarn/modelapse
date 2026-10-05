@@ -129,3 +129,24 @@ These are different actions.
 **Run this test** makes a new model request and creates a new Run.
 
 Keeping those verbs distinct is important for historical integrity.
+
+
+## Execution comparability
+
+Archive evidence must preserve not only **what** was tested, but **under what provider access conditions** it was tested.
+
+The UI priority therefore extends to:
+
+```text
+Artifact > Time > Evidence > Execution qualification > Score
+```
+
+A first-party direct Run can still carry comparability caveats when provider access depends on region, registration policy, billing/account tier, service tier, capacity, or another non-secret execution condition.
+
+Modelapse must not infer "normal quality" merely because an API request succeeded.
+
+Likewise, one unexpectedly weak result must not be labeled "degradation" or "降智". The product should first expose the execution-environment caveat, then require replication/calibration evidence before stronger language is used.
+
+Provider access, pricing, and runner-account context are time-varying sourced observations. They are not permanent Provider attributes and must not be collapsed into an opaque readiness score.
+
+The staged implementation is defined in `docs/archive-roadmap.md`, beginning with Archive v0.18 Provider Testability Registry.

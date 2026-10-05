@@ -513,3 +513,29 @@ A catalog drift event does not prove a behavioral regression or improvement. A c
 - long-lived WebSocket/SSE job streaming;
 - server-side Archive pagination/search beyond the current bounded API;
 - visual/image/video artifact rendering.
+
+
+## Archive v0.18: Provider Testability Registry
+
+The operator Web now includes:
+
+```text
+/provider-testability
+```
+
+This surface records and inspects sourced, append-only Provider testability observations for:
+
+- registration and access constraints;
+- billing requirements;
+- region restrictions;
+- non-secret runner account / service tier context;
+- text pricing evidence;
+- execution-environment assurance.
+
+The Run control model selector also receives the latest applicable Provider-policy and runner-access observations. Model-specific observations override provider-wide observations for display.
+
+These warnings are intentionally **non-blocking in v0.18**. Missing evidence, restricted access, or `operator_uncertain` service assurance remains visible, but the Run Planner does not yet turn those facts into an automatic execution decision.
+
+The browser still never receives `MODELAPSE_CONTROL_TOKEN` or provider credentials.
+
+The registry must never be used to store account email, passwords, API keys, identity-document data, or complete provider account identifiers.
