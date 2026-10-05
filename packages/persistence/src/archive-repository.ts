@@ -34,6 +34,10 @@ export interface ArchiveTestView {
 
 export interface ArchiveRunExecutionQualificationView {
   readonly selectedAt: string;
+  readonly executionEnvironment: {
+    readonly id: string;
+    readonly slug: string;
+  } | null;
   readonly executionRegion: string | null;
   readonly accountTier: string | null;
   readonly serviceTier: string | null;
@@ -471,6 +475,8 @@ interface ArchiveRunRow {
   execution_path: string;
   evidence_level: string | null;
   qualification_selected_at: Date | null;
+  qualification_execution_environment_id: string | null;
+  qualification_execution_environment_slug: string | null;
   qualification_execution_region: string | null;
   qualification_account_tier: string | null;
   qualification_service_tier: string | null;
@@ -568,6 +574,14 @@ function runView(row: ArchiveRunRow): ArchiveRunView {
     executionQualification: row.qualification_selected_at
       ? {
           selectedAt: row.qualification_selected_at.toISOString(),
+          executionEnvironment:
+            row.qualification_execution_environment_id &&
+            row.qualification_execution_environment_slug
+              ? {
+                  id: row.qualification_execution_environment_id,
+                  slug: row.qualification_execution_environment_slug,
+                }
+              : null,
           executionRegion: row.qualification_execution_region,
           accountTier: row.qualification_account_tier,
           serviceTier: row.qualification_service_tier,
@@ -677,6 +691,8 @@ const RUN_SELECT = `
     r.execution_path,
     res.level AS evidence_level,
     qualification.selected_at AS qualification_selected_at,
+    qualification.execution_environment_id AS qualification_execution_environment_id,
+    qualification.execution_environment_slug AS qualification_execution_environment_slug,
     qualification.execution_region AS qualification_execution_region,
     qualification.account_tier AS qualification_account_tier,
     qualification.service_tier AS qualification_service_tier,
