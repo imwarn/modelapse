@@ -258,5 +258,17 @@ describe("PostgreSQL Run job queue", () => {
     });
 
     expect(retry.id).toBe(first.id);
+
+    const claimed = await queue.claimNext({
+      workerId: "qualification-idempotency-worker",
+      leaseSeconds: 120,
+    });
+    expect(claimed?.id).toBe(first.id);
+
+    await queue.fail({
+      jobId: first.id,
+      workerId: "qualification-idempotency-worker",
+      error: "qualification idempotency fixture cleanup",
+    });
   });
 });
