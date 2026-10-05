@@ -64,6 +64,10 @@ Archive v0.20 also selects compatible sourced pricing evidence at planning time.
 
 The client cannot provide or override the cost envelope. Completed Runs derive their cost fact later from actual provider usage and the frozen pricing basis; current prices are never used to reinterpret an older Run.
 
+Archive v0.21 adds Planner-owned Fleet selection. When execution environments are registered, the Planner selects one enabled Provider-capable environment deterministically using capability priority plus compatible region/service/account context. The internal job freezes the environment descriptor and exact capability event. A caller cannot choose or override the Fleet target.
+
+If the Fleet registry has never been configured, legacy/unassigned scheduling remains available with an explicit caveat. Once any environment exists, lack of a compatible enabled environment is a planning error rather than a fallback to an unrelated worker.
+
 ## Add the first DeepSeek model
 
 The current production bootstrap command is:
