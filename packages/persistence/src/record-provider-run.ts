@@ -40,6 +40,15 @@ function timing(
   };
 }
 
+function returnedServiceTier(
+  metadata: Readonly<Record<string, unknown>> | undefined,
+): string | undefined {
+  const value = metadata?.serviceTier;
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : undefined;
+}
+
 export interface PersistSealedProviderRunInput {
   readonly repository: Pick<RunRepository, "sealRun">;
   readonly blobStore: BlobStore;
@@ -154,6 +163,16 @@ export async function persistSealedProviderRun(
     responseHeadersBlob,
     attestationPayloadBlob,
     providerMetadata,
+    executionQualificationOutcome: {
+      ...(returnedServiceTier(normalized?.providerMetadata)
+        ? {
+            returnedServiceTier: returnedServiceTier(
+              normalized?.providerMetadata,
+            ),
+          }
+        : {}),
+      capturedAt: input.sealed.exchange.completedAt,
+    },
     attestation: {
       keyId: input.sealed.attestation.keyId,
       algorithm: input.sealed.attestation.algorithm,
