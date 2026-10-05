@@ -11,6 +11,7 @@ import {
   PgProviderTestability,
 } from "@modelapse/catalog-admin";
 import {
+  PgExecutionFleet,
   PgRunJobQueue,
   PgRunPlanner,
 } from "@modelapse/control-plane";
@@ -28,6 +29,7 @@ if (!databaseUrl) {
 
 const runs = PgRunRepository.connect(databaseUrl);
 const jobs = PgRunJobQueue.connect(databaseUrl);
+const fleet = PgExecutionFleet.connect(databaseUrl);
 const planner = PgRunPlanner.connect(databaseUrl);
 const archive = PgArchiveRepository.connect(databaseUrl);
 const costLedger = PgCostLedger.connect(databaseUrl);
@@ -45,6 +47,7 @@ const port = Number(process.env.PORT ?? "3000");
 const app = createApp({
   runs,
   jobs,
+  fleet,
   planner,
   archive,
   costLedger,
@@ -76,6 +79,7 @@ function shutdown(signal: string): void {
     void Promise.all([
       runs.close(),
       jobs.close(),
+      fleet.close(),
       planner.close(),
       archive.close(),
       costLedger.close(),
