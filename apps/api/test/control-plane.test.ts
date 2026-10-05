@@ -666,3 +666,134 @@ describe("Catalog Remote ID Case control API", () => {
     expect(JSON.stringify(payload)).not.toContain("raw_observation");
   });
 });
+
+
+describe("Provider Testability control API", () => {
+  const providerId = "00000000-0000-4000-8000-000000000180";
+  const modelId = "00000000-0000-4000-8000-000000000181";
+
+  it("keeps access/cost evidence operator-only and appends observations through the narrow contract", async () => {
+    const summary = {
+      provider: { id: providerId, slug: "fixture", name: "Fixture Provider" },
+      modelCount: 1,
+      currentObservationCount: 2,
+      providerPolicyCount: 1,
+      runnerAccessCount: 1,
+      restrictedOrUnavailableCount: 1,
+      uncertainServiceCount: 1,
+      latestObservedAt: "2026-10-05T04:00:00.000Z",
+    };
+    const detail = {
+      generatedAt: "2026-10-05T04:01:00.000Z",
+      provider: summary.provider,
+      models: [
+        {
+          id: modelId,
+          canonicalSlug: "fixture-model",
+          marketingName: "Fixture Model",
+          status: "active",
+        },
+      ],
+      summary: {
+        modelCount: 1,
+        currentObservationCount: 2,
+        providerPolicyCount: 1,
+        runnerAccessCount: 1,
+        restrictedOrUnavailableCount: 1,
+        uncertainServiceCount: 1,
+        latestObservedAt: summary.latestObservedAt,
+      },
+      current: [],
+      history: [],
+    };
+
+    let recorded: unknown;
+    const app = createApp({
+      runs: baseRuns(),
+      controlToken: "control-secret",
+      providerTestability: {
+        listProviders: async () => [summary],
+        getProvider: async (requestedProviderId) =>
+          requestedProviderId === providerId ? detail : null,
+        recordObservation: async (input) => {
+          recorded = input;
+          return {
+            observationId: "00000000-0000-4000-8000-000000000182",
+            sourceRecordId: "00000000-0000-4000-8000-000000000183",
+          };
+        },
+      },
+    });
+
+    expect((await app.request("/v1/control/provider-testability")).status).toBe(401);
+
+    const headers = { authorization: "Bearer control-secret" };
+    const list = await app.request("/v1/control/provider-testability", { headers });
+    expect(list.status).toBe(200);
+    await expect(list.json()).resolves.toEqual({ providers: [summary] });
+
+    const invalid = await app.request("/v1/control/provider-testability/not-a-uuid", {
+      headers,
+    });
+    expect(invalid.status).toBe(400);
+
+    const found = await app.request(
+      "/v1/control/provider-testability/" + providerId,
+      { headers },
+    );
+    expect(found.status).toBe(200);
+    await expect(found.json()).resolves.toEqual({ provider: detail });
+
+    const created = await app.request(
+      "/v1/control/provider-testability/observations",
+      {
+        method: "POST",
+        headers: {
+          ...headers,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          providerId,
+          modelId,
+          executionPath: "first_party_direct",
+          subjectKind: "runner_access",
+          accessState: "available",
+          registrationRequirement: "unknown",
+          billingRequirement: "paid_account",
+          regionPolicy: "restricted",
+          allowedRegions: ["US"],
+          accountTier: "paid-standard",
+          serviceTier: "default",
+          serviceAssurance: "operator_uncertain",
+          pricing: {
+            currency: "USD",
+            inputPerMillion: 1.25,
+          },
+          source: {
+            sourceType: "operator_verification",
+            title: "Fixture runner verification",
+          },
+          actor: "api-test",
+          note: "environment is not yet calibrated",
+        }),
+      },
+    );
+    expect(created.status).toBe(201);
+    expect(recorded).toMatchObject({
+      providerId,
+      modelId,
+      executionPath: "first_party_direct",
+      subjectKind: "runner_access",
+      accessState: "available",
+      serviceAssurance: "operator_uncertain",
+      accountTier: "paid-standard",
+      source: {
+        sourceType: "operator_verification",
+        title: "Fixture runner verification",
+      },
+      actor: "api-test",
+    });
+    expect(JSON.stringify(await created.json())).not.toContain("apiKey");
+    expect(JSON.stringify(recorded)).not.toContain("password");
+  });
+});
