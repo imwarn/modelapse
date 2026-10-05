@@ -98,7 +98,12 @@ function qualificationEnvelope(
   return {
     selectedAt: plan?.selectedAt ?? new Date().toISOString(),
     ...(executionEnvironment
-      ? { executionEnvironmentId: executionEnvironment.id }
+      ? {
+          executionEnvironmentId: executionEnvironment.id,
+          ...(fleet
+            ? { executionCapabilityEventId: fleet.capabilityEventId }
+            : {}),
+        }
       : {}),
     ...(region ? { executionRegion: region } : {}),
     ...(plan?.providerPolicyObservationId
