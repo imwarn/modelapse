@@ -1213,9 +1213,10 @@ export function createApp(deps: AppDependencies) {
         executionPath !== "first_party_direct" ||
         typeof enabled !== "boolean" ||
         (selectionPriority !== undefined &&
-          (!Number.isInteger(selectionPriority) ||
-            (selectionPriority as number) < 0 ||
-            (selectionPriority as number) > 100000)) ||
+          (typeof selectionPriority !== "number" ||
+            !Number.isInteger(selectionPriority) ||
+            selectionPriority < 0 ||
+            selectionPriority > 100000)) ||
         typeof actor !== "string" ||
         !actor.trim() ||
         (note !== undefined && typeof note !== "string") ||
