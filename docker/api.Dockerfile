@@ -56,6 +56,14 @@ COPY --from=build /app/packages/persistence/package.json ./packages/persistence/
 COPY --from=build /app/packages/persistence/dist ./packages/persistence/dist
 COPY --from=build /app/packages/control-plane/package.json ./packages/control-plane/package.json
 COPY --from=build /app/packages/control-plane/dist ./packages/control-plane/dist
+COPY --from=build /app/packages/testpack-sdk/package.json ./packages/testpack-sdk/package.json
+COPY --from=build /app/packages/testpack-sdk/dist ./packages/testpack-sdk/dist
+COPY --from=build /app/packages/catalog-admin/package.json ./packages/catalog-admin/package.json
+COPY --from=build /app/packages/catalog-admin/dist ./packages/catalog-admin/dist
+
+# npm workspaces are symlinked from node_modules into /app/packages.
+# Resolve every API workspace dependency now so a dangling runtime link fails the image build.
+RUN node --input-type=module -e "await Promise.all([import('@modelapse/control-plane'), import('@modelapse/persistence'), import('@modelapse/catalog-admin')])"
 
 USER node
 EXPOSE 3000
