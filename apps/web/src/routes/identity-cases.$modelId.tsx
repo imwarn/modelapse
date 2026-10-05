@@ -158,6 +158,17 @@ function IdentityCasePage() {
                 <article className="coverage-card identity-case-card" key={candidate.id}>
                   <span className="badge">{candidate.status}</span>
                   <strong>{candidate.remoteModelId}</strong>
+                  <a
+                    className="text-link"
+                    href={
+                      "/catalog-remote-case/" +
+                      identityCase.model.provider.id +
+                      "?remoteModelId=" +
+                      encodeURIComponent(candidate.remoteModelId)
+                    }
+                  >
+                    Open Remote ID Case →
+                  </a>
                   <small>
                     {candidate.observationCount} observation(s) · {formatTimestamp(candidate.firstSeenAt)} → {formatTimestamp(candidate.lastSeenAt)}
                   </small>
