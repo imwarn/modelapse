@@ -285,7 +285,7 @@ describe("DeepSeek first-party direct queue path", () => {
     });
     expect(disabledClaim).toBeNull();
 
-    await fleet!.declareCapability({
+    const resumedCapability = await fleet!.declareCapability({
       environmentId: selectedEnvironment!.id,
       providerId,
       executionPath: "first_party_direct",
@@ -294,6 +294,9 @@ describe("DeepSeek first-party direct queue path", () => {
       actor: "deepseek-fleet-integration",
       note: "resume primary environment",
     });
+    expect(resumedCapability.eventId).not.toBe(
+      plan.jobPayload.fleet!.capabilityEventId,
+    );
 
     const completed = await processOneQueuedRunJob({
       queue: queue!,
@@ -359,6 +362,7 @@ describe("DeepSeek first-party direct queue path", () => {
           executionEnvironment: {
             id: selectedEnvironment!.id,
             slug: "us-paid-primary",
+            capabilityEventId: plan.jobPayload.fleet!.capabilityEventId,
           },
           executionRegion: "US",
           accountTier: "paid-standard",
@@ -426,6 +430,24 @@ describe("DeepSeek first-party direct queue path", () => {
           }),
         ]),
       );
+
+      await expect(
+        verification.query(
+          `UPDATE modelapse.execution_environments
+              SET region = 'CA'
+            WHERE id = $1`,
+          [selectedEnvironment!.id],
+        ),
+      ).rejects.toThrow(/append-only/i);
+
+      await expect(
+        verification.query(
+          `UPDATE modelapse.execution_environment_capability_events
+              SET selection_priority = 999
+            WHERE id = $1`,
+          [plan.jobPayload.fleet!.capabilityEventId],
+        ),
+      ).rejects.toThrow(/append-only/i);
 
       await expect(
         verification.query(
