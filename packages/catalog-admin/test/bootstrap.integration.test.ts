@@ -17,6 +17,7 @@ import {
   PgCatalogIntegrity,
   PgCatalogObserver,
   PgCatalogPresence,
+  PgCatalogPresenceReview,
   PgModelCatalogAdmin,
 } from "../src/index.js";
 
