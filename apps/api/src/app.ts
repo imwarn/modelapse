@@ -25,11 +25,27 @@ import type {
   PgCatalogPresence,
   PgCatalogPresenceReview,
   PgCatalogRemoteIdCase,
+  PgProviderTestability,
+  type RecordProviderTestabilityObservationInput,
 } from "@modelapse/catalog-admin";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PROVIDER_SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+function apiRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function apiStringArray(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    return undefined;
+  }
+  return value as string[];
+}
 
 type RunApiRepository = Pick<RunRepository, "ping" | "getRun">;
 type ControlQueue = Pick<PgRunJobQueue, "ping" | "enqueue" | "get">;
@@ -49,6 +65,10 @@ type CatalogCoverageRepository = Pick<PgCatalogCoverage, "listProviders" | "getP
 type CatalogPresenceRepository = Pick<PgCatalogPresence, "getProvider">;
 type CatalogPresenceReviewRepository = Pick<PgCatalogPresenceReview, "list" | "decide">;
 type CatalogRemoteIdCaseRepository = Pick<PgCatalogRemoteIdCase, "get">;
+type ProviderTestabilityRepository = Pick<
+  PgProviderTestability,
+  "listProviders" | "getProvider" | "recordObservation"
+>;
 
 type ArchiveRepository = Pick<
   PgArchiveRepository,
@@ -77,6 +97,7 @@ export interface AppDependencies {
   readonly catalogPresence?: CatalogPresenceRepository;
   readonly catalogPresenceReview?: CatalogPresenceReviewRepository;
   readonly catalogRemoteIdCase?: CatalogRemoteIdCaseRepository;
+  readonly providerTestability?: ProviderTestabilityRepository;
   readonly controlToken?: string;
 }
 
@@ -516,6 +537,191 @@ export function createApp(deps: AppDependencies) {
             error instanceof Error
               ? error.message
               : "Catalog presence review rejected",
+        },
+        409,
+      );
+    }
+  });
+
+  app.get("/v1/control/provider-testability", async (c) => {
+    if (!deps.providerTestability || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+    return c.json({
+      providers: await deps.providerTestability.listProviders(),
+    });
+  });
+
+  app.get("/v1/control/provider-testability/:providerId", async (c) => {
+    if (!deps.providerTestability || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+    const providerId = c.req.param("providerId");
+    if (!UUID_RE.test(providerId)) {
+      return c.json({ error: "invalid_provider_id" }, 400);
+    }
+
+    const provider = await deps.providerTestability.getProvider(providerId);
+    if (!provider) {
+      return c.json({ error: "provider_testability_provider_not_found" }, 404);
+    }
+    return c.json({ provider });
+  });
+
+  app.post("/v1/control/provider-testability/observations", async (c) => {
+    if (!deps.providerTestability || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid_json" }, 400);
+    }
+
+    const body = apiRecord(raw);
+    const source = apiRecord(body?.source);
+    const pricing = apiRecord(body?.pricing);
+    const allowedRegions = apiStringArray(body?.allowedRegions);
+    const blockedRegions = apiStringArray(body?.blockedRegions);
+
+    const providerId = body?.providerId;
+    const modelId = body?.modelId;
+    const executionPath = body?.executionPath;
+    const subjectKind = body?.subjectKind;
+    const accessState = body?.accessState;
+    const actor = body?.actor;
+
+    if (
+      !body ||
+      typeof providerId !== "string" ||
+      !UUID_RE.test(providerId) ||
+      (modelId !== undefined &&
+        (typeof modelId !== "string" || !UUID_RE.test(modelId))) ||
+      executionPath !== "first_party_direct" ||
+      (subjectKind !== "provider_policy" && subjectKind !== "runner_access") ||
+      !["available", "restricted", "unavailable", "unknown"].includes(
+        String(accessState),
+      ) ||
+      typeof actor !== "string" ||
+      !actor.trim() ||
+      !source ||
+      typeof source.sourceType !== "string" ||
+      typeof source.title !== "string" ||
+      !source.title.trim() ||
+      (body.allowedRegions !== undefined && allowedRegions === undefined) ||
+      (body.blockedRegions !== undefined && blockedRegions === undefined)
+    ) {
+      return c.json({ error: "invalid_provider_testability_observation" }, 400);
+    }
+
+    const optionalStrings = [
+      body.registrationRequirement,
+      body.billingRequirement,
+      body.regionPolicy,
+      body.accountTier,
+      body.serviceTier,
+      body.serviceAssurance,
+      body.observedAt,
+      body.note,
+      source.url,
+      source.retrievedAt,
+      source.contentSha256,
+    ];
+    if (
+      optionalStrings.some(
+        (value) => value !== undefined && typeof value !== "string",
+      )
+    ) {
+      return c.json({ error: "invalid_provider_testability_observation" }, 400);
+    }
+
+    if (
+      pricing &&
+      (
+        typeof pricing.currency !== "string" ||
+        ["inputPerMillion", "outputPerMillion", "perRequest"].some((key) => {
+          const value = pricing[key];
+          return value !== undefined && typeof value !== "number";
+        })
+      )
+    ) {
+      return c.json({ error: "invalid_provider_testability_observation" }, 400);
+    }
+
+    try {
+      const input = {
+        providerId,
+        ...(typeof modelId === "string" ? { modelId } : {}),
+        executionPath,
+        subjectKind,
+        accessState: accessState as RecordProviderTestabilityObservationInput["accessState"],
+        ...(typeof body.registrationRequirement === "string"
+          ? { registrationRequirement: body.registrationRequirement as RecordProviderTestabilityObservationInput["registrationRequirement"] }
+          : {}),
+        ...(typeof body.billingRequirement === "string"
+          ? { billingRequirement: body.billingRequirement as RecordProviderTestabilityObservationInput["billingRequirement"] }
+          : {}),
+        ...(typeof body.regionPolicy === "string"
+          ? { regionPolicy: body.regionPolicy as RecordProviderTestabilityObservationInput["regionPolicy"] }
+          : {}),
+        ...(allowedRegions ? { allowedRegions } : {}),
+        ...(blockedRegions ? { blockedRegions } : {}),
+        ...(typeof body.accountTier === "string" ? { accountTier: body.accountTier } : {}),
+        ...(typeof body.serviceTier === "string" ? { serviceTier: body.serviceTier } : {}),
+        ...(typeof body.serviceAssurance === "string"
+          ? { serviceAssurance: body.serviceAssurance as RecordProviderTestabilityObservationInput["serviceAssurance"] }
+          : {}),
+        ...(pricing
+          ? {
+              pricing: {
+                currency: pricing.currency as string,
+                ...(typeof pricing.inputPerMillion === "number"
+                  ? { inputPerMillion: pricing.inputPerMillion }
+                  : {}),
+                ...(typeof pricing.outputPerMillion === "number"
+                  ? { outputPerMillion: pricing.outputPerMillion }
+                  : {}),
+                ...(typeof pricing.perRequest === "number"
+                  ? { perRequest: pricing.perRequest }
+                  : {}),
+              },
+            }
+          : {}),
+        source: {
+          sourceType: source.sourceType as RecordProviderTestabilityObservationInput["source"]["sourceType"],
+          ...(typeof source.url === "string" ? { url: source.url } : {}),
+          title: source.title as string,
+          ...(typeof source.retrievedAt === "string"
+            ? { retrievedAt: source.retrievedAt }
+            : {}),
+          ...(typeof source.contentSha256 === "string"
+            ? { contentSha256: source.contentSha256 }
+            : {}),
+        },
+        ...(typeof body.observedAt === "string" ? { observedAt: body.observedAt } : {}),
+        actor,
+        ...(typeof body.note === "string" ? { note: body.note } : {}),
+      } satisfies RecordProviderTestabilityObservationInput;
+
+      return c.json(await deps.providerTestability.recordObservation(input), 201);
+    } catch (error) {
+      return c.json(
+        {
+          error: "provider_testability_observation_rejected",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Provider testability observation rejected",
         },
         409,
       );
