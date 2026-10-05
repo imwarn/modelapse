@@ -477,6 +477,15 @@ describe("PostgreSQL Run persistence", () => {
         snapshotId,
         providerId,
         runnerBuild: "integration-test",
+        executionQualification: {
+          selectedAt: "2026-09-23T11:59:59.000Z",
+          executionRegion: "US",
+          accountTier: "integration-paid",
+          serviceTier: "standard",
+          requestedServiceTier: "priority",
+          serviceAssurance: "unknown",
+          caveats: ["testability_evidence_not_planned"],
+        },
       },
       collector: "modelapse-integration-test",
     });
@@ -549,6 +558,27 @@ describe("PostgreSQL Run persistence", () => {
       outputTokens: 1,
       totalTokens: 2,
     });
+    expect(archived?.executionQualification).toMatchObject({
+      executionRegion: "US",
+      accountTier: "integration-paid",
+      serviceTier: "standard",
+      requestedServiceTier: "priority",
+      returnedServiceTier: null,
+      serviceAssurance: "unknown",
+      contextKey: null,
+      caveats: expect.arrayContaining([
+        "testability_evidence_not_planned",
+        "returned_service_tier_unknown",
+      ]),
+    });
+    await expect(
+      seedPool.query(
+        `UPDATE modelapse.run_execution_qualification_envelopes
+            SET execution_region = 'CA'
+          WHERE run_id = $1`,
+        [result.run.id],
+      ),
+    ).rejects.toThrow(/append-only/i);
     expect(archived?.evidence[0]).toMatchObject({
       level: "E3",
       executionPath: "routed_provider",
