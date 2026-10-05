@@ -284,6 +284,13 @@ function ArchiveRunPage() {
         <div className="detail-grid">
           <dl className="detail-panel">
             <div>
+              <dt>Execution environment</dt>
+              <dd>
+                {run.executionQualification?.executionEnvironment?.slug ??
+                  "legacy / unassigned"}
+              </dd>
+            </div>
+            <div>
               <dt>Execution region</dt>
               <dd>{run.executionQualification?.executionRegion ?? "unknown"}</dd>
             </div>
