@@ -410,6 +410,14 @@ describe("PostgreSQL Run persistence", () => {
         providerSlug: "integration-router",
         executionPath: "routed_provider",
         allowedHosts: ["router.fake.test"],
+        capabilities: {
+          returned_model_metadata: "supported",
+          model_version_metadata: "unsupported",
+          provider_request_id: "supported",
+          provider_response_id: "supported",
+          service_tier_metadata: "unsupported",
+          token_usage: "supported",
+        },
       },
       prepare: (request) => ({
         url: "https://router.fake.test/v1/messages",
