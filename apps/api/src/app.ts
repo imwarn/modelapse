@@ -1410,6 +1410,155 @@ export function createApp(deps: AppDependencies) {
     }
   });
 
+  app.post("/v1/control/calibration/policies", async (c) => {
+    if (!deps.calibration || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid_json" }, 400);
+    }
+    const body = apiRecord(raw);
+    const version = body?.version;
+    const windowSize = body?.windowSize;
+    const repeatedAnomalyThreshold = body?.repeatedAnomalyThreshold;
+    const maxAgeHours = body?.maxAgeHours;
+    const actor = body?.actor;
+    const note = body?.note;
+    if (
+      typeof version !== "string" ||
+      !/^[a-z0-9][a-z0-9._-]*$/.test(version) ||
+      typeof windowSize !== "number" ||
+      !Number.isInteger(windowSize) ||
+      typeof repeatedAnomalyThreshold !== "number" ||
+      !Number.isInteger(repeatedAnomalyThreshold) ||
+      typeof maxAgeHours !== "number" ||
+      !Number.isInteger(maxAgeHours) ||
+      typeof actor !== "string" ||
+      !actor.trim() ||
+      (note !== undefined && typeof note !== "string")
+    ) {
+      return c.json({ error: "invalid_calibration_policy" }, 400);
+    }
+    try {
+      const policy = await deps.calibration.recordPolicy({
+        version,
+        windowSize,
+        repeatedAnomalyThreshold,
+        maxAgeHours,
+        actor,
+        ...(typeof note === "string" ? { note } : {}),
+      });
+      return c.json({ policy }, 201);
+    } catch (error) {
+      return c.json(
+        {
+          error: "calibration_policy_rejected",
+          message:
+            error instanceof Error ? error.message : "Calibration policy rejected",
+        },
+        400,
+      );
+    }
+  });
+
+  app.post("/v1/control/comparability/policies", async (c) => {
+    if (!deps.comparability || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid_json" }, 400);
+    }
+    const body = apiRecord(raw);
+    if (!body) return c.json({ error: "invalid_comparability_policy" }, 400);
+
+    const version = body.version;
+    const minimumEvidenceLevel = body.minimumEvidenceLevel;
+    const actor = body.actor;
+    const note = body.note;
+    const booleans = [
+      "requireSameExecutionPath",
+      "requireRegion",
+      "requireAccountTier",
+      "requireServiceTier",
+      "requireDocumentedServiceAssurance",
+      "rejectQualificationCaveats",
+      "requireRecentCalibration",
+      "rejectRepeatedCalibrationAnomaly",
+    ] as const;
+    const integers = [
+      "calibrationMaxAgeHours",
+      "defaultMinRepeatCount",
+      "unstableMinRepeatCount",
+    ] as const;
+
+    if (
+      typeof version !== "string" ||
+      !/^[a-z0-9][a-z0-9._-]*$/.test(version) ||
+      typeof minimumEvidenceLevel !== "string" ||
+      !["E0", "E1", "E2", "E3", "E4", "E5"].includes(minimumEvidenceLevel) ||
+      booleans.some((key) => typeof body[key] !== "boolean") ||
+      integers.some(
+        (key) => typeof body[key] !== "number" || !Number.isInteger(body[key]),
+      ) ||
+      typeof actor !== "string" ||
+      !actor.trim() ||
+      (note !== undefined && typeof note !== "string")
+    ) {
+      return c.json({ error: "invalid_comparability_policy" }, 400);
+    }
+
+    try {
+      const policy = await deps.comparability.recordPolicy({
+        version,
+        minimumEvidenceLevel: minimumEvidenceLevel as
+          | "E0"
+          | "E1"
+          | "E2"
+          | "E3"
+          | "E4"
+          | "E5",
+        requireSameExecutionPath: body.requireSameExecutionPath as boolean,
+        requireRegion: body.requireRegion as boolean,
+        requireAccountTier: body.requireAccountTier as boolean,
+        requireServiceTier: body.requireServiceTier as boolean,
+        requireDocumentedServiceAssurance:
+          body.requireDocumentedServiceAssurance as boolean,
+        rejectQualificationCaveats:
+          body.rejectQualificationCaveats as boolean,
+        requireRecentCalibration: body.requireRecentCalibration as boolean,
+        rejectRepeatedCalibrationAnomaly:
+          body.rejectRepeatedCalibrationAnomaly as boolean,
+        calibrationMaxAgeHours: body.calibrationMaxAgeHours as number,
+        defaultMinRepeatCount: body.defaultMinRepeatCount as number,
+        unstableMinRepeatCount: body.unstableMinRepeatCount as number,
+        actor,
+        ...(typeof note === "string" ? { note } : {}),
+      });
+      return c.json({ policy }, 201);
+    } catch (error) {
+      return c.json(
+        {
+          error: "comparability_policy_rejected",
+          message:
+            error instanceof Error ? error.message : "Comparability policy rejected",
+        },
+        400,
+      );
+    }
+  });
+
   app.get("/v1/control/catalog/models", async (c) => {
     if (!deps.planner || !controlToken) {
       return c.json({ error: "control_plane_disabled" }, 503);
