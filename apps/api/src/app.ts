@@ -29,7 +29,10 @@ import type {
   PgCatalogPresence,
   PgCatalogPresenceReview,
   PgCatalogRemoteIdCase,
+  PgProviderExpansion,
   PgProviderTestability,
+  RecordProviderExpansionPolicyInput,
+  RecordProviderCapabilityInput,
   RecordProviderTestabilityObservationInput,
 } from "@modelapse/catalog-admin";
 
@@ -81,6 +84,15 @@ type ProviderTestabilityRepository = Pick<
   PgProviderTestability,
   "listProviders" | "getProvider" | "recordObservation"
 >;
+type ProviderExpansionRepository = Pick<
+  PgProviderExpansion,
+  | "ping"
+  | "listProviders"
+  | "getProvider"
+  | "listPolicies"
+  | "recordPolicy"
+  | "recordCapability"
+>;
 type CostLedgerRepository = Pick<
   PgCostLedger,
   "ping" | "listDailyCosts" | "listBudgetStatus" | "recordBudgetPolicy"
@@ -123,6 +135,7 @@ export interface AppDependencies {
   readonly catalogPresenceReview?: CatalogPresenceReviewRepository;
   readonly catalogRemoteIdCase?: CatalogRemoteIdCaseRepository;
   readonly providerTestability?: ProviderTestabilityRepository;
+  readonly providerExpansion?: ProviderExpansionRepository;
   readonly costLedger?: CostLedgerRepository;
   readonly calibration?: CalibrationRepository;
   readonly comparability?: ComparabilityRepository;
@@ -225,6 +238,7 @@ export function createApp(deps: AppDependencies) {
       if (deps.costLedger) await deps.costLedger.ping();
       if (deps.calibration) await deps.calibration.ping();
       if (deps.comparability) await deps.comparability.ping();
+      if (deps.providerExpansion) await deps.providerExpansion.ping();
       return c.json({
         ready: true,
         service: "modelapse-api",
@@ -623,6 +637,213 @@ export function createApp(deps: AppDependencies) {
               : "Catalog presence review rejected",
         },
         409,
+      );
+    }
+  });
+
+  app.get("/v1/control/provider-expansion", async (c) => {
+    if (!deps.providerExpansion || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+    const policyVersion = c.req.query("policyVersion");
+    if (
+      policyVersion &&
+      !/^[a-z0-9][a-z0-9._-]*$/.test(policyVersion)
+    ) {
+      return c.json({ error: "invalid_policy_version" }, 400);
+    }
+    return c.json({
+      providers: await deps.providerExpansion.listProviders(policyVersion),
+    });
+  });
+
+  app.get("/v1/control/provider-expansion/policies", async (c) => {
+    if (!deps.providerExpansion || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+    return c.json({ policies: await deps.providerExpansion.listPolicies() });
+  });
+
+  app.get("/v1/control/provider-expansion/:providerId", async (c) => {
+    if (!deps.providerExpansion || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+    const providerId = c.req.param("providerId");
+    const policyVersion = c.req.query("policyVersion");
+    if (!UUID_RE.test(providerId)) {
+      return c.json({ error: "invalid_provider_id" }, 400);
+    }
+    if (
+      policyVersion &&
+      !/^[a-z0-9][a-z0-9._-]*$/.test(policyVersion)
+    ) {
+      return c.json({ error: "invalid_policy_version" }, 400);
+    }
+
+    const provider = await deps.providerExpansion.getProvider(
+      providerId,
+      policyVersion,
+    );
+    if (!provider) {
+      return c.json({ error: "provider_expansion_provider_not_found" }, 404);
+    }
+    return c.json({ provider });
+  });
+
+  app.post("/v1/control/provider-expansion/capabilities", async (c) => {
+    if (!deps.providerExpansion || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid_json" }, 400);
+    }
+    const body = apiRecord(raw);
+    const providerId = body?.providerId;
+    const capability = body?.capability;
+    const supportState = body?.supportState;
+    const sourceId = body?.sourceId;
+    const declaredAt = body?.declaredAt;
+    const actor = body?.actor;
+    const note = body?.note;
+    const capabilityKeys = [
+      "returned_model_metadata",
+      "model_version_metadata",
+      "provider_request_id",
+      "provider_response_id",
+      "service_tier_metadata",
+      "token_usage",
+      "catalog_model_list",
+    ];
+
+    if (
+      typeof providerId !== "string" ||
+      !UUID_RE.test(providerId) ||
+      typeof capability !== "string" ||
+      !capabilityKeys.includes(capability) ||
+      (supportState !== "supported" && supportState !== "unsupported") ||
+      (sourceId !== undefined &&
+        (typeof sourceId !== "string" || !UUID_RE.test(sourceId))) ||
+      (declaredAt !== undefined &&
+        (typeof declaredAt !== "string" ||
+          !Number.isFinite(Date.parse(declaredAt)))) ||
+      typeof actor !== "string" ||
+      !actor.trim() ||
+      (note !== undefined && typeof note !== "string")
+    ) {
+      return c.json({ error: "invalid_provider_capability" }, 400);
+    }
+
+    try {
+      const input = {
+        providerId,
+        capability: capability as RecordProviderCapabilityInput["capability"],
+        supportState,
+        ...(typeof sourceId === "string" ? { sourceId } : {}),
+        ...(typeof declaredAt === "string" ? { declaredAt } : {}),
+        actor,
+        ...(typeof note === "string" ? { note } : {}),
+      } satisfies RecordProviderCapabilityInput;
+      return c.json(
+        { capability: await deps.providerExpansion.recordCapability(input) },
+        201,
+      );
+    } catch (error) {
+      return c.json(
+        {
+          error: "provider_capability_rejected",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Provider capability declaration rejected",
+        },
+        409,
+      );
+    }
+  });
+
+  app.post("/v1/control/provider-expansion/policies", async (c) => {
+    if (!deps.providerExpansion || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid_json" }, 400);
+    }
+    const body = apiRecord(raw);
+    const requiredCapabilities = apiStringArray(body?.requiredCapabilities);
+    const version = body?.version;
+    const actor = body?.actor;
+    const note = body?.note;
+    const booleanKeys = [
+      "requireIdentityProvenance",
+      "requireCatalogCollection",
+      "requireProviderPolicy",
+      "requirePricingEvidence",
+      "requireRunnerContext",
+      "requireDirectRun",
+      "requireCalibration",
+    ] as const;
+
+    if (
+      typeof version !== "string" ||
+      !/^[a-z0-9][a-z0-9._-]*$/.test(version) ||
+      !requiredCapabilities ||
+      requiredCapabilities.length === 0 ||
+      booleanKeys.some((key) => typeof body?.[key] !== "boolean") ||
+      typeof actor !== "string" ||
+      !actor.trim() ||
+      (note !== undefined && typeof note !== "string")
+    ) {
+      return c.json({ error: "invalid_provider_expansion_policy" }, 400);
+    }
+
+    try {
+      const input = {
+        version,
+        requiredCapabilities:
+          requiredCapabilities as RecordProviderExpansionPolicyInput["requiredCapabilities"],
+        requireIdentityProvenance: body!.requireIdentityProvenance as boolean,
+        requireCatalogCollection: body!.requireCatalogCollection as boolean,
+        requireProviderPolicy: body!.requireProviderPolicy as boolean,
+        requirePricingEvidence: body!.requirePricingEvidence as boolean,
+        requireRunnerContext: body!.requireRunnerContext as boolean,
+        requireDirectRun: body!.requireDirectRun as boolean,
+        requireCalibration: body!.requireCalibration as boolean,
+        actor,
+        ...(typeof note === "string" ? { note } : {}),
+      } satisfies RecordProviderExpansionPolicyInput;
+      return c.json(
+        { policy: await deps.providerExpansion.recordPolicy(input) },
+        201,
+      );
+    } catch (error) {
+      return c.json(
+        {
+          error: "provider_expansion_policy_rejected",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Provider expansion policy rejected",
+        },
+        400,
       );
     }
   });
