@@ -21,5 +21,3 @@ export * from "./catalog-remote-id-case.js";
 export * from "./provider-testability.js";
 export * from "./service-calibration.js";
 export * from "./service-calibration-catalog.js";
-export * from "./service-calibration.js";
-export * from "./service-calibration-catalog.js";
