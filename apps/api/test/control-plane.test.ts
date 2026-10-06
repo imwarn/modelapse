@@ -1232,3 +1232,211 @@ describe("Calibration and comparability policy API", () => {
     });
   });
 });
+
+
+describe("Provider Expansion control API", () => {
+  it("requires operator auth and exposes readiness plus append-only capability declarations", async () => {
+    const providerId = "00000000-0000-4000-8000-000000000401";
+    const policy = {
+      id: "00000000-0000-4000-8000-000000000402",
+      version: "provider-expansion-v1",
+      requiredCapabilities: [
+        "returned_model_metadata",
+        "model_version_metadata",
+        "provider_request_id",
+        "provider_response_id",
+        "service_tier_metadata",
+        "token_usage",
+      ] as const,
+      requireIdentityProvenance: true,
+      requireCatalogCollection: true,
+      requireProviderPolicy: true,
+      requirePricingEvidence: true,
+      requireRunnerContext: true,
+      requireDirectRun: true,
+      requireCalibration: true,
+      actor: "migration",
+      note: null,
+      createdAt: "2026-10-06T00:00:00.000Z",
+    };
+    const summary = {
+      provider: {
+        id: providerId,
+        slug: "fixture-provider",
+        name: "Fixture Provider",
+      },
+      policyVersion: policy.version,
+      status: "incomplete" as const,
+      blockerCount: 1,
+      caveatCount: 0,
+      activeModelCount: 1,
+      latestDirectRunAt: null,
+      latestCalibrationAt: null,
+    };
+    const detail = {
+      ...summary,
+      generatedAt: "2026-10-06T01:00:00.000Z",
+      policy,
+      blockers: ["calibration_evidence_missing"],
+      caveats: [],
+      gates: [
+        {
+          key: "calibration_coverage" as const,
+          status: "fail" as const,
+          summary: "no calibration assessment",
+          blockers: ["calibration_evidence_missing"],
+          caveats: [],
+          evidenceIds: [],
+        },
+      ],
+      capabilities: [
+        {
+          capability: "returned_model_metadata" as const,
+          supportState: "supported" as const,
+          eventId: "00000000-0000-4000-8000-000000000403",
+          sourceId: null,
+          declaredAt: "2026-10-06T00:30:00.000Z",
+          actor: "fixture",
+          note: null,
+          observed: true,
+        },
+      ],
+      models: [],
+      fleet: [],
+      latestCalibration: null,
+    };
+    let capabilityInput: unknown;
+    let policyInput: unknown;
+
+    const app = createApp({
+      runs: baseRuns(),
+      controlToken: "control-secret",
+      providerExpansion: {
+        ping: async () => undefined,
+        listProviders: async () => [summary],
+        getProvider: async () => detail,
+        listPolicies: async () => [policy],
+        recordCapability: async (input) => {
+          capabilityInput = input;
+          return {
+            capability: input.capability,
+            supportState: input.supportState,
+            eventId: "00000000-0000-4000-8000-000000000404",
+            sourceId: input.sourceId ?? null,
+            declaredAt: input.declaredAt ?? "2026-10-06T02:00:00.000Z",
+            actor: input.actor,
+            note: input.note ?? null,
+            observed: false,
+          };
+        },
+        recordPolicy: async (input) => {
+          policyInput = input;
+          return {
+            ...policy,
+            version: input.version,
+            requiredCapabilities: input.requiredCapabilities,
+            requireIdentityProvenance: input.requireIdentityProvenance,
+            requireCatalogCollection: input.requireCatalogCollection,
+            requireProviderPolicy: input.requireProviderPolicy,
+            requirePricingEvidence: input.requirePricingEvidence,
+            requireRunnerContext: input.requireRunnerContext,
+            requireDirectRun: input.requireDirectRun,
+            requireCalibration: input.requireCalibration,
+            actor: input.actor,
+            note: input.note ?? null,
+          };
+        },
+      },
+    });
+
+    const unauthorized = await app.request("/v1/control/provider-expansion");
+    expect(unauthorized.status).toBe(401);
+
+    const headers = { authorization: "Bearer control-secret" };
+    const listed = await app.request("/v1/control/provider-expansion", {
+      headers,
+    });
+    expect(listed.status).toBe(200);
+    await expect(listed.json()).resolves.toMatchObject({
+      providers: [
+        {
+          provider: { id: providerId, slug: "fixture-provider" },
+          status: "incomplete",
+          blockerCount: 1,
+        },
+      ],
+    });
+
+    const read = await app.request(
+      `/v1/control/provider-expansion/${providerId}`,
+      { headers },
+    );
+    expect(read.status).toBe(200);
+    await expect(read.json()).resolves.toMatchObject({
+      provider: {
+        policyVersion: "provider-expansion-v1",
+        blockers: ["calibration_evidence_missing"],
+      },
+    });
+
+    const capability = await app.request(
+      "/v1/control/provider-expansion/capabilities",
+      {
+        method: "POST",
+        headers: {
+          ...headers,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          providerId,
+          capability: "service_tier_metadata",
+          supportState: "unsupported",
+          actor: "api-test",
+          note: "Provider does not expose service tier metadata.",
+        }),
+      },
+    );
+    expect(capability.status).toBe(201);
+    expect(capabilityInput).toMatchObject({
+      providerId,
+      capability: "service_tier_metadata",
+      supportState: "unsupported",
+      actor: "api-test",
+    });
+
+    const createdPolicy = await app.request(
+      "/v1/control/provider-expansion/policies",
+      {
+        method: "POST",
+        headers: {
+          ...headers,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          version: "provider-expansion-v2",
+          requiredCapabilities: [
+            "returned_model_metadata",
+            "provider_request_id",
+          ],
+          requireIdentityProvenance: true,
+          requireCatalogCollection: true,
+          requireProviderPolicy: true,
+          requirePricingEvidence: true,
+          requireRunnerContext: true,
+          requireDirectRun: true,
+          requireCalibration: true,
+          actor: "api-test",
+        }),
+      },
+    );
+    expect(createdPolicy.status).toBe(201);
+    expect(policyInput).toMatchObject({
+      version: "provider-expansion-v2",
+      requiredCapabilities: [
+        "returned_model_metadata",
+        "provider_request_id",
+      ],
+      actor: "api-test",
+    });
+  });
+});
