@@ -246,6 +246,8 @@ This makes registration and region restrictions an explicit scheduling concern r
 
 ### Archive v0.22 — Calibration & Service-Health Canaries
 
+**Implemented:** see `docs/calibration-service-health.md` and ADR 0018.
+
 Introduce stable calibration Tests that are not used as leaderboard scores.
 
 Purpose:
@@ -258,6 +260,8 @@ Purpose:
 One failed canary is evidence of an anomaly, not proof of deliberate degradation.
 
 ### Archive v0.23 — Replication Policy / Comparability Sets
+
+**Implemented:** see `docs/comparability-policy.md` and ADR 0019.
 
 Formalize when Runs can be grouped for longitudinal or cross-provider comparison.
 

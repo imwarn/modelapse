@@ -337,11 +337,55 @@ export interface ArchiveTestDetail extends ArchiveTest {
   readonly recentRuns: readonly ArchiveRun[];
 }
 
+export interface ArchiveComparabilityPolicy {
+  readonly id: string;
+  readonly version: string;
+  readonly minimumEvidenceLevel: "E0" | "E1" | "E2" | "E3" | "E4" | "E5";
+  readonly requireSameExecutionPath: boolean;
+  readonly requireRegion: boolean;
+  readonly requireAccountTier: boolean;
+  readonly requireServiceTier: boolean;
+  readonly requireDocumentedServiceAssurance: boolean;
+  readonly rejectQualificationCaveats: boolean;
+  readonly requireRecentCalibration: boolean;
+  readonly rejectRepeatedCalibrationAnomaly: boolean;
+  readonly calibrationMaxAgeHours: number;
+  readonly defaultMinRepeatCount: number;
+  readonly unstableMinRepeatCount: number;
+  readonly actor: string;
+  readonly note: string | null;
+  readonly createdAt: string;
+}
+
+export interface ArchiveRunComparability {
+  readonly status: "eligible" | "ineligible" | "unknown";
+  readonly reasons: readonly string[];
+  readonly repeatCount: number;
+  readonly requiredRepeatCount: number;
+  readonly calibration: {
+    readonly runId: string;
+    readonly policyVersion: string;
+    readonly status: "pass" | "anomaly" | "unknown";
+    readonly anomalyStreak: number;
+    readonly repeatedAnomaly: boolean;
+    readonly repeatRecommended: boolean;
+    readonly completedAt: string;
+    readonly ageHours: number;
+  } | null;
+}
+
 export interface ArchiveComparison {
   readonly test: ArchiveTest;
+  readonly policy: ArchiveComparabilityPolicy;
+  readonly comparabilitySet: {
+    readonly status: "matched" | "mismatched" | "unknown";
+    readonly key: string | null;
+    readonly reasons: readonly string[];
+  };
   readonly rows: readonly {
     readonly model: ArchiveModel;
     readonly latestRun: ArchiveRun | null;
+    readonly comparability: ArchiveRunComparability | null;
   }[];
 }
 
@@ -1347,6 +1391,7 @@ interface ReadArchiveTestInput {
 interface CompareArchiveInput {
   readonly modelIds: readonly string[];
   readonly testCaseId: string;
+  readonly policyVersion?: string;
 }
 
 interface ReadArchiveHistoryInput {
@@ -1935,6 +1980,7 @@ function parseArchiveComparisonInput(value: unknown): CompareArchiveInput {
 
   const modelIds = value.modelIds;
   const testCaseId = value.testCaseId;
+  const policyVersion = value.policyVersion;
 
   if (
     !Array.isArray(modelIds) ||
@@ -1948,10 +1994,18 @@ function parseArchiveComparisonInput(value: unknown): CompareArchiveInput {
   if (typeof testCaseId !== "string" || !UUID_RE.test(testCaseId)) {
     throw new Error("testCaseId must be a UUID");
   }
+  if (
+    policyVersion !== undefined &&
+    (typeof policyVersion !== "string" ||
+      !/^[a-z0-9][a-z0-9._-]*$/.test(policyVersion))
+  ) {
+    throw new Error("policyVersion is invalid");
+  }
 
   return {
     modelIds: modelIds as string[],
     testCaseId,
+    ...(typeof policyVersion === "string" ? { policyVersion } : {}),
   };
 }
 
@@ -2142,8 +2196,13 @@ export const compareArchive = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<ArchiveComparison | null> => {
     const modelIds = data.modelIds.join(",");
     try {
+      const params = new URLSearchParams({
+        modelIds,
+        testCaseId: data.testCaseId,
+      });
+      if (data.policyVersion) params.set("policyVersion", data.policyVersion);
       const result = await requestJson<{ comparison: ArchiveComparison }>(
-        `/v1/archive/compare?modelIds=${encodeURIComponent(modelIds)}&testCaseId=${encodeURIComponent(data.testCaseId)}`,
+        `/v1/archive/compare?${params.toString()}`,
       );
       return result.comparison;
     } catch (error) {

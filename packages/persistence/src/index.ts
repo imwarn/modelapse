@@ -5,3 +5,5 @@ export * from "./execute-provider-run.js";
 export * from "./evaluation-repository.js";
 export * from "./archive-repository.js";
 export * from "./cost-ledger.js";
+export * from "./calibration-repository.js";
+export * from "./comparability-repository.js";

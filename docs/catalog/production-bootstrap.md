@@ -143,3 +143,14 @@ Examples that fail closed:
 - the version has already been retired.
 
 These failures require explicit catalog review instead of silent mutation.
+
+
+## Service-health calibration
+
+Bootstrap the canonical non-leaderboard calibration TestPack once per production database:
+
+```bash
+npm run bootstrap:service-calibration -w @modelapse/catalog-admin
+```
+
+The bootstrap is idempotent. It creates a public `calibration` Test Case bound to `exact-text@1.0.0`. The case participates in first-party controlled execution but is not intended for leaderboard comparison.

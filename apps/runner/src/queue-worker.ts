@@ -12,6 +12,7 @@ import type {
 import {
   PersistedRunExecutionError,
   type ExecutionCatalogRepository,
+  type PgCalibrationRepository,
   type PgEvaluationRepository,
   type RunRepository,
 } from "@modelapse/persistence";
@@ -26,6 +27,7 @@ export interface QueueWorkerDependencies {
     PgEvaluationRepository,
     "resolveForRun" | "recordExactText"
   >;
+  readonly calibration?: Pick<PgCalibrationRepository, "recordForRun">;
   readonly blobStore: BlobStore;
   readonly transport: EvidenceTransport;
   readonly credentials: CredentialResolver;
@@ -87,12 +89,15 @@ export async function processOneQueuedRunJob(
     runId = result.run.id;
 
     if (result.run.status === "completed") {
-      await evaluateCompletedRun({
+      const evaluation = await evaluateCompletedRun({
         runId,
         normalized: result.sealed.normalized,
         blobStore: deps.blobStore,
         evaluations: deps.evaluations,
       });
+      if (evaluation && deps.calibration) {
+        await deps.calibration.recordForRun(runId);
+      }
     }
   } catch (error) {
     const failedRunId =

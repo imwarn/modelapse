@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FileSystemContentAddressedBlobStore } from "@modelapse/blob-store";
-import { PgCatalogAdmin, PgModelCatalogAdmin } from "@modelapse/catalog-admin";
+import {
+  PgCatalogAdmin,
+  PgModelCatalogAdmin,
+  PgServiceCalibrationCatalog,
+} from "@modelapse/catalog-admin";
 import {
   PgExecutionFleet,
   PgRunJobQueue,
@@ -18,6 +22,7 @@ import {
 } from "@modelapse/evidence-transport";
 import {
   PgArchiveRepository,
+  PgCalibrationRepository,
   PgCostLedger,
   PgEvaluationRepository,
   PgRunRepository,
@@ -46,12 +51,14 @@ describe("DeepSeek first-party direct queue path", () => {
   let evaluations: PgEvaluationRepository | undefined;
   let queue: PgRunJobQueue | undefined;
   let catalog: PgCatalogAdmin | undefined;
+  let calibrationCatalog: PgServiceCalibrationCatalog | undefined;
   let modelCatalog: PgModelCatalogAdmin | undefined;
   let planner: PgRunPlanner | undefined;
   let fleet: PgExecutionFleet | undefined;
   let selectedEnvironment: ExecutionEnvironmentDescriptor | undefined;
   let secondaryEnvironment: ExecutionEnvironmentDescriptor | undefined;
   let testCaseId = "";
+  let calibrationTestCaseId = "";
   let modelId = "";
   let providerId = "";
   let pricingObservationId = "";
@@ -72,6 +79,10 @@ describe("DeepSeek first-party direct queue path", () => {
     evaluations = PgEvaluationRepository.connect(isolatedDatabaseUrl, { max: 2 });
     queue = PgRunJobQueue.connect(isolatedDatabaseUrl, { max: 2 });
     catalog = PgCatalogAdmin.connect(isolatedDatabaseUrl, blobStore);
+    calibrationCatalog = PgServiceCalibrationCatalog.connect(
+      isolatedDatabaseUrl,
+      blobStore,
+    );
     modelCatalog = PgModelCatalogAdmin.connect(isolatedDatabaseUrl);
     planner = PgRunPlanner.connect(isolatedDatabaseUrl, { max: 2 });
     fleet = PgExecutionFleet.connect(isolatedDatabaseUrl, { max: 2 });
@@ -80,6 +91,11 @@ describe("DeepSeek first-party direct queue path", () => {
       runnerBuild: "deepseek-bootstrap",
     });
     testCaseId = bootstrapped.testCaseId;
+
+    const calibrationBootstrapped = await calibrationCatalog.bootstrap({
+      runnerBuild: "deepseek-calibration-bootstrap",
+    });
+    calibrationTestCaseId = calibrationBootstrapped.testCaseId;
 
     const model = await modelCatalog.bootstrapDeepSeekFlash();
     modelId = model.modelId;
@@ -172,6 +188,7 @@ describe("DeepSeek first-party direct queue path", () => {
     await evaluations?.close();
     await repository?.close();
     await catalog?.close();
+    await calibrationCatalog?.close();
     await modelCatalog?.close();
     await adminPool.query(
       `DROP DATABASE IF EXISTS "${databaseName}"`,
@@ -478,4 +495,139 @@ describe("DeepSeek first-party direct queue path", () => {
     expect(requestEvidence).not.toContain(secret);
     expect(requestEvidence).toContain("[REDACTED]");
   });
+
+  it("records calibration anomalies and escalates only after repetition", async () => {
+    const calibration = PgCalibrationRepository.connect(isolatedDatabaseUrl, {
+      max: 2,
+    });
+    const { privateKey } = generateKeyPairSync("ed25519");
+    const transport = new NodeEvidenceTransport({
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            id: "resp_deepseek_calibration",
+            object: "response",
+            status: "completed",
+            model: "deepseek-flash",
+            output: [
+              {
+                type: "message",
+                role: "assistant",
+                content: [
+                  {
+                    type: "output_text",
+                    text: "unexpected-calibration-output",
+                  },
+                ],
+              },
+            ],
+            usage: {
+              input_tokens: 9,
+              output_tokens: 1,
+              total_tokens: 10,
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              "x-request-id": "deepseek-calibration-test",
+            },
+          },
+        ),
+    });
+
+    try {
+      const runOnce = async (suffix: string) => {
+        const plan = await planner!.plan({
+          modelId,
+          testCaseId: calibrationTestCaseId,
+          config: {
+            reasoningEffort: "none",
+            maxOutputTokens: 32,
+          },
+        });
+        const job = await queue!.enqueue({
+          payload: plan.jobPayload,
+          idempotencyKey: "deepseek-calibration-" + suffix + "-" + randomUUID(),
+        });
+        const completed = await processOneQueuedRunJob({
+          queue: queue!,
+          repository: repository!,
+          evaluations: evaluations!,
+          calibration,
+          blobStore: new FileSystemContentAddressedBlobStore(root),
+          transport,
+          credentials: new EnvironmentCredentialResolver({
+            DEEPSEEK_API_KEY: "deepseek-calibration-secret",
+          }),
+          signer: {
+            keyId: "deepseek-calibration-key",
+            privateKey,
+          },
+          runnerBuild: "deepseek-calibration-build",
+          executionEnvironment: selectedEnvironment!,
+          workerId: "deepseek-calibration-worker-" + suffix,
+          leaseSeconds: 180,
+        });
+        expect(completed?.id).toBe(job.id);
+        expect(completed?.status).toBe("succeeded");
+        return completed!.runId!;
+      };
+
+      const firstRunId = await runOnce("one");
+      const first = await calibration.getForRun(firstRunId);
+      expect(first).toMatchObject({
+        status: "anomaly",
+        exactMatch: false,
+        anomalyStreak: 1,
+        repeatedAnomaly: false,
+        repeatRecommended: true,
+        policy: { version: "calibration-v1" },
+      });
+
+      const secondRunId = await runOnce("two");
+      const second = await calibration.getForRun(secondRunId);
+      expect(second).toMatchObject({
+        status: "anomaly",
+        exactMatch: false,
+        anomalyStreak: 2,
+        repeatedAnomaly: true,
+        repeatRecommended: true,
+        policy: { version: "calibration-v1" },
+      });
+
+      const health = await calibration.listServiceHealth({
+        providerId,
+        modelId,
+      });
+      expect(health[0]).toMatchObject({
+        runId: secondRunId,
+        status: "anomaly",
+        repeatedAnomaly: true,
+        execution: {
+          environmentId: selectedEnvironment!.id,
+          region: "US",
+          accountTier: "paid-standard",
+        },
+      });
+
+      const verification = new Pool({ connectionString: isolatedDatabaseUrl });
+      try {
+        await expect(
+          verification.query(
+            `UPDATE modelapse.calibration_run_assessments
+                SET repeated_anomaly = false
+              WHERE run_id = $1`,
+            [secondRunId],
+          ),
+        ).rejects.toThrow(/append-only/i);
+      } finally {
+        await verification.end();
+      }
+    } finally {
+      await calibration.close();
+    }
+  });
+
 });

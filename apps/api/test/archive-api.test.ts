@@ -400,6 +400,30 @@ const archiveTestDetail = {
 } as const;
 
 const archiveComparison = {
+  policy: {
+    id: "00000000-0000-4000-8000-000000000060",
+    version: "comparability-v1",
+    minimumEvidenceLevel: "E4",
+    requireSameExecutionPath: true,
+    requireRegion: true,
+    requireAccountTier: true,
+    requireServiceTier: true,
+    requireDocumentedServiceAssurance: true,
+    rejectQualificationCaveats: true,
+    requireRecentCalibration: false,
+    rejectRepeatedCalibrationAnomaly: true,
+    calibrationMaxAgeHours: 24,
+    defaultMinRepeatCount: 1,
+    unstableMinRepeatCount: 3,
+    actor: "archive-v0.23-migration",
+    note: null,
+    createdAt: "2026-10-06T00:00:00.000Z",
+  },
+  comparabilitySet: {
+    status: "unknown" as const,
+    key: null,
+    reasons: ["run_missing"],
+  },
   test: {
     testCaseId: TEST_CASE_ID,
     familySlug: archiveRun.test.familySlug,
@@ -429,6 +453,13 @@ const archiveComparison = {
         latestRunAt: archiveRun.completedAt,
       },
       latestRun: archiveRun,
+      comparability: {
+        status: "eligible" as const,
+        reasons: [],
+        repeatCount: 1,
+        requiredRepeatCount: 1,
+        calibration: null,
+      },
     },
     {
       model: {
@@ -445,6 +476,7 @@ const archiveComparison = {
         latestRunAt: null,
       },
       latestRun: null,
+      comparability: null,
     },
   ],
 } as const;

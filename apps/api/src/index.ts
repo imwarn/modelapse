@@ -17,6 +17,8 @@ import {
 } from "@modelapse/control-plane";
 import {
   PgArchiveRepository,
+  PgCalibrationRepository,
+  PgComparabilityRepository,
   PgCostLedger,
   PgRunRepository,
 } from "@modelapse/persistence";
@@ -33,6 +35,8 @@ const fleet = PgExecutionFleet.connect(databaseUrl);
 const planner = PgRunPlanner.connect(databaseUrl);
 const archive = PgArchiveRepository.connect(databaseUrl);
 const costLedger = PgCostLedger.connect(databaseUrl);
+const calibration = PgCalibrationRepository.connect(databaseUrl);
+const comparability = PgComparabilityRepository.connect(databaseUrl);
 const catalogCoverage = PgCatalogCoverage.connect(databaseUrl);
 const catalogDiscovery = PgCatalogDiscovery.connect(databaseUrl);
 const catalogDriftReview = PgCatalogDriftReview.connect(databaseUrl);
@@ -51,6 +55,8 @@ const app = createApp({
   planner,
   archive,
   costLedger,
+  calibration,
+  comparability,
   catalogCoverage,
   catalogDiscovery,
   catalogDriftReview,
@@ -83,6 +89,8 @@ function shutdown(signal: string): void {
       planner.close(),
       archive.close(),
       costLedger.close(),
+      calibration.close(),
+      comparability.close(),
       catalogCoverage.close(),
       catalogDiscovery.close(),
       catalogDriftReview.close(),

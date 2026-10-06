@@ -1,5 +1,6 @@
 import { FileSystemContentAddressedBlobStore } from "@modelapse/blob-store";
 import { PgCatalogAdmin } from "./catalog.js";
+import { PgServiceCalibrationCatalog } from "./service-calibration-catalog.js";
 import {
   PgCatalogDiscovery,
   type CatalogDiscoveryStatus,
@@ -18,6 +19,7 @@ const command = process.argv[2];
 if (
   command !== "bootstrap-openai-smoke" &&
   command !== "bootstrap-deepseek-smoke" &&
+  command !== "bootstrap-service-calibration" &&
   command !== "bootstrap-deepseek-flash-model" &&
   command !== "observe-first-party-identity" &&
   command !== "collect-first-party-catalog" &&
@@ -25,7 +27,7 @@ if (
   command !== "reconcile-catalog-candidate"
 ) {
   throw new Error(
-    "Usage: catalog-admin bootstrap-openai-smoke|bootstrap-deepseek-smoke|bootstrap-deepseek-flash-model|observe-first-party-identity|collect-first-party-catalog|list-catalog-discoveries|reconcile-catalog-candidate",
+    "Usage: catalog-admin bootstrap-openai-smoke|bootstrap-deepseek-smoke|bootstrap-service-calibration|bootstrap-deepseek-flash-model|observe-first-party-identity|collect-first-party-catalog|list-catalog-discoveries|reconcile-catalog-candidate",
   );
 }
 
@@ -112,6 +114,21 @@ if (command === "list-catalog-discoveries") {
     process.stdout.write(JSON.stringify(result, null, 2) + "\n");
   } finally {
     await models.close();
+  }
+} else if (command === "bootstrap-service-calibration") {
+  const calibration = PgServiceCalibrationCatalog.connect(
+    requiredEnv("DATABASE_URL"),
+    new FileSystemContentAddressedBlobStore(
+      requiredEnv("MODELAPSE_BLOB_ROOT"),
+    ),
+  );
+  try {
+    const result = await calibration.bootstrap({
+      runnerBuild: requiredEnv("MODELAPSE_BUILD"),
+    });
+    process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+  } finally {
+    await calibration.close();
   }
 } else {
   const admin = PgCatalogAdmin.connect(

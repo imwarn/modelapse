@@ -11,6 +11,8 @@ import {
 } from "@modelapse/control-plane";
 import type {
   PgArchiveRepository,
+  PgCalibrationRepository,
+  PgComparabilityRepository,
   PgCostLedger,
   RunRepository,
   RunView,
@@ -83,6 +85,14 @@ type CostLedgerRepository = Pick<
   PgCostLedger,
   "ping" | "listDailyCosts" | "listBudgetStatus" | "recordBudgetPolicy"
 >;
+type CalibrationRepository = Pick<
+  PgCalibrationRepository,
+  "ping" | "listPolicies" | "recordPolicy" | "listServiceHealth"
+>;
+type ComparabilityRepository = Pick<
+  PgComparabilityRepository,
+  "ping" | "listPolicies" | "recordPolicy"
+>;
 
 type ArchiveRepository = Pick<
   PgArchiveRepository,
@@ -114,6 +124,8 @@ export interface AppDependencies {
   readonly catalogRemoteIdCase?: CatalogRemoteIdCaseRepository;
   readonly providerTestability?: ProviderTestabilityRepository;
   readonly costLedger?: CostLedgerRepository;
+  readonly calibration?: CalibrationRepository;
+  readonly comparability?: ComparabilityRepository;
   readonly controlToken?: string;
 }
 
@@ -211,6 +223,8 @@ export function createApp(deps: AppDependencies) {
       if (deps.planner) await deps.planner.ping();
       if (deps.archive) await deps.archive.ping();
       if (deps.costLedger) await deps.costLedger.ping();
+      if (deps.calibration) await deps.calibration.ping();
+      if (deps.comparability) await deps.comparability.ping();
       return c.json({
         ready: true,
         service: "modelapse-api",
@@ -352,6 +366,7 @@ export function createApp(deps: AppDependencies) {
 
     const rawModelIds = c.req.query("modelIds");
     const testCaseId = c.req.query("testCaseId");
+    const policyVersion = c.req.query("policyVersion");
     const modelIds = rawModelIds
       ?.split(",")
       .map((value) => value.trim())
@@ -369,16 +384,66 @@ export function createApp(deps: AppDependencies) {
     if (!testCaseId || !UUID_RE.test(testCaseId)) {
       return c.json({ error: "invalid_test_case_id" }, 400);
     }
+    if (
+      policyVersion &&
+      !/^[a-z0-9][a-z0-9._-]*$/.test(policyVersion)
+    ) {
+      return c.json({ error: "invalid_policy_version" }, 400);
+    }
 
     const comparison = await deps.archive.compareLatest({
       modelIds,
       testCaseId,
+      ...(policyVersion ? { policyVersion } : {}),
     });
     if (!comparison) {
       return c.json({ error: "archive_comparison_not_found" }, 404);
     }
 
     return c.json({ comparison });
+  });
+
+  app.get("/v1/archive/calibration/health", async (c) => {
+    if (!deps.calibration) {
+      return c.json({ error: "calibration_unavailable" }, 503);
+    }
+    const providerId = c.req.query("providerId");
+    const modelId = c.req.query("modelId");
+    const rawLimit = c.req.query("limit");
+    if (providerId && !UUID_RE.test(providerId)) {
+      return c.json({ error: "invalid_provider_id" }, 400);
+    }
+    if (modelId && !UUID_RE.test(modelId)) {
+      return c.json({ error: "invalid_model_id" }, 400);
+    }
+    const limit = rawLimit === undefined ? undefined : Number(rawLimit);
+    if (
+      limit !== undefined &&
+      (!Number.isInteger(limit) || limit < 1 || limit > 200)
+    ) {
+      return c.json({ error: "invalid_limit" }, 400);
+    }
+    return c.json({
+      health: await deps.calibration.listServiceHealth({
+        ...(providerId ? { providerId } : {}),
+        ...(modelId ? { modelId } : {}),
+        ...(limit !== undefined ? { limit } : {}),
+      }),
+    });
+  });
+
+  app.get("/v1/archive/calibration/policies", async (c) => {
+    if (!deps.calibration) {
+      return c.json({ error: "calibration_unavailable" }, 503);
+    }
+    return c.json({ policies: await deps.calibration.listPolicies() });
+  });
+
+  app.get("/v1/archive/comparability/policies", async (c) => {
+    if (!deps.comparability) {
+      return c.json({ error: "comparability_unavailable" }, 503);
+    }
+    return c.json({ policies: await deps.comparability.listPolicies() });
   });
 
   app.get("/v1/archive/runs", async (c) => {
@@ -1339,6 +1404,155 @@ export function createApp(deps: AppDependencies) {
           error: "budget_policy_rejected",
           message:
             error instanceof Error ? error.message : "Budget policy rejected",
+        },
+        400,
+      );
+    }
+  });
+
+  app.post("/v1/control/calibration/policies", async (c) => {
+    if (!deps.calibration || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid_json" }, 400);
+    }
+    const body = apiRecord(raw);
+    const version = body?.version;
+    const windowSize = body?.windowSize;
+    const repeatedAnomalyThreshold = body?.repeatedAnomalyThreshold;
+    const maxAgeHours = body?.maxAgeHours;
+    const actor = body?.actor;
+    const note = body?.note;
+    if (
+      typeof version !== "string" ||
+      !/^[a-z0-9][a-z0-9._-]*$/.test(version) ||
+      typeof windowSize !== "number" ||
+      !Number.isInteger(windowSize) ||
+      typeof repeatedAnomalyThreshold !== "number" ||
+      !Number.isInteger(repeatedAnomalyThreshold) ||
+      typeof maxAgeHours !== "number" ||
+      !Number.isInteger(maxAgeHours) ||
+      typeof actor !== "string" ||
+      !actor.trim() ||
+      (note !== undefined && typeof note !== "string")
+    ) {
+      return c.json({ error: "invalid_calibration_policy" }, 400);
+    }
+    try {
+      const policy = await deps.calibration.recordPolicy({
+        version,
+        windowSize,
+        repeatedAnomalyThreshold,
+        maxAgeHours,
+        actor,
+        ...(typeof note === "string" ? { note } : {}),
+      });
+      return c.json({ policy }, 201);
+    } catch (error) {
+      return c.json(
+        {
+          error: "calibration_policy_rejected",
+          message:
+            error instanceof Error ? error.message : "Calibration policy rejected",
+        },
+        400,
+      );
+    }
+  });
+
+  app.post("/v1/control/comparability/policies", async (c) => {
+    if (!deps.comparability || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid_json" }, 400);
+    }
+    const body = apiRecord(raw);
+    if (!body) return c.json({ error: "invalid_comparability_policy" }, 400);
+
+    const version = body.version;
+    const minimumEvidenceLevel = body.minimumEvidenceLevel;
+    const actor = body.actor;
+    const note = body.note;
+    const booleans = [
+      "requireSameExecutionPath",
+      "requireRegion",
+      "requireAccountTier",
+      "requireServiceTier",
+      "requireDocumentedServiceAssurance",
+      "rejectQualificationCaveats",
+      "requireRecentCalibration",
+      "rejectRepeatedCalibrationAnomaly",
+    ] as const;
+    const integers = [
+      "calibrationMaxAgeHours",
+      "defaultMinRepeatCount",
+      "unstableMinRepeatCount",
+    ] as const;
+
+    if (
+      typeof version !== "string" ||
+      !/^[a-z0-9][a-z0-9._-]*$/.test(version) ||
+      typeof minimumEvidenceLevel !== "string" ||
+      !["E0", "E1", "E2", "E3", "E4", "E5"].includes(minimumEvidenceLevel) ||
+      booleans.some((key) => typeof body[key] !== "boolean") ||
+      integers.some(
+        (key) => typeof body[key] !== "number" || !Number.isInteger(body[key]),
+      ) ||
+      typeof actor !== "string" ||
+      !actor.trim() ||
+      (note !== undefined && typeof note !== "string")
+    ) {
+      return c.json({ error: "invalid_comparability_policy" }, 400);
+    }
+
+    try {
+      const policy = await deps.comparability.recordPolicy({
+        version,
+        minimumEvidenceLevel: minimumEvidenceLevel as
+          | "E0"
+          | "E1"
+          | "E2"
+          | "E3"
+          | "E4"
+          | "E5",
+        requireSameExecutionPath: body.requireSameExecutionPath as boolean,
+        requireRegion: body.requireRegion as boolean,
+        requireAccountTier: body.requireAccountTier as boolean,
+        requireServiceTier: body.requireServiceTier as boolean,
+        requireDocumentedServiceAssurance:
+          body.requireDocumentedServiceAssurance as boolean,
+        rejectQualificationCaveats:
+          body.rejectQualificationCaveats as boolean,
+        requireRecentCalibration: body.requireRecentCalibration as boolean,
+        rejectRepeatedCalibrationAnomaly:
+          body.rejectRepeatedCalibrationAnomaly as boolean,
+        calibrationMaxAgeHours: body.calibrationMaxAgeHours as number,
+        defaultMinRepeatCount: body.defaultMinRepeatCount as number,
+        unstableMinRepeatCount: body.unstableMinRepeatCount as number,
+        actor,
+        ...(typeof note === "string" ? { note } : {}),
+      });
+      return c.json({ policy }, 201);
+    } catch (error) {
+      return c.json(
+        {
+          error: "comparability_policy_rejected",
+          message:
+            error instanceof Error ? error.message : "Comparability policy rejected",
         },
         400,
       );

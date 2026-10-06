@@ -17,6 +17,7 @@ import {
   NodeEvidenceTransport,
 } from "@modelapse/evidence-transport";
 import {
+  PgCalibrationRepository,
   PgEvaluationRepository,
   PgRunRepository,
 } from "@modelapse/persistence";
@@ -131,6 +132,7 @@ const catalogObserverMaxResponseBytes = positiveIntegerEnv(
 const privateKey = await privateKeyPem();
 const repository = PgRunRepository.connect(databaseUrl, { max: 2 });
 const evaluations = PgEvaluationRepository.connect(databaseUrl, { max: 2 });
+const calibration = PgCalibrationRepository.connect(databaseUrl, { max: 2 });
 const blobStore = new FileSystemContentAddressedBlobStore(blobRoot);
 const credentials = new EnvironmentCredentialResolver();
 const transport = new NodeEvidenceTransport({ timeoutMs: providerTimeoutMs });
@@ -266,6 +268,7 @@ async function runQueueMode(): Promise<void> {
         queue,
         repository,
         evaluations,
+        calibration,
         blobStore,
         transport,
         credentials,
@@ -322,5 +325,6 @@ try {
   await Promise.all([
     repository.close(),
     evaluations.close(),
+    calibration.close(),
   ]);
 }
