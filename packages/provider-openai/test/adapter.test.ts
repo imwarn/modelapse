@@ -11,6 +11,17 @@ const request = {
 };
 
 describe("OpenAIResponsesAdapter", () => {
+  it("declares supported and unsupported metadata capture explicitly", () => {
+    expect(new OpenAIResponsesAdapter().descriptor.capabilities).toEqual({
+      returned_model_metadata: "supported",
+      model_version_metadata: "unsupported",
+      provider_request_id: "supported",
+      provider_response_id: "supported",
+      service_tier_metadata: "supported",
+      token_usage: "supported",
+    });
+  });
+
   it("prepares a direct Responses request without embedding credentials", () => {
     const prepared = new OpenAIResponsesAdapter().prepare(request);
     expect(prepared.url).toBe("https://api.openai.com/v1/responses");
