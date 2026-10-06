@@ -20,6 +20,7 @@ import {
   PgCatalogPresenceReview,
   PgCatalogRemoteIdCase,
   PgProviderTestability,
+  PgServiceCalibrationCatalog,
   PgModelCatalogAdmin,
 } from "../src/index.js";
 
@@ -2467,4 +2468,64 @@ describe("production catalog bootstrap", () => {
       await verification.end();
     }
   });
+
+  it("bootstraps the service-health calibration Test Case idempotently", async () => {
+    const calibration = PgServiceCalibrationCatalog.connect(
+      isolatedDatabaseUrl,
+      new FileSystemContentAddressedBlobStore(root),
+    );
+    const verification = new Pool({ connectionString: isolatedDatabaseUrl });
+    try {
+      const first = await calibration.bootstrap({
+        runnerBuild: "calibration-bootstrap-a",
+      });
+      const second = await calibration.bootstrap({
+        runnerBuild: "calibration-bootstrap-b",
+      });
+      expect(second).toEqual(first);
+
+      const row = await verification.query<{
+        case_type: string;
+        visibility: string;
+        status: string;
+        expected: string | null;
+        assertion: string | null;
+        leaderboard_eligible: string | null;
+        evaluator_slug: string;
+        evaluator_version: string;
+      }>(
+        `SELECT
+           tc.case_type,
+           tc.visibility,
+           tc.status,
+           tc.metadata->>'expected' AS expected,
+           tc.metadata->>'assertion' AS assertion,
+           tc.metadata->>'leaderboardEligible' AS leaderboard_eligible,
+           evaluator.slug AS evaluator_slug,
+           evaluator.version AS evaluator_version
+         FROM modelapse.test_cases tc
+         JOIN modelapse.test_version_evaluators binding
+           ON binding.test_version_id = tc.test_version_id
+         JOIN modelapse.evaluators evaluator
+           ON evaluator.id = binding.evaluator_id
+        WHERE tc.id = $1`,
+        [first.testCaseId],
+      );
+
+      expect(row.rows[0]).toMatchObject({
+        case_type: "calibration",
+        visibility: "public",
+        status: "active",
+        expected: "modelapse-calibration-ok",
+        assertion: "exact-text",
+        leaderboard_eligible: "false",
+        evaluator_slug: "exact-text",
+        evaluator_version: "1.0.0",
+      });
+    } finally {
+      await verification.end();
+      await calibration.close();
+    }
+  });
+
 });
