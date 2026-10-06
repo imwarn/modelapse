@@ -46,8 +46,13 @@ function contextRelation(
 function ArchiveComparePage() {
   const catalog = Route.useLoaderData();
   const defaultModelIds = catalog.models.slice(0, 2).map((model) => model.id);
+  const comparableTests = catalog.tests.filter(
+    (test) => test.category !== "calibration",
+  );
   const [modelIds, setModelIds] = useState<readonly string[]>(defaultModelIds);
-  const [testCaseId, setTestCaseId] = useState(catalog.tests[0]?.testCaseId ?? "");
+  const [testCaseId, setTestCaseId] = useState(
+    comparableTests[0]?.testCaseId ?? "",
+  );
   const [comparison, setComparison] = useState<ArchiveComparison | null>(null);
   const [temporal, setTemporal] = useState<ArchiveTemporalComparison | null>(null);
   const [busy, setBusy] = useState(false);
@@ -156,7 +161,7 @@ function ArchiveComparePage() {
                 setError(null);
               }}
             >
-              {catalog.tests.map((test) => (
+              {comparableTests.map((test) => (
                 <option key={test.testCaseId} value={test.testCaseId}>
                   {test.familyName} · {test.caseSlug} · v{test.version}
                 </option>
@@ -231,14 +236,27 @@ function ArchiveComparePage() {
             </a>
           ) : null}
           <p className="section-note">
-            Context badges compare each Run against the first available Run in
-            the selection. They are descriptive provenance, not a ranking or
-            quality verdict.
+            Comparability is evaluated under a versioned policy. Calibration
+            canaries are service-health evidence, not leaderboard scores or a
+            degradation verdict.
           </p>
         </div>
 
         {comparison ? (
-          <div className="comparison-grid">
+          <>
+            <div className="notice">
+              <strong>
+                Comparability {comparison.comparabilitySet.status}
+                {" · "}
+                {comparison.policy.version}
+              </strong>
+              <span>
+                {comparison.comparabilitySet.reasons.length > 0
+                  ? comparison.comparabilitySet.reasons.join(" · ")
+                  : "All selected latest Runs satisfy the current set policy."}
+              </span>
+            </div>
+            <div className="comparison-grid">
             {comparison.rows.map((row) => {
               const run = row.latestRun;
               return (
@@ -258,6 +276,9 @@ function ArchiveComparePage() {
                           {evaluationLabel(run)}
                         </span>
                         <span className="badge">evidence {run.evidenceLevel ?? "—"}</span>
+                        <span className="badge">
+                          comparability {row.comparability?.status ?? "unknown"}
+                        </span>
                         <span className="badge">
                           context {contextRelation(run, comparisonReferenceRun)}
                         </span>
@@ -295,7 +316,28 @@ function ArchiveComparePage() {
                               : "—"}
                           </dd>
                         </div>
+                        <div>
+                          <dt>Replication</dt>
+                          <dd>
+                            {row.comparability
+                              ? `${row.comparability.repeatCount}/${row.comparability.requiredRepeatCount}`
+                              : "—"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Calibration</dt>
+                          <dd>
+                            {row.comparability?.calibration
+                              ? `${row.comparability.calibration.status} · streak ${row.comparability.calibration.anomalyStreak}`
+                              : "not observed"}
+                          </dd>
+                        </div>
                       </dl>
+                      {row.comparability?.reasons.length ? (
+                        <p className="section-note">
+                          {row.comparability.reasons.join(" · ")}
+                        </p>
+                      ) : null}
                     </>
                   ) : (
                     <div className="comparison-empty">
@@ -305,7 +347,8 @@ function ArchiveComparePage() {
                 </article>
               );
             })}
-          </div>
+            </div>
+          </>
         ) : (
           <div className="comparison-placeholder">
             <p>
