@@ -8,6 +8,7 @@ import {
   PgCatalogPresence,
   PgCatalogPresenceReview,
   PgCatalogRemoteIdCase,
+  PgProviderExpansion,
   PgProviderTestability,
 } from "@modelapse/catalog-admin";
 import {
@@ -46,6 +47,7 @@ const catalogPresence = PgCatalogPresence.connect(databaseUrl);
 const catalogPresenceReview = PgCatalogPresenceReview.connect(databaseUrl);
 const catalogRemoteIdCase = PgCatalogRemoteIdCase.connect(databaseUrl);
 const providerTestability = PgProviderTestability.connect(databaseUrl);
+const providerExpansion = PgProviderExpansion.connect(databaseUrl);
 const controlToken = process.env.MODELAPSE_CONTROL_TOKEN;
 const port = Number(process.env.PORT ?? "3000");
 const app = createApp({
@@ -66,6 +68,7 @@ const app = createApp({
   catalogPresenceReview,
   catalogRemoteIdCase,
   providerTestability,
+  providerExpansion,
   ...(controlToken ? { controlToken } : {}),
 });
 
@@ -100,6 +103,7 @@ function shutdown(signal: string): void {
       catalogPresenceReview.close(),
       catalogRemoteIdCase.close(),
       providerTestability.close(),
+      providerExpansion.close(),
     ]).finally(() => {
       if (error) {
         console.error(error);
