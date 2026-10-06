@@ -72,7 +72,7 @@ describe("Provider Expansion Playbook", () => {
          'first_party_direct',
          'https://api.expansion.example.test',
          'api.expansion.example.test',
-         '2099-01-01T00:00:00Z',
+         '2026-08-01T00:00:00Z',
          $2
        )
        RETURNING id`,
@@ -103,7 +103,7 @@ describe("Provider Expansion Playbook", () => {
           valid_from,
           source_id
         )
-       VALUES ($1, $2, 'expansion-model', '2099-01-01T00:00:00Z', $3)`,
+       VALUES ($1, $2, 'expansion-model', '2026-08-01T00:00:00Z', $3)`,
       [modelId, endpoint.rows[0]!.id, docsSource!.id],
     );
 
@@ -146,8 +146,8 @@ describe("Provider Expansion Playbook", () => {
        VALUES (
          $1,
          'succeeded',
-         '2099-02-01T00:00:00Z',
-         '2099-02-01T00:00:01Z',
+         '2026-09-01T00:00:00Z',
+         '2026-09-01T00:00:01Z',
          1,
          1,
          'provider-expansion-test'
@@ -165,7 +165,7 @@ describe("Provider Expansion Playbook", () => {
           content_sha256,
           response_body
         )
-       VALUES ($1, $2, $3, '2099-02-01T00:00:01Z', $4, '{"data":[]}'::text)`,
+       VALUES ($1, $2, $3, '2026-09-01T00:00:01Z', $4, '{"data":[]}'::text)`,
       [
         observer.rows[0]!.id,
         collection.rows[0]!.id,
@@ -207,7 +207,7 @@ describe("Provider Expansion Playbook", () => {
          1.000000,
          2.000000,
          $2,
-         '2099-02-01T00:10:00Z',
+         '2026-09-01T00:10:00Z',
          'provider-expansion-test'
        )
        RETURNING id`,
@@ -245,7 +245,7 @@ describe("Provider Expansion Playbook", () => {
          'default',
          'documented_default',
          $2,
-         '2099-02-01T00:11:00Z',
+         '2026-09-01T00:11:00Z',
          'provider-expansion-test'
        )`,
       [providerId, runnerSource!.id],
@@ -274,7 +274,7 @@ describe("Provider Expansion Playbook", () => {
     await pool.query(
       `INSERT INTO modelapse.execution_environment_state_events
         (environment_id, enabled, effective_at, actor)
-       VALUES ($1, true, '2099-02-01T00:12:00Z', 'provider-expansion-test')`,
+       VALUES ($1, true, '2026-09-01T00:12:00Z', 'provider-expansion-test')`,
       [environment.rows[0]!.id],
     );
     const fleetCapability = await pool.query<{ id: string }>(
@@ -294,7 +294,7 @@ describe("Provider Expansion Playbook", () => {
          'first_party_direct',
          true,
          10,
-         '2099-02-01T00:12:00Z',
+         '2026-09-01T00:12:00Z',
          'provider-expansion-test'
        )
        RETURNING id`,
@@ -351,7 +351,7 @@ describe("Provider Expansion Playbook", () => {
     await pool.query(
       `UPDATE modelapse.test_versions
           SET status = 'published',
-              published_at = '2099-02-01T00:13:00Z'
+              published_at = '2026-09-01T00:13:00Z'
         WHERE id = $1`,
       [benchmarkVersion.rows[0]!.id],
     );
@@ -380,9 +380,9 @@ describe("Provider Expansion Playbook", () => {
          'expansion-model',
          'completed',
          'provider-expansion-test',
-         '2099-02-01T00:20:00Z',
-         '2099-02-01T00:20:01Z',
-         '2099-02-01T00:20:02Z'
+         '2026-09-01T00:20:00Z',
+         '2026-09-01T00:20:01Z',
+         '2026-09-01T00:20:02Z'
        )
        RETURNING id`,
       [benchmarkCase.rows[0]!.id, modelId, providerId],
@@ -405,7 +405,7 @@ describe("Provider Expansion Playbook", () => {
         )
        VALUES (
          $1,
-         '2099-02-01T00:19:59Z',
+         '2026-09-01T00:19:59Z',
          $2,
          $3,
          'US',
@@ -426,7 +426,7 @@ describe("Provider Expansion Playbook", () => {
     await pool.query(
       `INSERT INTO modelapse.run_execution_qualification_outcomes
         (run_id, returned_service_tier, captured_at)
-       VALUES ($1, 'default', '2099-02-01T00:20:01Z')`,
+       VALUES ($1, 'default', '2026-09-01T00:20:01Z')`,
       [directRunId],
     );
     await pool.query(
@@ -513,7 +513,7 @@ describe("Provider Expansion Playbook", () => {
     await pool.query(
       `UPDATE modelapse.test_versions
           SET status = 'published',
-              published_at = '2099-02-01T00:21:00Z'
+              published_at = '2026-09-01T00:21:00Z'
         WHERE id = $1`,
       [calibrationVersion.rows[0]!.id],
     );
@@ -542,9 +542,9 @@ describe("Provider Expansion Playbook", () => {
          'expansion-model',
          'completed',
          'provider-expansion-test',
-         '2099-02-01T00:22:00Z',
-         '2099-02-01T00:22:01Z',
-         '2099-02-01T00:22:02Z'
+         '2026-09-01T00:22:00Z',
+         '2026-09-01T00:22:01Z',
+         '2026-09-01T00:22:02Z'
        )
        RETURNING id`,
       [calibrationCase.rows[0]!.id, modelId, providerId],
@@ -563,8 +563,8 @@ describe("Provider Expansion Playbook", () => {
          $1,
          $2,
          'completed',
-         '2099-02-01T00:22:01Z',
-         '2099-02-01T00:22:01Z'
+         '2026-09-01T00:22:01Z',
+         '2026-09-01T00:22:01Z'
        )
        RETURNING id`,
       [calibrationRunId, evaluator.rows[0]!.id],
@@ -600,7 +600,7 @@ describe("Provider Expansion Playbook", () => {
          0,
          false,
          false,
-         '2099-02-01T00:22:02Z'
+         '2026-09-01T00:22:02Z'
        )`,
       [calibrationRunId, calibrationPolicy.rows[0]!.id],
     );
@@ -719,13 +719,20 @@ describe("Provider Expansion Playbook", () => {
       caveatCount: 0,
     });
 
+    const capabilityEvent = await pool.query<{ id: string }>(
+      `SELECT id
+         FROM modelapse.provider_capability_events
+        WHERE provider_id = $1
+        ORDER BY created_at
+        LIMIT 1`,
+      [providerId],
+    );
     await expect(
       pool.query(
         `UPDATE modelapse.provider_capability_events
             SET note = 'rewritten'
-          WHERE provider_id = $1
-          LIMIT 1`,
-        [providerId],
+          WHERE id = $1`,
+        [capabilityEvent.rows[0]!.id],
       ),
     ).rejects.toThrow(/append-only/i);
 
