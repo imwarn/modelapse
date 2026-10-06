@@ -10,7 +10,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run test/openai-smoke.test.ts test/catalog-observer.test.ts",
+    "test": "vitest run test/openai-smoke.test.ts test/service-calibration.test.ts test/catalog-observer.test.ts",
     "test:integration": "vitest run test/bootstrap.integration.test.ts",
     "bootstrap:openai-smoke": "node dist/src/cli.js bootstrap-openai-smoke",
     "bootstrap:deepseek-smoke": "node dist/src/cli.js bootstrap-deepseek-smoke",
@@ -18,7 +18,8 @@
     "observe:first-party-identity": "node dist/src/cli.js observe-first-party-identity",
     "collect:first-party-catalog": "node dist/src/cli.js collect-first-party-catalog",
     "list:catalog-discoveries": "node dist/src/cli.js list-catalog-discoveries",
-    "reconcile:catalog-candidate": "node dist/src/cli.js reconcile-catalog-candidate"
+    "reconcile:catalog-candidate": "node dist/src/cli.js reconcile-catalog-candidate",
+    "bootstrap:service-calibration": "node dist/src/cli.js bootstrap-service-calibration"
   },
   "dependencies": {
     "@modelapse/blob-store": "*",
