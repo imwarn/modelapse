@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { assertPreparedRequestAllowed } from "../src/index.js";
+import {
+  assertPreparedRequestAllowed,
+  type ProviderAdapterDescriptor,
+} from "../src/index.js";
 
-const descriptor = {
+const descriptor: ProviderAdapterDescriptor = {
   id: "openai-direct",
   providerSlug: "openai",
   executionPath: "first_party_direct" as const,
