@@ -10,6 +10,17 @@ const request = {
 };
 
 describe("AnthropicMessagesAdapter", () => {
+  it("declares supported and unsupported metadata capture explicitly", () => {
+    expect(new AnthropicMessagesAdapter().descriptor.capabilities).toEqual({
+      returned_model_metadata: "supported",
+      model_version_metadata: "unsupported",
+      provider_request_id: "supported",
+      provider_response_id: "supported",
+      service_tier_metadata: "unsupported",
+      token_usage: "supported",
+    });
+  });
+
   it("requires an explicit max output token budget", () => {
     expect(() =>
       new AnthropicMessagesAdapter().prepare({
