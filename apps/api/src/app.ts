@@ -11,6 +11,8 @@ import {
 } from "@modelapse/control-plane";
 import type {
   PgArchiveRepository,
+  PgCalibrationRepository,
+  PgComparabilityRepository,
   PgCostLedger,
   RunRepository,
   RunView,
@@ -83,6 +85,14 @@ type CostLedgerRepository = Pick<
   PgCostLedger,
   "ping" | "listDailyCosts" | "listBudgetStatus" | "recordBudgetPolicy"
 >;
+type CalibrationRepository = Pick<
+  PgCalibrationRepository,
+  "ping" | "listPolicies" | "recordPolicy" | "listServiceHealth"
+>;
+type ComparabilityRepository = Pick<
+  PgComparabilityRepository,
+  "ping" | "listPolicies" | "recordPolicy"
+>;
 
 type ArchiveRepository = Pick<
   PgArchiveRepository,
@@ -114,6 +124,8 @@ export interface AppDependencies {
   readonly catalogRemoteIdCase?: CatalogRemoteIdCaseRepository;
   readonly providerTestability?: ProviderTestabilityRepository;
   readonly costLedger?: CostLedgerRepository;
+  readonly calibration?: CalibrationRepository;
+  readonly comparability?: ComparabilityRepository;
   readonly controlToken?: string;
 }
 
@@ -211,6 +223,8 @@ export function createApp(deps: AppDependencies) {
       if (deps.planner) await deps.planner.ping();
       if (deps.archive) await deps.archive.ping();
       if (deps.costLedger) await deps.costLedger.ping();
+      if (deps.calibration) await deps.calibration.ping();
+      if (deps.comparability) await deps.comparability.ping();
       return c.json({
         ready: true,
         service: "modelapse-api",
@@ -352,6 +366,7 @@ export function createApp(deps: AppDependencies) {
 
     const rawModelIds = c.req.query("modelIds");
     const testCaseId = c.req.query("testCaseId");
+    const policyVersion = c.req.query("policyVersion");
     const modelIds = rawModelIds
       ?.split(",")
       .map((value) => value.trim())
@@ -369,16 +384,66 @@ export function createApp(deps: AppDependencies) {
     if (!testCaseId || !UUID_RE.test(testCaseId)) {
       return c.json({ error: "invalid_test_case_id" }, 400);
     }
+    if (
+      policyVersion &&
+      !/^[a-z0-9][a-z0-9._-]*$/.test(policyVersion)
+    ) {
+      return c.json({ error: "invalid_policy_version" }, 400);
+    }
 
     const comparison = await deps.archive.compareLatest({
       modelIds,
       testCaseId,
+      ...(policyVersion ? { policyVersion } : {}),
     });
     if (!comparison) {
       return c.json({ error: "archive_comparison_not_found" }, 404);
     }
 
     return c.json({ comparison });
+  });
+
+  app.get("/v1/archive/calibration/health", async (c) => {
+    if (!deps.calibration) {
+      return c.json({ error: "calibration_unavailable" }, 503);
+    }
+    const providerId = c.req.query("providerId");
+    const modelId = c.req.query("modelId");
+    const rawLimit = c.req.query("limit");
+    if (providerId && !UUID_RE.test(providerId)) {
+      return c.json({ error: "invalid_provider_id" }, 400);
+    }
+    if (modelId && !UUID_RE.test(modelId)) {
+      return c.json({ error: "invalid_model_id" }, 400);
+    }
+    const limit = rawLimit === undefined ? undefined : Number(rawLimit);
+    if (
+      limit !== undefined &&
+      (!Number.isInteger(limit) || limit < 1 || limit > 200)
+    ) {
+      return c.json({ error: "invalid_limit" }, 400);
+    }
+    return c.json({
+      health: await deps.calibration.listServiceHealth({
+        ...(providerId ? { providerId } : {}),
+        ...(modelId ? { modelId } : {}),
+        ...(limit !== undefined ? { limit } : {}),
+      }),
+    });
+  });
+
+  app.get("/v1/archive/calibration/policies", async (c) => {
+    if (!deps.calibration) {
+      return c.json({ error: "calibration_unavailable" }, 503);
+    }
+    return c.json({ policies: await deps.calibration.listPolicies() });
+  });
+
+  app.get("/v1/archive/comparability/policies", async (c) => {
+    if (!deps.comparability) {
+      return c.json({ error: "comparability_unavailable" }, 503);
+    }
+    return c.json({ policies: await deps.comparability.listPolicies() });
   });
 
   app.get("/v1/archive/runs", async (c) => {
