@@ -1254,6 +1254,103 @@ export interface ProviderTestabilityProvider {
   readonly history: readonly ProviderTestabilityObservation[];
 }
 
+export type ProviderExpansionCapabilityKey =
+  | "returned_model_metadata"
+  | "model_version_metadata"
+  | "provider_request_id"
+  | "provider_response_id"
+  | "service_tier_metadata"
+  | "token_usage"
+  | "catalog_model_list";
+
+export interface ProviderExpansionProviderSummary {
+  readonly provider: {
+    readonly id: string;
+    readonly slug: string;
+    readonly name: string;
+  };
+  readonly policyVersion: string;
+  readonly status: "ready" | "limited" | "incomplete";
+  readonly blockerCount: number;
+  readonly caveatCount: number;
+  readonly activeModelCount: number;
+  readonly latestDirectRunAt: string | null;
+  readonly latestCalibrationAt: string | null;
+}
+
+export interface ProviderExpansionProvider
+  extends ProviderExpansionProviderSummary {
+  readonly generatedAt: string;
+  readonly policy: {
+    readonly id: string;
+    readonly version: string;
+    readonly requiredCapabilities: readonly ProviderExpansionCapabilityKey[];
+    readonly requireIdentityProvenance: boolean;
+    readonly requireCatalogCollection: boolean;
+    readonly requireProviderPolicy: boolean;
+    readonly requirePricingEvidence: boolean;
+    readonly requireRunnerContext: boolean;
+    readonly requireDirectRun: boolean;
+    readonly requireCalibration: boolean;
+    readonly actor: string;
+    readonly note: string | null;
+    readonly createdAt: string;
+  };
+  readonly blockers: readonly string[];
+  readonly caveats: readonly string[];
+  readonly gates: readonly {
+    readonly key:
+      | "identity_provenance"
+      | "catalog_collection"
+      | "access_region_evidence"
+      | "pricing_evidence"
+      | "runner_account_context"
+      | "direct_execution_evidence"
+      | "calibration_coverage"
+      | "capability_contract";
+    readonly status: "pass" | "limited" | "fail";
+    readonly summary: string;
+    readonly blockers: readonly string[];
+    readonly caveats: readonly string[];
+    readonly evidenceIds: readonly string[];
+  }[];
+  readonly capabilities: readonly {
+    readonly capability: ProviderExpansionCapabilityKey;
+    readonly supportState: "supported" | "unsupported" | null;
+    readonly eventId: string | null;
+    readonly sourceId: string | null;
+    readonly declaredAt: string | null;
+    readonly actor: string | null;
+    readonly note: string | null;
+    readonly observed: boolean;
+  }[];
+  readonly models: readonly {
+    readonly id: string;
+    readonly canonicalSlug: string;
+    readonly marketingName: string;
+    readonly status: string;
+    readonly canonicalSourceId: string | null;
+    readonly sourcedDirectBindingId: string | null;
+    readonly endpointSourceId: string | null;
+    readonly bindingSourceId: string | null;
+  }[];
+  readonly fleet: readonly {
+    readonly environmentId: string;
+    readonly slug: string;
+    readonly region: string;
+    readonly accountTier: string | null;
+    readonly serviceTier: string | null;
+    readonly serviceAssurance: string;
+    readonly capabilityEventId: string;
+  }[];
+  readonly latestCalibration: {
+    readonly runId: string;
+    readonly status: "pass" | "anomaly" | "unknown";
+    readonly repeatedAnomaly: boolean;
+    readonly completedAt: string;
+  } | null;
+}
+
 export interface ControlJob {
   readonly id: string;
   readonly kind: string;
@@ -1342,6 +1439,17 @@ interface CatalogRemoteIdCaseInput extends OperatorInput {
 
 interface ProviderTestabilityProviderInput extends OperatorInput {
   readonly providerId: string;
+}
+
+interface ProviderExpansionProviderInput extends OperatorInput {
+  readonly providerId: string;
+}
+
+interface RecordProviderCapabilityWebInput
+  extends ProviderExpansionProviderInput {
+  readonly capability: ProviderExpansionCapabilityKey;
+  readonly supportState: "supported" | "unsupported";
+  readonly note?: string;
 }
 
 interface RecordProviderTestabilityObservationWebInput extends OperatorInput {
@@ -1774,6 +1882,59 @@ function parseCatalogRemoteIdCaseInput(value: unknown): CatalogRemoteIdCaseInput
     throw new Error("remoteModelId must be a non-empty string");
   }
   return { operatorToken, providerId, remoteModelId: remoteModelId.trim() };
+}
+
+function parseProviderExpansionProviderInput(
+  value: unknown,
+): ProviderExpansionProviderInput {
+  const operatorToken = parseOperatorToken(value);
+  if (!isRecord(value)) {
+    throw new Error("Provider expansion request must be an object");
+  }
+  const providerId = value.providerId;
+  if (typeof providerId !== "string" || !UUID_RE.test(providerId)) {
+    throw new Error("providerId must be a UUID");
+  }
+  return { operatorToken, providerId };
+}
+
+function parseProviderCapabilityInput(
+  value: unknown,
+): RecordProviderCapabilityWebInput {
+  const base = parseProviderExpansionProviderInput(value);
+  if (!isRecord(value)) {
+    throw new Error("Provider capability request must be an object");
+  }
+  const capability = value.capability;
+  const supportState = value.supportState;
+  const note = value.note;
+  const capabilities = new Set<ProviderExpansionCapabilityKey>([
+    "returned_model_metadata",
+    "model_version_metadata",
+    "provider_request_id",
+    "provider_response_id",
+    "service_tier_metadata",
+    "token_usage",
+    "catalog_model_list",
+  ]);
+  if (
+    typeof capability !== "string" ||
+    !capabilities.has(capability as ProviderExpansionCapabilityKey)
+  ) {
+    throw new Error("capability is invalid");
+  }
+  if (supportState !== "supported" && supportState !== "unsupported") {
+    throw new Error("supportState is invalid");
+  }
+  if (note !== undefined && typeof note !== "string") {
+    throw new Error("note must be a string");
+  }
+  return {
+    ...base,
+    capability: capability as ProviderExpansionCapabilityKey,
+    supportState,
+    ...(typeof note === "string" && note.trim() ? { note: note.trim() } : {}),
+  };
 }
 
 function parseProviderTestabilityProviderInput(
@@ -2211,6 +2372,51 @@ export const compareArchive = createServerFn({ method: "POST" })
       }
       throw error;
     }
+  });
+
+export const getProviderExpansionProviders = createServerFn({ method: "POST" })
+  .validator(parseOperatorInput)
+  .handler(async ({ data }): Promise<readonly ProviderExpansionProviderSummary[]> => {
+    requireOperator(data.operatorToken);
+    const result = await requestJson<{
+      providers: readonly ProviderExpansionProviderSummary[];
+    }>("/v1/control/provider-expansion", { control: true });
+    return result.providers;
+  });
+
+export const getProviderExpansionProvider = createServerFn({ method: "POST" })
+  .validator(parseProviderExpansionProviderInput)
+  .handler(async ({ data }): Promise<ProviderExpansionProvider | null> => {
+    requireOperator(data.operatorToken);
+    try {
+      const result = await requestJson<{ provider: ProviderExpansionProvider }>(
+        `/v1/control/provider-expansion/${data.providerId}`,
+        { control: true },
+      );
+      return result.provider;
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 404) return null;
+      throw error;
+    }
+  });
+
+export const recordProviderExpansionCapability = createServerFn({ method: "POST" })
+  .validator(parseProviderCapabilityInput)
+  .handler(async ({ data }) => {
+    requireOperator(data.operatorToken);
+    return requestJson<{
+      capability: ProviderExpansionProvider["capabilities"][number];
+    }>("/v1/control/provider-expansion/capabilities", {
+      method: "POST",
+      control: true,
+      body: {
+        providerId: data.providerId,
+        capability: data.capability,
+        supportState: data.supportState,
+        actor: "web-operator",
+        ...(data.note ? { note: data.note } : {}),
+      },
+    });
   });
 
 export const getProviderTestabilityProviders = createServerFn({ method: "POST" })
