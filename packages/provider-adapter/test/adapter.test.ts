@@ -6,6 +6,14 @@ const descriptor = {
   providerSlug: "openai",
   executionPath: "first_party_direct" as const,
   allowedHosts: ["api.openai.com"],
+  capabilities: {
+    returned_model_metadata: "supported",
+    model_version_metadata: "unsupported",
+    provider_request_id: "supported",
+    provider_response_id: "supported",
+    service_tier_metadata: "supported",
+    token_usage: "supported",
+  },
 };
 
 describe("provider endpoint policy", () => {
