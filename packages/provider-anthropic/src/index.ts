@@ -4,6 +4,7 @@ import type {
   NormalizedProviderResponse,
   PreparedHttpRequest,
   ProviderAdapter,
+  ProviderAdapterDescriptor,
   ProviderContentPart,
 } from "@modelapse/provider-adapter";
 
@@ -17,7 +18,7 @@ function textOnly(parts: readonly ProviderContentPart[]): string {
 }
 
 export class AnthropicMessagesAdapter implements ProviderAdapter {
-  readonly descriptor = {
+  readonly descriptor: ProviderAdapterDescriptor = {
     id: "anthropic-messages-direct-2023-06-01",
     providerSlug: "anthropic",
     executionPath: "first_party_direct" as const,
