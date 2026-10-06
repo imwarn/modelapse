@@ -16,6 +16,14 @@ const adapter: ProviderAdapter = {
     providerSlug: "fake",
     executionPath: "first_party_direct",
     allowedHosts: ["api.fake.test"],
+    capabilities: {
+      returned_model_metadata: "supported",
+      model_version_metadata: "unsupported",
+      provider_request_id: "supported",
+      provider_response_id: "supported",
+      service_tier_metadata: "unsupported",
+      token_usage: "supported",
+    },
   },
   prepare: () => ({
     url: "https://api.fake.test/v1/messages",
