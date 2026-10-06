@@ -24,7 +24,10 @@
   "dependencies": {
     "@modelapse/blob-store": "*",
     "@modelapse/testpack-sdk": "*",
-    "pg": "8.23.0"
+    "pg": "8.23.0",
+    "@modelapse/provider-openai": "*",
+    "@modelapse/provider-deepseek": "*",
+    "@modelapse/provider-adapter": "*"
   },
   "devDependencies": {
     "@modelapse/persistence": "*",
