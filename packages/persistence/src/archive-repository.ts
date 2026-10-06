@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { Pool } from "pg";
+import type { ComparabilityPolicyView } from "./comparability-repository.js";
 
 export interface ArchiveModelView {
   readonly id: string;
@@ -414,11 +416,40 @@ export interface ArchiveTestDetailView extends ArchiveTestView {
   readonly recentRuns: readonly ArchiveRunView[];
 }
 
+export type ArchiveComparabilityStatus =
+  | "eligible"
+  | "ineligible"
+  | "unknown";
+
+export interface ArchiveRunComparabilityView {
+  readonly status: ArchiveComparabilityStatus;
+  readonly reasons: readonly string[];
+  readonly repeatCount: number;
+  readonly requiredRepeatCount: number;
+  readonly calibration: {
+    readonly runId: string;
+    readonly policyVersion: string;
+    readonly status: "pass" | "anomaly" | "unknown";
+    readonly anomalyStreak: number;
+    readonly repeatedAnomaly: boolean;
+    readonly repeatRecommended: boolean;
+    readonly completedAt: string;
+    readonly ageHours: number;
+  } | null;
+}
+
 export interface ArchiveComparisonView {
   readonly test: ArchiveTestView;
+  readonly policy: ComparabilityPolicyView;
+  readonly comparabilitySet: {
+    readonly status: "matched" | "mismatched" | "unknown";
+    readonly key: string | null;
+    readonly reasons: readonly string[];
+  };
   readonly rows: readonly {
     readonly model: ArchiveModelView;
     readonly latestRun: ArchiveRunView | null;
+    readonly comparability: ArchiveRunComparabilityView | null;
   }[];
 }
 
@@ -2343,27 +2374,335 @@ export class PgArchiveRepository {
     };
   }
 
+  private async comparabilityPolicy(
+    version?: string,
+  ): Promise<ComparabilityPolicyView | null> {
+    const result = await this.pool.query<{
+      id: string;
+      version: string;
+      minimum_evidence_level: ComparabilityPolicyView["minimumEvidenceLevel"];
+      require_same_execution_path: boolean;
+      require_region: boolean;
+      require_account_tier: boolean;
+      require_service_tier: boolean;
+      require_documented_service_assurance: boolean;
+      reject_qualification_caveats: boolean;
+      require_recent_calibration: boolean;
+      reject_repeated_calibration_anomaly: boolean;
+      calibration_max_age_hours: number;
+      default_min_repeat_count: number;
+      unstable_min_repeat_count: number;
+      actor: string;
+      note: string | null;
+      created_at: Date;
+    }>(
+      `SELECT
+         id,
+         version,
+         minimum_evidence_level,
+         require_same_execution_path,
+         require_region,
+         require_account_tier,
+         require_service_tier,
+         require_documented_service_assurance,
+         reject_qualification_caveats,
+         require_recent_calibration,
+         reject_repeated_calibration_anomaly,
+         calibration_max_age_hours,
+         default_min_repeat_count,
+         unstable_min_repeat_count,
+         actor,
+         note,
+         created_at
+       FROM modelapse.comparability_policies
+       ${version ? "WHERE version = $1" : ""}
+       ORDER BY created_at DESC, version DESC, id DESC
+       LIMIT 1`,
+      version ? [version] : [],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      id: row.id,
+      version: row.version,
+      minimumEvidenceLevel: row.minimum_evidence_level,
+      requireSameExecutionPath: row.require_same_execution_path,
+      requireRegion: row.require_region,
+      requireAccountTier: row.require_account_tier,
+      requireServiceTier: row.require_service_tier,
+      requireDocumentedServiceAssurance:
+        row.require_documented_service_assurance,
+      rejectQualificationCaveats: row.reject_qualification_caveats,
+      requireRecentCalibration: row.require_recent_calibration,
+      rejectRepeatedCalibrationAnomaly:
+        row.reject_repeated_calibration_anomaly,
+      calibrationMaxAgeHours: row.calibration_max_age_hours,
+      defaultMinRepeatCount: row.default_min_repeat_count,
+      unstableMinRepeatCount: row.unstable_min_repeat_count,
+      actor: row.actor,
+      note: row.note,
+      createdAt: row.created_at.toISOString(),
+    };
+  }
+
+  private async assessRunComparability(
+    run: ArchiveRunView,
+    policy: ComparabilityPolicyView,
+    input: {
+      readonly unstable: boolean;
+      readonly explicitMinRepeats: number | null;
+    },
+  ): Promise<ArchiveRunComparabilityView> {
+    const evidenceRanks: Record<string, number> = {
+      E0: 0,
+      E1: 1,
+      E2: 2,
+      E3: 3,
+      E4: 4,
+      E5: 5,
+    };
+    const minimumRank = evidenceRanks[policy.minimumEvidenceLevel] ?? 4;
+    const reasons: string[] = [];
+    let status: ArchiveComparabilityStatus = "eligible";
+
+    const markUnknown = (reason: string) => {
+      reasons.push(reason);
+      if (status === "eligible") status = "unknown";
+    };
+    const markIneligible = (reason: string) => {
+      reasons.push(reason);
+      status = "ineligible";
+    };
+
+    if (!run.evidenceLevel) {
+      markUnknown("evidence_missing");
+    } else if ((evidenceRanks[run.evidenceLevel] ?? -1) < minimumRank) {
+      markIneligible("evidence_below_policy_minimum");
+    }
+
+    const qualification = run.executionQualification;
+    if (!qualification) {
+      markUnknown("execution_qualification_missing");
+    } else {
+      if (policy.requireRegion && !qualification.executionRegion) {
+        markUnknown("execution_region_missing");
+      }
+      if (policy.requireAccountTier && !qualification.accountTier) {
+        markUnknown("account_tier_missing");
+      }
+      if (policy.requireServiceTier && !qualification.serviceTier) {
+        markUnknown("service_tier_missing");
+      }
+      if (
+        policy.requireDocumentedServiceAssurance &&
+        qualification.serviceAssurance !== "documented_default" &&
+        qualification.serviceAssurance !== "documented_variant"
+      ) {
+        markUnknown("service_assurance_not_documented");
+      }
+      if (
+        policy.rejectQualificationCaveats &&
+        qualification.caveats.length > 0
+      ) {
+        markIneligible("execution_qualification_has_caveats");
+      }
+    }
+
+    const context = qualification;
+    const repeatResult = await this.pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+         FROM modelapse.runs candidate
+         LEFT JOIN modelapse.run_execution_qualification candidate_q
+           ON candidate_q.run_id = candidate.id
+        WHERE candidate.model_id = $1
+          AND candidate.test_case_id = $2
+          AND candidate.execution_path = $3::modelapse.execution_path
+          AND candidate.status = 'completed'
+          AND candidate.sealed_at IS NOT NULL
+          AND candidate.completed_at <= $4
+          AND candidate_q.execution_environment_id
+                IS NOT DISTINCT FROM $5::uuid
+          AND candidate_q.execution_region
+                IS NOT DISTINCT FROM $6::text
+          AND candidate_q.account_tier
+                IS NOT DISTINCT FROM $7::text
+          AND candidate_q.service_tier
+                IS NOT DISTINCT FROM $8::text
+          AND candidate_q.service_assurance
+                IS NOT DISTINCT FROM $9::text`,
+      [
+        run.model.id,
+        run.test.testCaseId,
+        run.executionPath,
+        run.completedAt,
+        context?.executionEnvironment?.id ?? null,
+        context?.executionRegion ?? null,
+        context?.accountTier ?? null,
+        context?.serviceTier ?? null,
+        context?.serviceAssurance ?? null,
+      ],
+    );
+
+    const requiredRepeatCount =
+      input.explicitMinRepeats ??
+      (input.unstable
+        ? policy.unstableMinRepeatCount
+        : policy.defaultMinRepeatCount);
+    const repeatCount = Number(repeatResult.rows[0]?.count ?? "0");
+    if (repeatCount < requiredRepeatCount) {
+      markIneligible("insufficient_replication");
+    }
+
+    const calibrationResult = await this.pool.query<{
+      run_id: string;
+      policy_version: string;
+      status: "pass" | "anomaly" | "unknown";
+      anomaly_streak: number;
+      repeated_anomaly: boolean;
+      repeat_recommended: boolean;
+      completed_at: Date;
+      age_hours: string;
+    }>(
+      `SELECT
+         assessment.run_id,
+         calibration_policy.version AS policy_version,
+         assessment.status,
+         assessment.anomaly_streak,
+         assessment.repeated_anomaly,
+         assessment.repeat_recommended,
+         calibration_run.completed_at,
+         EXTRACT(
+           EPOCH FROM ($1::timestamptz - calibration_run.completed_at)
+         ) / 3600.0 AS age_hours
+       FROM modelapse.calibration_run_assessments assessment
+       JOIN modelapse.calibration_policies calibration_policy
+         ON calibration_policy.id = assessment.policy_id
+       JOIN modelapse.runs calibration_run
+         ON calibration_run.id = assessment.run_id
+       LEFT JOIN modelapse.run_execution_qualification calibration_q
+         ON calibration_q.run_id = calibration_run.id
+       WHERE calibration_run.provider_id = $2
+         AND calibration_run.model_id IS NOT DISTINCT FROM $3::uuid
+         AND calibration_run.execution_path = $4::modelapse.execution_path
+         AND calibration_run.completed_at <= $1
+         AND calibration_q.execution_environment_id
+               IS NOT DISTINCT FROM $5::uuid
+         AND calibration_q.execution_region
+               IS NOT DISTINCT FROM $6::text
+         AND calibration_q.account_tier
+               IS NOT DISTINCT FROM $7::text
+         AND calibration_q.service_tier
+               IS NOT DISTINCT FROM $8::text
+         AND calibration_q.service_assurance
+               IS NOT DISTINCT FROM $9::text
+       ORDER BY calibration_run.completed_at DESC, calibration_run.id DESC
+       LIMIT 1`,
+      [
+        run.completedAt,
+        run.provider.id,
+        run.model.id,
+        run.executionPath,
+        context?.executionEnvironment?.id ?? null,
+        context?.executionRegion ?? null,
+        context?.accountTier ?? null,
+        context?.serviceTier ?? null,
+        context?.serviceAssurance ?? null,
+      ],
+    );
+
+    const calibrationRow = calibrationResult.rows[0];
+    const calibration = calibrationRow
+      ? {
+          runId: calibrationRow.run_id,
+          policyVersion: calibrationRow.policy_version,
+          status: calibrationRow.status,
+          anomalyStreak: calibrationRow.anomaly_streak,
+          repeatedAnomaly: calibrationRow.repeated_anomaly,
+          repeatRecommended: calibrationRow.repeat_recommended,
+          completedAt: calibrationRow.completed_at.toISOString(),
+          ageHours: Number(calibrationRow.age_hours),
+        }
+      : null;
+
+    if (!calibration) {
+      if (policy.requireRecentCalibration) {
+        markUnknown("recent_calibration_missing");
+      }
+    } else if (calibration.ageHours > policy.calibrationMaxAgeHours) {
+      if (policy.requireRecentCalibration) {
+        markUnknown("recent_calibration_stale");
+      }
+    } else if (
+      policy.rejectRepeatedCalibrationAnomaly &&
+      calibration.repeatedAnomaly
+    ) {
+      markIneligible("repeated_calibration_anomaly");
+    } else if (calibration.status === "anomaly") {
+      markUnknown("calibration_anomaly_needs_replication");
+    } else if (calibration.status === "unknown") {
+      markUnknown("calibration_status_unknown");
+    }
+
+    return {
+      status,
+      reasons: [...new Set(reasons)],
+      repeatCount,
+      requiredRepeatCount,
+      calibration,
+    };
+  }
+
   async compareLatest(input: {
     readonly modelIds: readonly string[];
     readonly testCaseId: string;
+    readonly policyVersion?: string;
   }): Promise<ArchiveComparisonView | null> {
     const modelIds = [...new Set(input.modelIds)];
     if (modelIds.length < 2 || modelIds.length > 4) {
       throw new Error("Archive comparison requires between 2 and 4 models");
     }
 
-    const [models, tests] = await Promise.all([
+    const [models, tests, policy, testMetadata] = await Promise.all([
       this.listModels(),
       this.listTests(),
+      this.comparabilityPolicy(input.policyVersion),
+      this.pool.query<{
+        case_type: string;
+        unstable: boolean;
+        explicit_min_repeats: string | null;
+      }>(
+        `SELECT
+           case_type,
+           COALESCE((metadata->>'unstable')::boolean, false) AS unstable,
+           metadata->>'comparabilityMinRepeats' AS explicit_min_repeats
+         FROM modelapse.test_cases
+         WHERE id = $1
+         LIMIT 1`,
+        [input.testCaseId],
+      ),
     ]);
     const selectedModels = modelIds
       .map((modelId) => models.find((model) => model.id === modelId))
       .filter((model): model is ArchiveModelView => Boolean(model));
     const test = tests.find((candidate) => candidate.testCaseId === input.testCaseId);
 
-    if (!test || selectedModels.length !== modelIds.length) {
+    if (!test || !policy || selectedModels.length !== modelIds.length) {
       return null;
     }
+
+    const metadata = testMetadata.rows[0];
+    const parsedExplicitMinRepeats =
+      metadata?.explicit_min_repeats &&
+      /^\d+$/.test(metadata.explicit_min_repeats)
+        ? Number(metadata.explicit_min_repeats)
+        : null;
+    const explicitMinRepeats =
+      parsedExplicitMinRepeats &&
+      parsedExplicitMinRepeats >= 1 &&
+      parsedExplicitMinRepeats <= 20
+        ? parsedExplicitMinRepeats
+        : null;
+    const unstable = metadata?.unstable ?? false;
 
     const latestRuns = await Promise.all(
       modelIds.map(async (modelId) => {
@@ -2376,11 +2715,139 @@ export class PgArchiveRepository {
       }),
     );
 
+    const rowAssessments = await Promise.all(
+      latestRuns.map((run) =>
+        run
+          ? this.assessRunComparability(run, policy, {
+              unstable,
+              explicitMinRepeats,
+            })
+          : Promise.resolve(null),
+      ),
+    );
+
+    const setReasons: string[] = [];
+    let setStatus: "matched" | "mismatched" | "unknown" = "matched";
+
+    if (metadata?.case_type === "calibration") {
+      setReasons.push("calibration_test_not_leaderboard");
+      setStatus = "mismatched";
+    }
+    if (latestRuns.some((run) => run === null)) {
+      setReasons.push("run_missing");
+      if (setStatus === "matched") setStatus = "unknown";
+    }
+    if (rowAssessments.some((assessment) => assessment?.status === "ineligible")) {
+      setReasons.push("run_ineligible_under_policy");
+      setStatus = "mismatched";
+    } else if (
+      rowAssessments.some((assessment) => assessment?.status === "unknown") &&
+      setStatus === "matched"
+    ) {
+      setReasons.push("run_qualification_unknown");
+      setStatus = "unknown";
+    }
+
+    const completeRuns = latestRuns.filter(
+      (run): run is ArchiveRunView => run !== null,
+    );
+    if (completeRuns.length === latestRuns.length && completeRuns.length > 1) {
+      const unique = (values: readonly (string | null)[]) =>
+        new Set(values.map((value) => value ?? "__missing__")).size;
+
+      if (
+        policy.requireSameExecutionPath &&
+        unique(completeRuns.map((run) => run.executionPath)) > 1
+      ) {
+        setReasons.push("execution_path_mismatch");
+        setStatus = "mismatched";
+      }
+      if (
+        policy.requireRegion &&
+        unique(
+          completeRuns.map(
+            (run) => run.executionQualification?.executionRegion ?? null,
+          ),
+        ) > 1
+      ) {
+        setReasons.push("region_mismatch");
+        setStatus = "mismatched";
+      }
+      if (
+        policy.requireAccountTier &&
+        unique(
+          completeRuns.map(
+            (run) => run.executionQualification?.accountTier ?? null,
+          ),
+        ) > 1
+      ) {
+        setReasons.push("account_tier_mismatch");
+        setStatus = "mismatched";
+      }
+      if (
+        policy.requireServiceTier &&
+        unique(
+          completeRuns.map(
+            (run) =>
+              run.executionQualification?.returnedServiceTier ??
+              run.executionQualification?.serviceTier ??
+              null,
+          ),
+        ) > 1
+      ) {
+        setReasons.push("service_tier_mismatch");
+        setStatus = "mismatched";
+      }
+      if (
+        policy.requireDocumentedServiceAssurance &&
+        unique(
+          completeRuns.map(
+            (run) => run.executionQualification?.serviceAssurance ?? null,
+          ),
+        ) > 1
+      ) {
+        setReasons.push("service_assurance_mismatch");
+        setStatus = "mismatched";
+      }
+    }
+
+    const setKey =
+      setStatus === "matched"
+        ? createHash("sha256")
+            .update(
+              JSON.stringify({
+                policy: policy.version,
+                testCaseId: input.testCaseId,
+                executionPath: completeRuns[0]?.executionPath ?? null,
+                region:
+                  completeRuns[0]?.executionQualification?.executionRegion ??
+                  null,
+                accountTier:
+                  completeRuns[0]?.executionQualification?.accountTier ?? null,
+                serviceTier:
+                  completeRuns[0]?.executionQualification?.returnedServiceTier ??
+                  completeRuns[0]?.executionQualification?.serviceTier ??
+                  null,
+                serviceAssurance:
+                  completeRuns[0]?.executionQualification?.serviceAssurance ??
+                  null,
+              }),
+            )
+            .digest("hex")
+        : null;
+
     return {
       test,
+      policy,
+      comparabilitySet: {
+        status: setStatus,
+        key: setKey,
+        reasons: [...new Set(setReasons)],
+      },
       rows: selectedModels.map((model, index) => ({
         model,
         latestRun: latestRuns[index] ?? null,
+        comparability: rowAssessments[index] ?? null,
       })),
     };
   }
