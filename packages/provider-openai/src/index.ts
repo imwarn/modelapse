@@ -4,6 +4,7 @@ import type {
   NormalizedProviderResponse,
   PreparedHttpRequest,
   ProviderAdapter,
+  ProviderAdapterDescriptor,
   ProviderContentPart,
 } from "@modelapse/provider-adapter";
 
@@ -37,7 +38,7 @@ function outputText(body: Record<string, unknown>): string {
 }
 
 export class OpenAIResponsesAdapter implements ProviderAdapter {
-  readonly descriptor = {
+  readonly descriptor: ProviderAdapterDescriptor = {
     id: "openai-responses-direct-v1",
     providerSlug: "openai",
     executionPath: "first_party_direct" as const,
