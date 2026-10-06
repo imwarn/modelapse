@@ -1090,3 +1090,145 @@ describe("Provider Testability control API", () => {
     expect(JSON.stringify(recorded)).not.toContain("password");
   });
 });
+
+
+describe("Calibration and comparability policy API", () => {
+  it("exposes public policy evidence and keeps policy creation operator-only", async () => {
+    const calibrationPolicy = {
+      id: "00000000-0000-4000-8000-000000000301",
+      version: "calibration-v1",
+      windowSize: 3,
+      repeatedAnomalyThreshold: 2,
+      maxAgeHours: 24,
+      actor: "migration",
+      note: null,
+      createdAt: "2026-10-06T00:00:00.000Z",
+    };
+    const comparabilityPolicy = {
+      id: "00000000-0000-4000-8000-000000000302",
+      version: "comparability-v1",
+      minimumEvidenceLevel: "E4" as const,
+      requireSameExecutionPath: true,
+      requireRegion: true,
+      requireAccountTier: true,
+      requireServiceTier: true,
+      requireDocumentedServiceAssurance: true,
+      rejectQualificationCaveats: true,
+      requireRecentCalibration: false,
+      rejectRepeatedCalibrationAnomaly: true,
+      calibrationMaxAgeHours: 24,
+      defaultMinRepeatCount: 1,
+      unstableMinRepeatCount: 3,
+      actor: "migration",
+      note: null,
+      createdAt: "2026-10-06T00:00:00.000Z",
+    };
+
+    let calibrationCreated: unknown;
+    let comparabilityCreated: unknown;
+    const app = createApp({
+      runs: baseRuns(),
+      controlToken: "control-secret",
+      calibration: {
+        ping: async () => undefined,
+        listPolicies: async () => [calibrationPolicy],
+        listServiceHealth: async () => [],
+        recordPolicy: async (input) => {
+          calibrationCreated = input;
+          return { ...calibrationPolicy, version: input.version };
+        },
+      },
+      comparability: {
+        ping: async () => undefined,
+        listPolicies: async () => [comparabilityPolicy],
+        recordPolicy: async (input) => {
+          comparabilityCreated = input;
+          return { ...comparabilityPolicy, version: input.version };
+        },
+      },
+    });
+
+    const publicCalibration = await app.request(
+      "/v1/archive/calibration/policies",
+    );
+    expect(publicCalibration.status).toBe(200);
+    await expect(publicCalibration.json()).resolves.toMatchObject({
+      policies: [{ version: "calibration-v1" }],
+    });
+
+    const publicComparability = await app.request(
+      "/v1/archive/comparability/policies",
+    );
+    expect(publicComparability.status).toBe(200);
+    await expect(publicComparability.json()).resolves.toMatchObject({
+      policies: [{ version: "comparability-v1" }],
+    });
+
+    const unauthorized = await app.request(
+      "/v1/control/calibration/policies",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      },
+    );
+    expect(unauthorized.status).toBe(401);
+
+    const headers = {
+      authorization: "Bearer control-secret",
+      "content-type": "application/json",
+    };
+
+    const createdCalibration = await app.request(
+      "/v1/control/calibration/policies",
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          version: "calibration-v2",
+          windowSize: 5,
+          repeatedAnomalyThreshold: 3,
+          maxAgeHours: 12,
+          actor: "api-test",
+        }),
+      },
+    );
+    expect(createdCalibration.status).toBe(201);
+    expect(calibrationCreated).toMatchObject({
+      version: "calibration-v2",
+      windowSize: 5,
+      repeatedAnomalyThreshold: 3,
+      maxAgeHours: 12,
+    });
+
+    const createdComparability = await app.request(
+      "/v1/control/comparability/policies",
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          version: "comparability-v2",
+          minimumEvidenceLevel: "E4",
+          requireSameExecutionPath: true,
+          requireRegion: true,
+          requireAccountTier: true,
+          requireServiceTier: true,
+          requireDocumentedServiceAssurance: true,
+          rejectQualificationCaveats: true,
+          requireRecentCalibration: true,
+          rejectRepeatedCalibrationAnomaly: true,
+          calibrationMaxAgeHours: 12,
+          defaultMinRepeatCount: 1,
+          unstableMinRepeatCount: 3,
+          actor: "api-test",
+        }),
+      },
+    );
+    expect(createdComparability.status).toBe(201);
+    expect(comparabilityCreated).toMatchObject({
+      version: "comparability-v2",
+      requireRecentCalibration: true,
+      calibrationMaxAgeHours: 12,
+    });
+  });
+});
