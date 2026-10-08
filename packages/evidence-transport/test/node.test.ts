@@ -24,6 +24,14 @@ describe("NodeEvidenceTransport", () => {
         providerSlug: "example",
         executionPath: "first_party_direct",
         allowedHosts: ["api.example.com"],
+        capabilities: {
+          returned_model_metadata: "unsupported",
+          model_version_metadata: "unsupported",
+          provider_request_id: "unsupported",
+          provider_response_id: "unsupported",
+          service_tier_metadata: "unsupported",
+          token_usage: "unsupported",
+        },
       },
       request: {
         url: "https://api.example.com/v1/test",

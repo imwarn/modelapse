@@ -11,7 +11,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run test/openai-smoke.test.ts test/service-calibration.test.ts test/catalog-observer.test.ts",
-    "test:integration": "vitest run test/bootstrap.integration.test.ts",
+    "test:integration": "vitest run test/bootstrap.integration.test.ts test/provider-expansion.integration.test.ts",
     "bootstrap:openai-smoke": "node dist/src/cli.js bootstrap-openai-smoke",
     "bootstrap:deepseek-smoke": "node dist/src/cli.js bootstrap-deepseek-smoke",
     "bootstrap:deepseek-flash-model": "node dist/src/cli.js bootstrap-deepseek-flash-model",
@@ -24,7 +24,10 @@
   "dependencies": {
     "@modelapse/blob-store": "*",
     "@modelapse/testpack-sdk": "*",
-    "pg": "8.23.0"
+    "pg": "8.23.0",
+    "@modelapse/provider-openai": "*",
+    "@modelapse/provider-deepseek": "*",
+    "@modelapse/provider-adapter": "*"
   },
   "devDependencies": {
     "@modelapse/persistence": "*",

@@ -168,6 +168,7 @@ function ModelapseHome() {
               <a href="#run">Run control</a>
               <a href="/catalog-inbox">Catalog Inbox</a>
               <a href="/provider-testability">Provider Testability</a>
+              <a href="/provider-expansion">Provider Expansion</a>
               <a href="/catalog-integrity">Catalog Integrity</a>
               <div className="build-chip">
                 <span className="status-dot" />

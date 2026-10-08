@@ -2,6 +2,9 @@ import type {
   BlobDescriptor,
   BlobStore,
 } from "@modelapse/blob-store";
+import type { ProviderAdapterDescriptor } from "@modelapse/provider-adapter";
+import { DeepSeekResponsesAdapter } from "@modelapse/provider-deepseek";
+import { OpenAIResponsesAdapter } from "@modelapse/provider-openai";
 import { Pool, type PoolClient } from "pg";
 import {
   OPENAI_SMOKE_CASE_SLUG,
@@ -87,6 +90,51 @@ async function registerBlob(
     row.visibility !== blob.visibility
   ) {
     throw new Error("Prompt blob descriptor conflicts with PostgreSQL catalog");
+  }
+}
+
+async function ensureProviderCapabilityManifest(
+  client: PoolClient,
+  input: {
+    readonly providerId: string;
+    readonly descriptor: ProviderAdapterDescriptor;
+    readonly sourceId: string;
+  },
+): Promise<void> {
+  for (const [capability, supportState] of Object.entries(
+    input.descriptor.capabilities,
+  )) {
+    await client.query(
+      `INSERT INTO modelapse.provider_capability_events
+        (
+          provider_id,
+          capability,
+          support_state,
+          source_id,
+          actor,
+          note
+        )
+       SELECT
+         $1,
+         $2,
+         $3,
+         $4,
+         'catalog-bootstrap',
+         $5
+       WHERE NOT EXISTS (
+         SELECT 1
+         FROM modelapse.provider_capability_current current
+         WHERE current.provider_id = $1
+           AND current.capability = $2
+       )`,
+      [
+        input.providerId,
+        capability,
+        supportState,
+        input.sourceId,
+        "Seeded from adapter " + input.descriptor.id,
+      ],
+    );
   }
 }
 
@@ -865,6 +913,16 @@ export class PgCatalogAdmin {
       });
 
       const providerId = await ensureProvider(client);
+      const adapterSourceId = await ensureSource(client, {
+        sourceType: "modelapse_definition",
+        url: "https://github.com/imwarn/modelapse/blob/main/packages/provider-openai/src/index.ts",
+        title: "Modelapse OpenAI provider adapter",
+      });
+      await ensureProviderCapabilityManifest(client, {
+        providerId,
+        descriptor: new OpenAIResponsesAdapter().descriptor,
+        sourceId: adapterSourceId,
+      });
       const endpointId = await ensureEndpoint(
         client,
         providerId,
@@ -942,6 +1000,16 @@ export class PgCatalogAdmin {
         slug: "deepseek",
         name: "DeepSeek",
         homepage: "https://www.deepseek.com/",
+      });
+      const adapterSourceId = await ensureSource(client, {
+        sourceType: "modelapse_definition",
+        url: "https://github.com/imwarn/modelapse/blob/main/packages/provider-deepseek/src/index.ts",
+        title: "Modelapse DeepSeek provider adapter",
+      });
+      await ensureProviderCapabilityManifest(client, {
+        providerId,
+        descriptor: new DeepSeekResponsesAdapter().descriptor,
+        sourceId: adapterSourceId,
       });
       const endpointId = await ensureNamedDirectEndpoint(client, {
         providerId,

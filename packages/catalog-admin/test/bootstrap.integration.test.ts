@@ -2410,6 +2410,32 @@ describe("production catalog bootstrap", () => {
     expect(target.providerId).toBe(first.providerId);
     expect(target.endpointBaseUrl).toBe("https://api.deepseek.com");
     expect(target.promptBlob.sha256).toBe(first.promptSha256);
+
+    const verification = new Pool({ connectionString: isolatedDatabaseUrl });
+    try {
+      const capabilities = await verification.query<{
+        capability: string;
+        support_state: string;
+      }>(
+        `SELECT capability, support_state
+           FROM modelapse.provider_capability_current
+          WHERE provider_id = $1
+          ORDER BY capability`,
+        [first.providerId],
+      );
+      expect(capabilities.rows).toEqual(
+        expect.arrayContaining([
+          { capability: "returned_model_metadata", support_state: "supported" },
+          { capability: "model_version_metadata", support_state: "unsupported" },
+          { capability: "provider_request_id", support_state: "supported" },
+          { capability: "provider_response_id", support_state: "supported" },
+          { capability: "service_tier_metadata", support_state: "unsupported" },
+          { capability: "token_usage", support_state: "supported" },
+        ]),
+      );
+    } finally {
+      await verification.end();
+    }
   });
 
   it("is idempotent and produces an executable sourced direct target", async () => {
@@ -2464,6 +2490,27 @@ describe("production catalog bootstrap", () => {
         family_source_id: first.definitionSourceId,
         version_source_id: first.definitionSourceId,
       });
+
+      const capabilities = await verification.query<{
+        capability: string;
+        support_state: string;
+      }>(
+        `SELECT capability, support_state
+           FROM modelapse.provider_capability_current
+          WHERE provider_id = $1
+          ORDER BY capability`,
+        [first.providerId],
+      );
+      expect(capabilities.rows).toEqual(
+        expect.arrayContaining([
+          { capability: "returned_model_metadata", support_state: "supported" },
+          { capability: "model_version_metadata", support_state: "unsupported" },
+          { capability: "provider_request_id", support_state: "supported" },
+          { capability: "provider_response_id", support_state: "supported" },
+          { capability: "service_tier_metadata", support_state: "supported" },
+          { capability: "token_usage", support_state: "supported" },
+        ]),
+      );
     } finally {
       await verification.end();
     }

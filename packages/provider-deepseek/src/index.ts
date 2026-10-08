@@ -4,6 +4,7 @@ import type {
   NormalizedProviderResponse,
   PreparedHttpRequest,
   ProviderAdapter,
+  ProviderAdapterDescriptor,
   ProviderContentPart,
 } from "@modelapse/provider-adapter";
 
@@ -44,12 +45,20 @@ function outputText(body: Record<string, unknown>): string {
 }
 
 export class DeepSeekResponsesAdapter implements ProviderAdapter {
-  readonly descriptor = {
+  readonly descriptor: ProviderAdapterDescriptor = {
     id: "deepseek-responses-direct-v1",
     providerSlug: "deepseek",
     executionPath: "first_party_direct" as const,
     allowedHosts: ["api.deepseek.com"],
     apiVersion: "responses-v1",
+    capabilities: {
+      returned_model_metadata: "supported",
+      model_version_metadata: "unsupported",
+      provider_request_id: "supported",
+      provider_response_id: "supported",
+      service_tier_metadata: "unsupported",
+      token_usage: "supported",
+    },
   };
 
   prepare(request: CanonicalModelRequest): PreparedHttpRequest {

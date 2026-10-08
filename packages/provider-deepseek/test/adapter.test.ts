@@ -2,6 +2,17 @@ import { describe, expect, it } from "vitest";
 import { DeepSeekResponsesAdapter } from "../src/index.js";
 
 describe("DeepSeek Responses adapter", () => {
+  it("declares supported and unsupported metadata capture explicitly", () => {
+    expect(new DeepSeekResponsesAdapter().descriptor.capabilities).toEqual({
+      returned_model_metadata: "supported",
+      model_version_metadata: "unsupported",
+      provider_request_id: "supported",
+      provider_response_id: "supported",
+      service_tier_metadata: "unsupported",
+      token_usage: "supported",
+    });
+  });
+
   it("prepares the first-party Responses API request without credentials", () => {
     const adapter = new DeepSeekResponsesAdapter();
     const prepared = adapter.prepare({

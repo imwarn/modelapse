@@ -4,6 +4,7 @@ import type {
   NormalizedProviderResponse,
   PreparedHttpRequest,
   ProviderAdapter,
+  ProviderAdapterDescriptor,
   ProviderContentPart,
 } from "@modelapse/provider-adapter";
 
@@ -17,12 +18,20 @@ function textOnly(parts: readonly ProviderContentPart[]): string {
 }
 
 export class AnthropicMessagesAdapter implements ProviderAdapter {
-  readonly descriptor = {
+  readonly descriptor: ProviderAdapterDescriptor = {
     id: "anthropic-messages-direct-2023-06-01",
     providerSlug: "anthropic",
     executionPath: "first_party_direct" as const,
     allowedHosts: ["api.anthropic.com"],
     apiVersion: "2023-06-01",
+    capabilities: {
+      returned_model_metadata: "supported",
+      model_version_metadata: "unsupported",
+      provider_request_id: "supported",
+      provider_response_id: "supported",
+      service_tier_metadata: "unsupported",
+      token_usage: "supported",
+    },
   };
 
   prepare(request: CanonicalModelRequest): PreparedHttpRequest {

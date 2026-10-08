@@ -278,6 +278,8 @@ The grouping policy must be versioned and inspectable.
 
 ### Archive v0.24 — Provider Expansion Playbook
 
+**Implemented:** see `docs/provider-expansion-playbook.md` and ADR 0020.
+
 New Provider Adapters should not be considered complete merely because the HTTP request works.
 
 Provider onboarding should require:

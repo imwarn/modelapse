@@ -87,6 +87,20 @@ export interface NormalizedProviderResponse {
   readonly providerMetadata?: Readonly<Record<string, unknown>>;
 }
 
+export const providerAdapterCapabilityKeys = [
+  "returned_model_metadata",
+  "model_version_metadata",
+  "provider_request_id",
+  "provider_response_id",
+  "service_tier_metadata",
+  "token_usage",
+] as const;
+
+export type ProviderAdapterCapabilityKey =
+  (typeof providerAdapterCapabilityKeys)[number];
+
+export type ProviderAdapterCapabilitySupport = "supported" | "unsupported";
+
 export interface ProviderAdapterDescriptor {
   readonly id: string;
   readonly providerSlug: string;
@@ -94,4 +108,11 @@ export interface ProviderAdapterDescriptor {
   /** Exact hostnames the controlled transport may contact for this adapter. */
   readonly allowedHosts: readonly string[];
   readonly apiVersion?: string;
+  /**
+   * Exhaustive response/metadata capture contract for the adapter.
+   * Unsupported capabilities must be declared explicitly rather than omitted.
+   */
+  readonly capabilities: Readonly<
+    Record<ProviderAdapterCapabilityKey, ProviderAdapterCapabilitySupport>
+  >;
 }
