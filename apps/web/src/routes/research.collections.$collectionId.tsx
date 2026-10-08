@@ -97,7 +97,7 @@ function ResearchCollectionDetailPage() {
                   .filter(([, value]) => typeof value === "string")
                   .map(([key, value]) => [
                     key === "providerSlug" ? "provider" : key, String(value),
-                  ]),
+                  ] as [string, string]),
               ).toString()}`}>Re-run these filters (live) →</a>
             </div>
             {error ? <div className="notice notice-error">{error}</div> : null}
