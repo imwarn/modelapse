@@ -1290,7 +1290,7 @@ export class PgArchiveRepository {
            END AS cost
          FROM modelapse.runs r
          JOIN modelapse.test_cases tc ON tc.id = r.test_case_id
-         JOIN modelapse.models m ON m.id = r.model_id
+         LEFT JOIN modelapse.models m ON m.id = r.model_id
          JOIN modelapse.providers p ON p.id = r.provider_id
          LEFT JOIN modelapse.run_evidence_summary res ON res.run_id = r.id
          LEFT JOIN modelapse.run_execution_qualification qualification
