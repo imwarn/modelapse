@@ -10,6 +10,29 @@ function run(id: string, options: {
 } = {}): ArchiveRunView {
   return {
     id,
+    status: "completed",
+    model: {
+      id: "model-1",
+      canonicalSlug: "model-test",
+      marketingName: "Model Test",
+    },
+    provider: {
+      id: "provider-1",
+      slug: "fixture",
+      name: "Fixture Provider",
+    },
+    test: {
+      testCaseId: "test-case-1",
+      familySlug: "context-fixture",
+      familyName: "Context Fixture",
+      variantSlug: "benchmark",
+      variantName: "Benchmark",
+      version: "1.0.0",
+      caseSlug: "same-test",
+    },
+    requestedModel: "model-test",
+    returnedModel: "model-test",
+    evidenceLevel: "E4",
     executionPath: "first_party_direct",
     executionQualification: {
       selectedAt: "2026-10-08T00:00:00.000Z",
@@ -47,7 +70,12 @@ function run(id: string, options: {
       estimatedNativeCost: null,
       caveats: ["native_cost_unavailable"],
     },
-  } as ArchiveRunView;
+    evaluation: null,
+    runnerBuild: "context-fixture",
+    createdAt: "2026-10-08T00:00:00.000Z",
+    completedAt: "2026-10-08T00:00:01.000Z",
+    sealedAt: "2026-10-08T00:00:02.000Z",
+  };
 }
 
 describe("public Archive longitudinal context transitions", () => {
