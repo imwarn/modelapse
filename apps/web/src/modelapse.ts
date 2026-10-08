@@ -550,10 +550,25 @@ interface ArchiveRunDetailWire extends ArchiveRun {
   readonly relations: readonly ArchiveRunRelation[];
 }
 
+export interface ArchiveContextTransition {
+  readonly runId: string;
+  readonly previousRunId: string | null;
+  readonly status: "baseline" | "unchanged" | "changed" | "evidence_changed" | "unknown";
+  readonly changes: readonly {
+    readonly field: string;
+    readonly previous: string;
+    readonly current: string;
+    readonly kind: "execution" | "evidence";
+  }[];
+  readonly unknownFields: readonly string[];
+  readonly caveats: readonly string[];
+}
+
 export interface ArchiveRunHistory {
   readonly model: ArchiveModel;
   readonly test: ArchiveTest;
   readonly runs: readonly ArchiveRun[];
+  readonly contextTransitions: readonly ArchiveContextTransition[];
   readonly relations: readonly ArchiveRunRelationEdge[];
 }
 
@@ -562,6 +577,7 @@ export interface ArchiveTemporalComparison {
   readonly rows: readonly {
     readonly model: ArchiveModel;
     readonly runs: readonly ArchiveRun[];
+    readonly contextTransitions: readonly ArchiveContextTransition[];
     readonly relations: readonly ArchiveRunRelationEdge[];
   }[];
 }
@@ -2242,6 +2258,15 @@ export const getArchiveCatalogChanges = createServerFn({ method: "GET" }).handle
   },
 );
 
+export const getArchiveComparabilityPolicies = createServerFn({ method: "GET" }).handler(
+  async (): Promise<readonly ArchiveComparabilityPolicy[]> => {
+    const result = await requestJson<{ policies: readonly ArchiveComparabilityPolicy[] }>(
+      "/v1/archive/comparability/policies",
+    );
+    return result.policies;
+  },
+);
+
 export const getArchiveCatalog = createServerFn({ method: "GET" }).handler(
   async (): Promise<ArchiveCatalog> => {
     const [models, tests] = await Promise.all([
@@ -2347,6 +2372,7 @@ export const compareArchiveHistory = createServerFn({ method: "POST" })
       rows: complete.map((history) => ({
         model: history.model,
         runs: history.runs,
+        contextTransitions: history.contextTransitions,
         relations: history.relations,
       })),
     };
