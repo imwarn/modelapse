@@ -462,6 +462,16 @@ export interface ArchiveComparisonView {
   }[];
 }
 
+export interface ArchiveResearchPolicyAssessmentView {
+  readonly policy: ComparabilityPolicyView;
+  readonly scope: "per_run_only_not_cross_provider_match";
+  readonly collectionRunCount: number;
+  readonly rows: readonly {
+    readonly runId: string;
+    readonly comparability: ArchiveRunComparabilityView;
+  }[];
+}
+
 export interface ArchiveResearchPageView {
   readonly runs: readonly ArchiveRunView[];
   readonly nextCursor: string | null;
@@ -2902,6 +2912,65 @@ export class PgArchiveRepository {
       repeatCount,
       requiredRepeatCount,
       calibration,
+    };
+  }
+
+  async assessResearchRuns(
+    runIds: readonly string[],
+    policyVersion?: string,
+  ): Promise<ArchiveResearchPolicyAssessmentView | null> {
+    if (runIds.length < 1 || runIds.length > 50 ||
+        new Set(runIds).size !== runIds.length) {
+      throw new Error("invalid_research_run_count");
+    }
+    if (policyVersion !== undefined &&
+        !/^[a-z0-9][a-z0-9._-]*$/.test(policyVersion)) {
+      throw new Error("invalid_policy_version");
+    }
+
+    const [policy, runs] = await Promise.all([
+      this.comparabilityPolicy(policyVersion),
+      this.getRunsByIds(runIds),
+    ]);
+    if (!policy) return null;
+    if (runs.length !== runIds.length) {
+      throw new Error("research_collection_snapshot_incomplete");
+    }
+
+    const tests = [...new Set(runs.map((run) => run.test.testCaseId))];
+    const metadata = await this.pool.query<{
+      id: string;
+      unstable: boolean;
+      explicit_min_repeats: string | null;
+    }>(
+      `SELECT id,
+              COALESCE((metadata->>'unstable')::boolean, false) AS unstable,
+              metadata->>'comparabilityMinRepeats' AS explicit_min_repeats
+         FROM modelapse.test_cases
+        WHERE id = ANY($1::uuid[])`,
+      [tests],
+    );
+    const byTest = new Map(metadata.rows.map((row) => [row.id, row]));
+
+    const rows = await Promise.all(runs.map(async (run) => {
+      const meta = byTest.get(run.test.testCaseId);
+      const raw = meta?.explicit_min_repeats;
+      const num = raw && /^\d+$/.test(raw) ? Number(raw) : null;
+      const explicitMinRepeats = num !== null && num >= 1 && num <= 20
+        ? num : null;
+      return {
+        runId: run.id,
+        comparability: await this.assessRunComparability(run, policy, {
+          unstable: meta?.unstable ?? false,
+          explicitMinRepeats,
+        }),
+      };
+    }));
+    return {
+      policy,
+      scope: "per_run_only_not_cross_provider_match",
+      collectionRunCount: runs.length,
+      rows,
     };
   }
 
