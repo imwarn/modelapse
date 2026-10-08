@@ -214,6 +214,24 @@ const archiveRunHistory = {
     },
     archiveRun,
   ],
+  contextTransitions: [
+    {
+      runId: PREVIOUS_RUN_ID,
+      previousRunId: null,
+      status: "baseline",
+      changes: [],
+      unknownFields: [],
+      caveats: [],
+    },
+    {
+      runId: RUN_ID,
+      previousRunId: PREVIOUS_RUN_ID,
+      status: "unchanged",
+      changes: [],
+      unknownFields: [],
+      caveats: [],
+    },
+  ],
   relations: [
     {
       fromRunId: RUN_ID,
