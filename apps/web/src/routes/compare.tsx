@@ -55,7 +55,16 @@ function contextRelation(
   ];
   const current = execution(run);
   const baseline = execution(reference);
-  if (current.some((value) => value === null) || baseline.some((value) => value === null)) {
+  const assurance = run.executionQualification?.serviceAssurance;
+  const baselineAssurance = reference.executionQualification?.serviceAssurance;
+  if (
+    current.some((value) => value === null) ||
+    baseline.some((value) => value === null) ||
+    !["documented_default", "documented_variant"].includes(assurance ?? "") ||
+    !["documented_default", "documented_variant"].includes(
+      baselineAssurance ?? "",
+    )
+  ) {
     return "unknown";
   }
   return current.every((value, index) => value === baseline[index])
