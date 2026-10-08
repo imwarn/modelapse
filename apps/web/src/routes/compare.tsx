@@ -44,10 +44,23 @@ function contextRelation(
   run: ArchiveRun,
   reference: ArchiveRun | null,
 ): "matched" | "mismatched" | "unknown" {
-  const context = run.executionQualification?.contextKey;
-  const referenceContext = reference?.executionQualification?.contextKey;
-  if (!context || !referenceContext) return "unknown";
-  return context === referenceContext ? "matched" : "mismatched";
+  if (!reference) return "unknown";
+  const execution = (value: ArchiveRun): readonly (string | null)[] => [
+    value.executionPath,
+    value.executionQualification?.executionRegion ?? null,
+    value.executionQualification?.accountTier ?? null,
+    value.executionQualification?.returnedServiceTier ??
+      value.executionQualification?.serviceTier ?? null,
+    value.executionQualification?.serviceAssurance ?? null,
+  ];
+  const current = execution(run);
+  const baseline = execution(reference);
+  if (current.some((value) => value === null) || baseline.some((value) => value === null)) {
+    return "unknown";
+  }
+  return current.every((value, index) => value === baseline[index])
+    ? "matched"
+    : "mismatched";
 }
 
 function ArchiveComparePage() {
