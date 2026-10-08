@@ -489,6 +489,57 @@ describe("Archive comparability policy", () => {
       ]),
     });
 
+    const research = await archive.researchRuns({
+      providerSlug: "comparability-provider-" + suffix + "-2",
+      testCaseId: benchmarkCase.rows[0]!.id,
+      evidence: "E4+",
+      cost: "unknown",
+      limit: 1,
+    });
+    expect(research).toMatchObject({
+      scope: "sealed_public_non_calibration",
+      hasMore: true,
+      runs: [{
+        model: { id: models[1] },
+        executionQualification: { executionRegion: "JP" },
+      }],
+    });
+    expect(research.nextCursor).toBeTruthy();
+    const older = await archive.researchRuns({
+      providerSlug: "comparability-provider-" + suffix + "-2",
+      testCaseId: benchmarkCase.rows[0]!.id,
+      evidence: "E4+",
+      limit: 1,
+      cursor: research.nextCursor!,
+    });
+    expect(older).toMatchObject({
+      hasMore: false,
+      nextCursor: null,
+      runs: [{
+        model: { id: models[1] },
+        executionQualification: { executionRegion: "US" },
+      }],
+    });
+    expect(older.runs[0]?.id).not.toBe(research.runs[0]?.id);
+
+    const regionSlice = await archive.researchRuns({
+      testCaseId: benchmarkCase.rows[0]!.id,
+      region: "JP",
+      limit: 20,
+    });
+    expect(regionSlice.runs).toHaveLength(1);
+    expect(regionSlice.runs[0]?.executionQualification?.executionRegion).toBe("JP");
+
+    const calibrationExcluded = await archive.researchRuns({
+      modelId: models[0]!,
+      evidence: "any",
+    });
+    expect(
+      calibrationExcluded.runs.every(
+        (run) => run.test.testCaseId !== calibrationCase.rows[0]!.id,
+      ),
+    ).toBe(true);
+
     const custom = await policies.recordPolicy({
       version: "comparability-integration-" + suffix,
       minimumEvidenceLevel: "E4",

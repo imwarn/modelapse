@@ -9,7 +9,9 @@ import {
   type PgRunPlanner,
   type RunJob,
 } from "@modelapse/control-plane";
+import { validateArchiveResearchFilters } from "@modelapse/persistence";
 import type {
+  ArchiveResearchFilters,
   PgArchiveRepository,
   PgCalibrationRepository,
   PgComparabilityRepository,
@@ -112,6 +114,7 @@ type ArchiveRepository = Pick<
   | "listModels"
   | "listTests"
   | "listRuns"
+  | "researchRuns"
   | "listCatalogChanges"
   | "getRun"
   | "getModel"
@@ -266,6 +269,47 @@ export function createApp(deps: AppDependencies) {
       return c.json({ error: "archive_unavailable" }, 503);
     }
     return c.json({ tests: await deps.archive.listTests() });
+  });
+
+  app.get("/v1/archive/research", async (c) => {
+    if (!deps.archive) {
+      return c.json({ error: "archive_unavailable" }, 503);
+    }
+    const query = c.req.query();
+    const limitRaw = query.limit;
+    const limit = limitRaw === undefined ? undefined : Number(limitRaw);
+    const input: ArchiveResearchFilters = {
+      ...(query.provider !== undefined ? { providerSlug: query.provider } : {}),
+      ...(query.modelId !== undefined ? { modelId: query.modelId } : {}),
+      ...(query.testCaseId !== undefined ? { testCaseId: query.testCaseId } : {}),
+      ...(query.evidence !== undefined
+        ? { evidence: query.evidence as NonNullable<ArchiveResearchFilters["evidence"]> }
+        : {}),
+      ...(query.region !== undefined ? { region: query.region } : {}),
+      ...(query.accountTier !== undefined
+        ? { accountTier: query.accountTier }
+        : {}),
+      ...(query.serviceTier !== undefined
+        ? { serviceTier: query.serviceTier }
+        : {}),
+      ...(query.cost !== undefined
+        ? { cost: query.cost as NonNullable<ArchiveResearchFilters["cost"]> }
+        : {}),
+      ...(query.cursor !== undefined ? { cursor: query.cursor } : {}),
+      ...(limit !== undefined ? { limit } : {}),
+    };
+    try {
+      const validated = validateArchiveResearchFilters(input);
+      return c.json({ research: await deps.archive.researchRuns(validated) });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        /^invalid_/.test(error.message)
+      ) {
+        return c.json({ error: error.message }, 400);
+      }
+      throw error;
+    }
   });
 
   app.get("/v1/archive/changes", async (c) => {

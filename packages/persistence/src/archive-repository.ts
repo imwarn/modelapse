@@ -2,6 +2,12 @@ import { createHash } from "node:crypto";
 import { Pool } from "pg";
 import type { ComparabilityPolicyView } from "./comparability-repository.js";
 import { archiveContextTransitions, type ArchiveContextTransition } from "./archive-context-transitions.js";
+import {
+  decodeArchiveResearchCursor,
+  encodeArchiveResearchCursor,
+  validateArchiveResearchFilters,
+  type ArchiveResearchFilters,
+} from "./archive-research.js";
 
 export interface ArchiveModelView {
   readonly id: string;
@@ -452,6 +458,13 @@ export interface ArchiveComparisonView {
     readonly latestRun: ArchiveRunView | null;
     readonly comparability: ArchiveRunComparabilityView | null;
   }[];
+}
+
+export interface ArchiveResearchPageView {
+  readonly runs: readonly ArchiveRunView[];
+  readonly nextCursor: string | null;
+  readonly hasMore: boolean;
+  readonly scope: "sealed_public_non_calibration";
 }
 
 export interface ArchiveRunHistoryView {
@@ -1204,6 +1217,79 @@ export class PgArchiveRepository {
     );
 
     return result.rows.map(runView);
+  }
+
+  async researchRuns(
+    input: ArchiveResearchFilters = {},
+  ): Promise<ArchiveResearchPageView> {
+    const filters = validateArchiveResearchFilters(input);
+    const cursor = filters.cursor
+      ? decodeArchiveResearchCursor(filters.cursor)
+      : null;
+
+    const result = await this.pool.query<ArchiveRunRow>(
+      RUN_SELECT +
+        `
+       WHERE tc.visibility = 'public'
+         AND tc.case_type <> 'calibration'
+         AND r.status = 'completed'
+         AND r.sealed_at IS NOT NULL
+         AND r.completed_at IS NOT NULL
+         AND ($1::text IS NULL OR p.slug = $1)
+         AND ($2::uuid IS NULL OR r.model_id = $2)
+         AND ($3::uuid IS NULL OR r.test_case_id = $3)
+         AND (
+           $4::text = 'any' OR
+           ($4 = 'E4+' AND res.level IN ('E4', 'E5')) OR
+           ($4 = 'missing' AND res.level IS NULL)
+         )
+         AND ($5::text IS NULL OR qualification.execution_region = $5)
+         AND ($6::text IS NULL OR qualification.account_tier = $6)
+         AND (
+           $7::text IS NULL OR
+           COALESCE(qualification.returned_service_tier, qualification.service_tier) = $7
+         )
+         AND (
+           $8::text = 'any' OR
+           ($8 = 'estimated' AND cost.estimated_native_cost IS NOT NULL) OR
+           ($8 = 'unknown' AND cost.estimated_native_cost IS NULL)
+         )
+         AND (
+           $9::timestamptz IS NULL OR
+           (r.completed_at, r.id) < ($9::timestamptz, $10::uuid)
+         )
+       ORDER BY r.completed_at DESC, r.id DESC
+       LIMIT $11`,
+      [
+        filters.providerSlug ?? null,
+        filters.modelId ?? null,
+        filters.testCaseId ?? null,
+        filters.evidence,
+        filters.region ?? null,
+        filters.accountTier ?? null,
+        filters.serviceTier ?? null,
+        filters.cost,
+        cursor?.completedAt ?? null,
+        cursor?.runId ?? null,
+        filters.limit + 1,
+      ],
+    );
+    const pageRows = result.rows.slice(0, filters.limit);
+    const last = pageRows[pageRows.length - 1];
+    const hasMore = result.rows.length > filters.limit;
+
+    return {
+      runs: pageRows.map(runView),
+      nextCursor:
+        hasMore && last?.completed_at
+          ? encodeArchiveResearchCursor({
+              completedAt: last.completed_at.toISOString(),
+              runId: last.id,
+            })
+          : null,
+      hasMore,
+      scope: "sealed_public_non_calibration",
+    };
   }
 
   async getRunHistory(input: {

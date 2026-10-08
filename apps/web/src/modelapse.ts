@@ -564,6 +564,13 @@ export interface ArchiveContextTransition {
   readonly caveats: readonly string[];
 }
 
+export interface ArchiveResearchPage {
+  readonly runs: readonly ArchiveRun[];
+  readonly nextCursor: string | null;
+  readonly hasMore: boolean;
+  readonly scope: "sealed_public_non_calibration";
+}
+
 export interface ArchiveRunHistory {
   readonly model: ArchiveModel;
   readonly test: ArchiveTest;
@@ -1518,6 +1525,19 @@ interface CompareArchiveInput {
   readonly policyVersion?: string;
 }
 
+export interface SearchArchiveResearchInput {
+  readonly providerSlug?: string;
+  readonly modelId?: string;
+  readonly testCaseId?: string;
+  readonly evidence?: "any" | "E4+" | "missing";
+  readonly region?: string;
+  readonly accountTier?: string;
+  readonly serviceTier?: string;
+  readonly cost?: "any" | "estimated" | "unknown";
+  readonly cursor?: string;
+  readonly limit?: number;
+}
+
 interface ReadArchiveHistoryInput {
   readonly modelId: string;
   readonly testCaseId: string;
@@ -2152,6 +2172,59 @@ function parseArchiveHistoryInput(value: unknown): ReadArchiveHistoryInput {
   };
 }
 
+function parseArchiveResearchInput(value: unknown): SearchArchiveResearchInput {
+  if (!isRecord(value)) {
+    throw new Error("Archive research request must be an object");
+  }
+  const allowed = [
+    "providerSlug", "modelId", "testCaseId", "evidence", "region",
+    "accountTier", "serviceTier", "cost", "cursor",
+  ] as const;
+  for (const key of allowed) {
+    if (value[key] !== undefined && typeof value[key] !== "string") {
+      throw new Error("Research filter " + key + " must be a string");
+    }
+  }
+  if (
+    value.limit !== undefined &&
+    (typeof value.limit !== "number" ||
+      !Number.isInteger(value.limit) ||
+      value.limit < 1 ||
+      value.limit > 50)
+  ) {
+    throw new Error("Research limit must be an integer from 1 to 50");
+  }
+  const input = value as Record<string, unknown>;
+  for (const id of ["modelId", "testCaseId"] as const) {
+    if (input[id] !== undefined && !UUID_RE.test(input[id] as string)) {
+      throw new Error("Research " + id + " must be a UUID");
+    }
+  }
+  if (input.providerSlug !== undefined &&
+      !/^[a-z0-9][a-z0-9._-]{0,79}$/.test(input.providerSlug as string)) {
+    throw new Error("Research provider is invalid");
+  }
+  if (input.evidence !== undefined &&
+    !["any", "E4+", "missing"].includes(input.evidence as string)) {
+    throw new Error("Research evidence is invalid");
+  }
+  if (input.cost !== undefined &&
+    !["any", "estimated", "unknown"].includes(input.cost as string)) {
+    throw new Error("Research cost is invalid");
+  }
+  for (const key of ["region", "accountTier", "serviceTier"] as const) {
+    if (input[key] !== undefined &&
+        !/^[A-Za-z0-9][A-Za-z0-9 _.:-]{0,63}$/.test(input[key] as string)) {
+      throw new Error("Research " + key + " is invalid");
+    }
+  }
+  if (input.cursor !== undefined &&
+      (!/^[A-Za-z0-9_-]{5,256}$/.test(input.cursor as string))) {
+    throw new Error("Research cursor is invalid");
+  }
+  return input as SearchArchiveResearchInput;
+}
+
 function parseArchiveComparisonInput(value: unknown): CompareArchiveInput {
   if (!isRecord(value)) throw new Error("Archive comparison request must be an object");
 
@@ -2257,6 +2330,26 @@ export const getArchiveCatalogChanges = createServerFn({ method: "GET" }).handle
     return result.changes;
   },
 );
+
+export const searchArchiveResearch = createServerFn({ method: "POST" })
+  .validator(parseArchiveResearchInput)
+  .handler(async ({ data }): Promise<ArchiveResearchPage> => {
+    const params = new URLSearchParams();
+    if (data.providerSlug) params.set("provider", data.providerSlug);
+    if (data.modelId) params.set("modelId", data.modelId);
+    if (data.testCaseId) params.set("testCaseId", data.testCaseId);
+    if (data.evidence && data.evidence !== "any") params.set("evidence", data.evidence);
+    if (data.region) params.set("region", data.region);
+    if (data.accountTier) params.set("accountTier", data.accountTier);
+    if (data.serviceTier) params.set("serviceTier", data.serviceTier);
+    if (data.cost && data.cost !== "any") params.set("cost", data.cost);
+    if (data.cursor) params.set("cursor", data.cursor);
+    params.set("limit", String(data.limit ?? 20));
+    const result = await requestJson<{ research: ArchiveResearchPage }>(
+      `/v1/archive/research?${params.toString()}`,
+    );
+    return result.research;
+  });
 
 export const getArchiveComparabilityPolicies = createServerFn({ method: "GET" }).handler(
   async (): Promise<readonly ArchiveComparabilityPolicy[]> => {

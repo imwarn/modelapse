@@ -540,6 +540,12 @@ describe("Archive read API", () => {
           },
         ],
         listRuns: async () => [archiveRun],
+        researchRuns: async () => ({
+          runs: [archiveRun],
+          nextCursor: null,
+          hasMore: false,
+          scope: "sealed_public_non_calibration",
+        }),
         listCatalogChanges: async () => [archiveCatalogChange],
         getRun: async (runId) => (runId === RUN_ID ? archiveRun : null),
         getModel: async (modelId) =>
@@ -624,6 +630,18 @@ describe("Archive read API", () => {
       history: archiveRunHistory,
     });
 
+    const research = await app.request(
+      `/v1/archive/research?provider=deepseek&modelId=${MODEL_ID}&testCaseId=${TEST_CASE_ID}&evidence=E4%2B&cost=unknown&limit=20`,
+    );
+    expect(research.status).toBe(200);
+    await expect(research.json()).resolves.toMatchObject({
+      research: {
+        scope: "sealed_public_non_calibration",
+        hasMore: false,
+        runs: [{ id: RUN_ID }],
+      },
+    });
+
     const runs = await app.request(
       `/v1/archive/runs?modelId=${MODEL_ID}&testCaseId=${TEST_CASE_ID}&limit=10`,
     );
@@ -643,6 +661,12 @@ describe("Archive read API", () => {
         listModels: async () => [],
         listTests: async () => [],
         listRuns: async () => [],
+        researchRuns: async () => ({
+          runs: [],
+          nextCursor: null,
+          hasMore: false,
+          scope: "sealed_public_non_calibration",
+        }),
         listCatalogChanges: async () => [],
         getRun: async () => null,
         getModel: async () => null,
@@ -655,6 +679,18 @@ describe("Archive read API", () => {
     expect(
       (await app.request("/v1/archive/runs?modelId=nope")).status,
     ).toBe(400);
+    for (const query of [
+      "limit=51",
+      "evidence=E6",
+      "cost=free",
+      "modelId=nope",
+      "provider=../evil",
+      "region=%27%20OR%20true",
+      "cursor=not-a-cursor!",
+    ]) {
+      const response = await app.request("/v1/archive/research?" + query);
+      expect(response.status, query).toBe(400);
+    }
     expect(
       (await app.request("/v1/archive/runs?limit=101")).status,
     ).toBe(400);

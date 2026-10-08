@@ -11,6 +11,10 @@ import {
 } from "../modelapse";
 
 export const Route = createFileRoute("/compare")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    modelIds: typeof search.modelIds === "string" ? search.modelIds : "",
+    testCaseId: typeof search.testCaseId === "string" ? search.testCaseId : "",
+  }),
   loader: async () => {
     const [catalog, policies] = await Promise.all([
       getArchiveCatalog(),
@@ -74,20 +78,34 @@ function contextRelation(
 
 function ArchiveComparePage() {
   const { catalog, policies } = Route.useLoaderData();
-  const firstModel = catalog.models[0];
+  const search = Route.useSearch();
+  const candidateIds = search.modelIds.split(",").filter(Boolean);
+  const selectedFromLink = catalog.models.filter(
+    (model) => candidateIds.includes(model.id),
+  ).slice(0, 4);
+  const firstModel = selectedFromLink[0] ?? catalog.models[0];
   const secondModel =
     catalog.models.find(
-      (model) => firstModel && model.provider.id !== firstModel.provider.id,
-    ) ?? catalog.models[1];
-  const defaultModelIds = [firstModel?.id, secondModel?.id].filter(
-    (id): id is string => Boolean(id),
-  );
+      (model) =>
+        model.id !== firstModel?.id &&
+        firstModel &&
+        model.provider.id !== firstModel.provider.id,
+    ) ??
+    catalog.models.find((model) => model.id !== firstModel?.id);
+  const defaults = selectedFromLink.length >= 2
+    ? selectedFromLink
+    : [firstModel, secondModel].filter(
+        (model): model is NonNullable<typeof model> => Boolean(model),
+      );
+  const defaultModelIds = defaults.map((model) => model.id);
   const comparableTests = catalog.tests.filter(
     (test) => test.category !== "calibration",
   );
   const [modelIds, setModelIds] = useState<readonly string[]>(defaultModelIds);
   const [testCaseId, setTestCaseId] = useState(
-    comparableTests[0]?.testCaseId ?? "",
+    comparableTests.some((test) => test.testCaseId === search.testCaseId)
+      ? search.testCaseId
+      : comparableTests[0]?.testCaseId ?? "",
   );
   const [policyVersion, setPolicyVersion] = useState(policies[0]?.version ?? "");
   const [comparison, setComparison] = useState<ArchiveComparison | null>(null);

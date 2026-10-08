@@ -162,6 +162,7 @@ function ModelapseHome() {
           <a className="header-link" href="#archive">
             Archive
           </a>
+          <a className="header-link" href="/research">Research</a>
           <details className="operator-menu">
             <summary className="header-link">Operator</summary>
             <div className="operator-menu-panel">
@@ -217,6 +218,9 @@ function ModelapseHome() {
           </div>
           <div className="archive-tools">
             <div className="archive-primary-links">
+              <a className="header-link archive-compare-link" href="/research">
+                Explore evidence →
+              </a>
               <a className="header-link archive-compare-link" href="/compare">
                 Compare models →
               </a>
