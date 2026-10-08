@@ -9,7 +9,9 @@ import {
   type PgRunPlanner,
   type RunJob,
 } from "@modelapse/control-plane";
+import { validateArchiveResearchFilters } from "@modelapse/persistence";
 import type {
+  ArchiveResearchFilters,
   PgArchiveRepository,
   PgCalibrationRepository,
   PgComparabilityRepository,
@@ -112,6 +114,7 @@ type ArchiveRepository = Pick<
   | "listModels"
   | "listTests"
   | "listRuns"
+  | "researchRuns"
   | "listCatalogChanges"
   | "getRun"
   | "getModel"
@@ -266,6 +269,56 @@ export function createApp(deps: AppDependencies) {
       return c.json({ error: "archive_unavailable" }, 503);
     }
     return c.json({ tests: await deps.archive.listTests() });
+  });
+
+  app.get("/v1/archive/research", async (c) => {
+    if (!deps.archive) {
+      return c.json({ error: "archive_unavailable" }, 503);
+    }
+    const limitRaw = c.req.query("limit");
+    const limit = limitRaw === undefined ? undefined : Number(limitRaw);
+    const input: ArchiveResearchFilters = {
+      ...(c.req.query("provider") !== undefined
+        ? { providerSlug: c.req.query("provider") }
+        : {}),
+      ...(c.req.query("modelId") !== undefined
+        ? { modelId: c.req.query("modelId") }
+        : {}),
+      ...(c.req.query("testCaseId") !== undefined
+        ? { testCaseId: c.req.query("testCaseId") }
+        : {}),
+      ...(c.req.query("evidence") !== undefined
+        ? { evidence: c.req.query("evidence") as ArchiveResearchFilters["evidence"] }
+        : {}),
+      ...(c.req.query("region") !== undefined
+        ? { region: c.req.query("region") }
+        : {}),
+      ...(c.req.query("accountTier") !== undefined
+        ? { accountTier: c.req.query("accountTier") }
+        : {}),
+      ...(c.req.query("serviceTier") !== undefined
+        ? { serviceTier: c.req.query("serviceTier") }
+        : {}),
+      ...(c.req.query("cost") !== undefined
+        ? { cost: c.req.query("cost") as ArchiveResearchFilters["cost"] }
+        : {}),
+      ...(c.req.query("cursor") !== undefined
+        ? { cursor: c.req.query("cursor") }
+        : {}),
+      ...(limit !== undefined ? { limit } : {}),
+    };
+    try {
+      const validated = validateArchiveResearchFilters(input);
+      return c.json({ research: await deps.archive.researchRuns(validated) });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        /^invalid_/.test(error.message)
+      ) {
+        return c.json({ error: error.message }, 400);
+      }
+      throw error;
+    }
   });
 
   app.get("/v1/archive/changes", async (c) => {
