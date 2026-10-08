@@ -91,7 +91,7 @@ describe("research snapshot manifest and exports", () => {
     const csv = exportResearchCollection(collection(), "csv");
     expect(csv.mediaType).toContain("text/csv");
     expect(csv.body.split("\r\n")).toHaveLength(3);
-    expect(csv.body).toContain("\"'\=HYPERLINK".replace("\\=", "="));
+    expect(csv.body).toContain("\"'=HYPERLINK");
     expect(csv.body).toContain("pricing_tier_generic");
     expect(csv.body).toContain("source-price");
   });
