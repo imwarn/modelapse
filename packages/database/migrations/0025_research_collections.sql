@@ -24,7 +24,8 @@ DECLARE
   run_count integer;
 BEGIN
   IF cardinality(NEW.run_ids) <> (
-    SELECT COUNT(DISTINCT value) FROM unnest(NEW.run_ids) AS value
+    SELECT COUNT(DISTINCT input.run_id)
+    FROM unnest(NEW.run_ids) AS input(run_id)
   ) THEN
     RAISE EXCEPTION 'research collection contains duplicate Run IDs';
   END IF;
