@@ -293,13 +293,17 @@ Provider onboarding should require:
 - calibration coverage;
 - explicit unsupported capabilities.
 
-### Archive v0.25+ — Public comparability and longitudinal views
+### Archive v0.25 — Public comparability and longitudinal context
 
-Only after the access/cost/qualification layers exist should public cross-provider views grow into broader benchmark-style surfaces.
+**Implemented:** see `docs/public-comparability-longitudinal.md` and ADR 0021.
 
-Public UI should show caveats next to results rather than hide them behind one aggregate score.
+With the access/cost/qualification layers in place, the public cross-provider comparison now exposes policy-version selection, latest Run eligibility, replication, calibration and qualification/cost caveats **next to results**, without inventing an aggregate score.
 
-Longitudinal views should also expose when execution context changed between Runs (region, account/service tier, assurance, evidence references), so an environment change is not misread as a model change.
+Longitudinal views explicitly derive field-level changes from frozen Run qualification snapshots (Fleet, region, account/service tier and assurance), and separately label Provider policy/runner/capability evidence refreshes. Unknown context remains unknown; an environment change is not attributed to the Model.
+
+### Archive v0.26+ — Broader public research surfaces
+
+Grow benchmark-style exploration carefully from the existing per-Test comparability and evidence-first temporal views, without treating heterogeneous Test results as one ranking. Continue to make cost, availability, registration and calibration limitations explicit alongside the records.
 
 ## Scheduling principle
 
