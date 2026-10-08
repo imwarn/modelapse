@@ -733,3 +733,110 @@ describe("Archive read API", () => {
 
   });
 });
+
+
+describe("Archive v0.27 immutable research collections API", () => {
+  it("allows public browsing and export, but requires operator auth for capture", async () => {
+    const id = "00000000-0000-4000-8000-000000000488";
+    const collection = {
+      id,
+      title: "Source-backed research snapshot",
+      description: "Immutable selection of one first-party Run",
+      filters: { modelId: MODEL_ID, evidence: "E4+" as const },
+      runIds: [RUN_ID],
+      contentSha256: "a".repeat(64),
+      createdBy: "test-operator",
+      createdAt: "2026-10-08T00:00:00.000Z",
+      selectionLimit: 50 as const,
+      runs: [archiveRun],
+    };
+    let createdInput: unknown;
+    const app = createApp({
+      runs: baseRuns(),
+      controlToken: "control-secret",
+      researchCollections: {
+        ping: async () => undefined,
+        list: async () => [{ ...collection }],
+        get: async (collectionId) => collectionId === id ? collection : null,
+        create: async (input) => {
+          createdInput = input;
+          return collection;
+        },
+      },
+    });
+
+    const listed = await app.request("/v1/archive/research/collections");
+    expect(listed.status).toBe(200);
+    await expect(listed.json()).resolves.toMatchObject({
+      collections: [{ id, title: collection.title, runIds: [RUN_ID] }],
+    });
+    const detail = await app.request(
+      "/v1/archive/research/collections/" + id,
+    );
+    expect(detail.status).toBe(200);
+    await expect(detail.json()).resolves.toMatchObject({
+      collection: { id, runs: [{ id: RUN_ID }] },
+    });
+
+    const json = await app.request(
+      "/v1/archive/research/collections/" + id + "/export?format=json",
+    );
+    expect(json.status).toBe(200);
+    expect(json.headers.get("content-disposition")).toContain(".json");
+    await expect(json.json()).resolves.toMatchObject({
+      manifest: { id, runIds: [RUN_ID], scope: "sealed_public_non_calibration" },
+      interpretation: { rankingsProvided: false },
+      rows: [{ runId: RUN_ID, pricingSourceId: null }],
+    });
+    const csv = await app.request(
+      "/v1/archive/research/collections/" + id + "/export?format=csv",
+    );
+    expect(csv.status).toBe(200);
+    expect(csv.headers.get("content-type")).toContain("text/csv");
+    expect(await csv.text()).toContain(RUN_ID);
+
+    const unauthorized = await app.request("/v1/control/research/collections", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Bad snapshot", actor: "guest", filters: {} }),
+    });
+    expect(unauthorized.status).toBe(401);
+    const authorizedHeaders = {
+      authorization: "Bearer control-secret",
+      "content-type": "application/json",
+    };
+    const created = await app.request("/v1/control/research/collections", {
+      method: "POST",
+      headers: authorizedHeaders,
+      body: JSON.stringify({
+        title: "Snapshot from API",
+        actor: "test-operator",
+        filters: { modelId: MODEL_ID, evidence: "E4+" },
+      }),
+    });
+    expect(created.status).toBe(201);
+    expect(createdInput).toMatchObject({
+      title: "Snapshot from API",
+      actor: "test-operator",
+      filters: { modelId: MODEL_ID, evidence: "E4+" },
+    });
+
+    for (const path of [
+      "/v1/archive/research/collections/nope",
+      "/v1/archive/research/collections/" + id + "/export?format=html",
+      "/v1/archive/research/collections?limit=51",
+    ]) {
+      expect((await app.request(path)).status, path).toBe(400);
+    }
+    const invalidCapture = await app.request("/v1/control/research/collections", {
+      method: "POST",
+      headers: authorizedHeaders,
+      body: JSON.stringify({
+        title: "Forged",
+        actor: "test",
+        filters: { injectedFilter: "abc" },
+      }),
+    });
+    expect(invalidCapture.status).toBe(400);
+  });
+});
