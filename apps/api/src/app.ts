@@ -283,7 +283,7 @@ export function createApp(deps: AppDependencies) {
       ...(query.modelId !== undefined ? { modelId: query.modelId } : {}),
       ...(query.testCaseId !== undefined ? { testCaseId: query.testCaseId } : {}),
       ...(query.evidence !== undefined
-        ? { evidence: query.evidence as ArchiveResearchFilters["evidence"] }
+        ? { evidence: query.evidence as NonNullable<ArchiveResearchFilters["evidence"]> }
         : {}),
       ...(query.region !== undefined ? { region: query.region } : {}),
       ...(query.accountTier !== undefined
@@ -293,7 +293,7 @@ export function createApp(deps: AppDependencies) {
         ? { serviceTier: query.serviceTier }
         : {}),
       ...(query.cost !== undefined
-        ? { cost: query.cost as ArchiveResearchFilters["cost"] }
+        ? { cost: query.cost as NonNullable<ArchiveResearchFilters["cost"]> }
         : {}),
       ...(query.cursor !== undefined ? { cursor: query.cursor } : {}),
       ...(limit !== undefined ? { limit } : {}),
