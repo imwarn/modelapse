@@ -260,6 +260,11 @@ function ArchiveResearchPage() {
                   {" · "}assurance {qualification?.serviceAssurance ?? "unknown"}
                 </p>
                 <p>
+                  Provider access {qualification?.providerPolicyObservation?.accessState ?? "unknown"}
+                  {" · "}Runner access {qualification?.runnerAccessObservation?.accessState ?? "unknown"}
+                  {" · "}Calibration eligibility: not evaluated in this research index
+                </p>
+                <p>
                   Native cost estimate: <strong>{price(run)}</strong>
                   {" · "}pricing source{" "}
                   {run.cost?.pricingObservation?.sourceId?.slice(0, 8) ?? "missing"}
