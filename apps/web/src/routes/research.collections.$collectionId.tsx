@@ -2,18 +2,52 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import {
   downloadResearchCollection,
+  getArchiveComparabilityPolicies,
   getResearchCollection,
+  getResearchCollectionAssessment,
+  type ArchiveResearchPolicyAssessment,
 } from "../modelapse";
 
 export const Route = createFileRoute("/research/collections/$collectionId")({
-  loader: ({ params }) => getResearchCollection({
-    data: { collectionId: params.collectionId },
-  }),
+  loader: async ({ params }) => {
+    const [collection, policies] = await Promise.all([
+      getResearchCollection({ data: { collectionId: params.collectionId } }),
+      getArchiveComparabilityPolicies(),
+    ]);
+    return { collection, policies };
+  },
   component: ResearchCollectionDetailPage,
 });
 
 function ResearchCollectionDetailPage() {
-  const collection = Route.useLoaderData();
+  const { collection, policies } = Route.useLoaderData();
+  const [policyVersion, setPolicyVersion] = useState(policies[0]?.version ?? "");
+  const [assessment, setAssessment] =
+    useState<ArchiveResearchPolicyAssessment | null>(null);
+  const [assessing, setAssessing] = useState(false);
+  const [assessmentError, setAssessmentError] = useState<string | null>(null);
+
+  async function assessPolicy(): Promise<void> {
+    if (!collection || !policyVersion) return;
+    setAssessing(true);
+    setAssessmentError(null);
+    setAssessment(null);
+    try {
+      const result = await getResearchCollectionAssessment({
+        data: { collectionId: collection.id, policyVersion },
+      });
+      if (result.manifestSha256 !== collection.contentSha256) {
+        throw new Error("Research manifest changed during assessment");
+      }
+      setAssessment(result.assessment);
+    } catch (caught) {
+      setAssessmentError(
+        caught instanceof Error ? caught.message : "Assessment unavailable",
+      );
+    } finally {
+      setAssessing(false);
+    }
+  }
   const [exporting, setExporting] = useState<"csv" | "json" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -101,6 +135,75 @@ function ResearchCollectionDetailPage() {
               ).toString()}`}>Re-run these filters (live) →</a>
             </div>
             {error ? <div className="notice notice-error">{error}</div> : null}
+          </section>
+          <section className="section">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">ARCHIVE v0.28 · POLICY-AWARE ANNOTATIONS</p>
+                <h2>Reassess frozen Runs with a versioned policy</h2>
+              </div>
+              <span className="badge">derived · not stored in manifest</span>
+            </div>
+            <p className="section-note">
+              This applies the chosen immutable comparability-policy version
+              to every captured Run individually, using its historical execution
+              context, prior calibration evidence and replication available at the
+              time of that Run. It does not declare this collection a matched
+              cross-Provider set. A later policy interpretation never changes
+              captured membership or the SHA-256 manifest.
+            </p>
+            <div className="control-grid">
+              <label>
+                <span>Comparability Policy version</span>
+                <select value={policyVersion} onChange={(event) => {
+                  setPolicyVersion(event.target.value);
+                  setAssessment(null);
+                }}>
+                  {policies.map((policy) => (
+                    <option value={policy.version} key={policy.id}>
+                      {policy.version} · evidence {policy.minimumEvidenceLevel}+
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="run-action">
+                <button type="button" disabled={!policyVersion || assessing}
+                  onClick={() => void assessPolicy()}>
+                  {assessing ? "Assessing…" : "Assess frozen Runs"}
+                </button>
+              </div>
+            </div>
+            {assessmentError ? <div className="notice notice-error">{assessmentError}</div> : null}
+            {assessment ? (
+              <div className="integrity-list">
+                <p className="section-note">
+                  Policy {assessment.policy.version} · {assessment.collectionRunCount} Run(s)
+                  · scope: individual eligibility only, not matched cross-Provider comparison.
+                  Results are derived at request time.
+                </p>
+                {assessment.rows.map((entry) => (
+                  <article className="integrity-row" key={entry.runId}>
+                    <div className="integrity-title-line">
+                      <a className="text-link" href={`/runs/${entry.runId}`}>
+                        Run {entry.runId.slice(0, 8)} →
+                      </a>
+                      <span className="badge">{entry.comparability.status}</span>
+                    </div>
+                    <p>
+                      Replication {entry.comparability.repeatCount} /
+                      {" "}{entry.comparability.requiredRepeatCount}
+                      {" · "}Prior calibration{" "}
+                      {entry.comparability.calibration?.status ?? "unknown"}
+                    </p>
+                    <p className="section-note">
+                      {entry.comparability.reasons.length
+                        ? entry.comparability.reasons.join(" · ")
+                        : "No per-Run blockers under this policy; collection-level matching not checked."}
+                    </p>
+                  </article>
+                ))}
+              </div>
+            ) : null}
           </section>
           <section className="section">
             <div className="section-heading">
