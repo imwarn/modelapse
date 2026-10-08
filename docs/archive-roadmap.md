@@ -317,9 +317,17 @@ Operators can publish bounded, immutable collections of up to 50 sealed public n
 
 Public collection pages support sharing, live filter replay and source-backed JSON/CSV exports with qualification, access, pricing, region/tier and evidence caveats. Empty, oversized and cursor-partial captures fail closed. The export is not a comparability or quality ranking.
 
-### Archive v0.28+ — Typed Research Facets & Policy-Aware Workflows
+### Archive v0.28 — Typed Research Facets & Policy-Aware Workflows
 
-Next, consider facet discovery with observed counts, policy-version anchored research annotations and reproducible multi-page collection protocols. Explicitly distinguish current Provider policy from historical Run state; never aggregate heterogeneous Test results into a leaderboard.
+**Implemented:** see `docs/research-facets-policy-annotations.md` and ADR 0024.
+
+Public `/research` now discovers counts from the full filtered sealed non-calibration Run population (not the current page), grouped by Provider, canonical Model, exact Test, evidence, historical region/account/service tier, service assurance and estimated/unknown native cost. Typed facets are bounded, with explicit missing values and overflow markers.
+
+Published immutable Research Collections can be reassessed Run-by-Run under a selected Comparability Policy version, reusing historical replication and prior same-context calibration. These interpretations never rewrite the saved Run membership or claim that the collection is a cross-Provider matched set.
+
+### Archive v0.29+ — Reproducible Multi-Page Research Captures
+
+Consider transaction-consistent snapshot capture beyond the 50-Run selection limit, plus policy-anchored structured annotation export. Keep immutable Run IDs, manifest digest verification and no-composite-ranking invariants.
 
 ## Scheduling principle
 
