@@ -275,36 +275,27 @@ export function createApp(deps: AppDependencies) {
     if (!deps.archive) {
       return c.json({ error: "archive_unavailable" }, 503);
     }
-    const limitRaw = c.req.query("limit");
+    const query = c.req.query();
+    const limitRaw = query.limit;
     const limit = limitRaw === undefined ? undefined : Number(limitRaw);
     const input: ArchiveResearchFilters = {
-      ...(c.req.query("provider") !== undefined
-        ? { providerSlug: c.req.query("provider") }
+      ...(query.provider !== undefined ? { providerSlug: query.provider } : {}),
+      ...(query.modelId !== undefined ? { modelId: query.modelId } : {}),
+      ...(query.testCaseId !== undefined ? { testCaseId: query.testCaseId } : {}),
+      ...(query.evidence !== undefined
+        ? { evidence: query.evidence as ArchiveResearchFilters["evidence"] }
         : {}),
-      ...(c.req.query("modelId") !== undefined
-        ? { modelId: c.req.query("modelId") }
+      ...(query.region !== undefined ? { region: query.region } : {}),
+      ...(query.accountTier !== undefined
+        ? { accountTier: query.accountTier }
         : {}),
-      ...(c.req.query("testCaseId") !== undefined
-        ? { testCaseId: c.req.query("testCaseId") }
+      ...(query.serviceTier !== undefined
+        ? { serviceTier: query.serviceTier }
         : {}),
-      ...(c.req.query("evidence") !== undefined
-        ? { evidence: c.req.query("evidence") as ArchiveResearchFilters["evidence"] }
+      ...(query.cost !== undefined
+        ? { cost: query.cost as ArchiveResearchFilters["cost"] }
         : {}),
-      ...(c.req.query("region") !== undefined
-        ? { region: c.req.query("region") }
-        : {}),
-      ...(c.req.query("accountTier") !== undefined
-        ? { accountTier: c.req.query("accountTier") }
-        : {}),
-      ...(c.req.query("serviceTier") !== undefined
-        ? { serviceTier: c.req.query("serviceTier") }
-        : {}),
-      ...(c.req.query("cost") !== undefined
-        ? { cost: c.req.query("cost") as ArchiveResearchFilters["cost"] }
-        : {}),
-      ...(c.req.query("cursor") !== undefined
-        ? { cursor: c.req.query("cursor") }
-        : {}),
+      ...(query.cursor !== undefined ? { cursor: query.cursor } : {}),
       ...(limit !== undefined ? { limit } : {}),
     };
     try {
