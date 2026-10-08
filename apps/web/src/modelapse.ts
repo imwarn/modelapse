@@ -579,6 +579,31 @@ export interface ResearchCollectionDetail extends ResearchCollectionSummary {
   readonly runs: readonly ArchiveRun[];
 }
 
+export interface ArchiveResearchFacets {
+  readonly scope: "sealed_public_non_calibration";
+  readonly counting: "matching_runs_all_pages";
+  readonly totalMatches: number;
+  readonly perFacetLimit: 25;
+  readonly facets: Record<
+    "provider" | "model" | "test" | "evidence" | "region" |
+    "accountTier" | "serviceTier" | "serviceAssurance" | "cost",
+    {
+      readonly values: readonly { readonly value: string | null; readonly count: number }[];
+      readonly truncated: boolean;
+    }
+  >;
+}
+
+export interface ArchiveResearchPolicyAssessment {
+  readonly policy: ArchiveComparabilityPolicy;
+  readonly scope: "per_run_only_not_cross_provider_match";
+  readonly collectionRunCount: number;
+  readonly rows: readonly {
+    readonly runId: string;
+    readonly comparability: ArchiveRunComparability;
+  }[];
+}
+
 export interface ArchiveResearchPage {
   readonly runs: readonly ArchiveRun[];
   readonly nextCursor: string | null;
@@ -1564,6 +1589,10 @@ interface ResearchCollectionIdInput {
   readonly collectionId: string;
 }
 
+interface ResearchCollectionAssessmentInput extends ResearchCollectionIdInput {
+  readonly policyVersion: string;
+}
+
 interface ResearchCollectionExportInput extends ResearchCollectionIdInput {
   readonly format: "json" | "csv";
 }
@@ -2264,6 +2293,18 @@ function parseResearchCollectionId(value: unknown): ResearchCollectionIdInput {
   return { collectionId: value.collectionId };
 }
 
+function parseResearchCollectionAssessment(
+  value: unknown,
+): ResearchCollectionAssessmentInput {
+  const { collectionId } = parseResearchCollectionId(value);
+  if (!isRecord(value) ||
+      typeof value.policyVersion !== "string" ||
+      !/^[a-z0-9][a-z0-9._-]*$/.test(value.policyVersion)) {
+    throw new Error("Research assessment requires a valid policy version");
+  }
+  return { collectionId, policyVersion: value.policyVersion };
+}
+
 function parseResearchCollectionExport(value: unknown): ResearchCollectionExportInput {
   const { collectionId } = parseResearchCollectionId(value);
   if (!isRecord(value) ||
@@ -2422,6 +2463,39 @@ export const searchArchiveResearch = createServerFn({ method: "POST" })
       `/v1/archive/research?${params.toString()}`,
     );
     return result.research;
+  });
+
+export const getArchiveResearchFacets = createServerFn({ method: "POST" })
+  .validator(parseArchiveResearchInput)
+  .handler(async ({ data }): Promise<ArchiveResearchFacets> => {
+    if (data.cursor) {
+      throw new Error("Research facets cannot use a pagination cursor");
+    }
+    const params = new URLSearchParams();
+    if (data.providerSlug) params.set("provider", data.providerSlug);
+    if (data.modelId) params.set("modelId", data.modelId);
+    if (data.testCaseId) params.set("testCaseId", data.testCaseId);
+    if (data.evidence && data.evidence !== "any") params.set("evidence", data.evidence);
+    if (data.region) params.set("region", data.region);
+    if (data.accountTier) params.set("accountTier", data.accountTier);
+    if (data.serviceTier) params.set("serviceTier", data.serviceTier);
+    if (data.cost && data.cost !== "any") params.set("cost", data.cost);
+    const result = await requestJson<{ facets: ArchiveResearchFacets }>(
+      `/v1/archive/research/facets?${params.toString()}`,
+    );
+    return result.facets;
+  });
+
+export const getResearchCollectionAssessment = createServerFn({ method: "POST" })
+  .validator(parseResearchCollectionAssessment)
+  .handler(async ({ data }): Promise<{
+    readonly collectionId: string;
+    readonly manifestSha256: string;
+    readonly assessment: ArchiveResearchPolicyAssessment;
+  }> => {
+    return requestJson(
+      `/v1/archive/research/collections/${data.collectionId}/assessment?policyVersion=${encodeURIComponent(data.policyVersion)}`,
+    );
   });
 
 export const getResearchCollections = createServerFn({ method: "GET" }).handler(

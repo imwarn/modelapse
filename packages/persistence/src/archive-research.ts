@@ -60,6 +60,26 @@ export function encodeArchiveResearchCursor(
   ).toString("base64url");
 }
 
+export type ArchiveResearchFacetKey =
+  | "provider" | "model" | "test" | "evidence" | "region"
+  | "accountTier" | "serviceTier" | "cost" | "serviceAssurance";
+
+export interface ArchiveResearchFacetValue {
+  readonly value: string | null;
+  readonly count: number;
+}
+
+export interface ArchiveResearchFacetsView {
+  readonly scope: "sealed_public_non_calibration";
+  readonly counting: "matching_runs_all_pages";
+  readonly totalMatches: number;
+  readonly perFacetLimit: 25;
+  readonly facets: Record<ArchiveResearchFacetKey, {
+    readonly values: readonly ArchiveResearchFacetValue[];
+    readonly truncated: boolean;
+  }>;
+}
+
 export type ArchiveResearchEvidence = "any" | "E4+" | "missing";
 export type ArchiveResearchCost = "any" | "estimated" | "unknown";
 

@@ -7,6 +7,8 @@ import {
   encodeArchiveResearchCursor,
   validateArchiveResearchFilters,
   type ArchiveResearchFilters,
+  type ArchiveResearchFacetsView,
+  type ArchiveResearchFacetKey,
 } from "./archive-research.js";
 
 export interface ArchiveModelView {
@@ -457,6 +459,16 @@ export interface ArchiveComparisonView {
     readonly model: ArchiveModelView;
     readonly latestRun: ArchiveRunView | null;
     readonly comparability: ArchiveRunComparabilityView | null;
+  }[];
+}
+
+export interface ArchiveResearchPolicyAssessmentView {
+  readonly policy: ComparabilityPolicyView;
+  readonly scope: "per_run_only_not_cross_provider_match";
+  readonly collectionRunCount: number;
+  readonly rows: readonly {
+    readonly runId: string;
+    readonly comparability: ArchiveRunComparabilityView;
   }[];
 }
 
@@ -1237,6 +1249,148 @@ export class PgArchiveRepository {
       [runIds],
     );
     return result.rows.map(runView);
+  }
+
+  async researchFacets(
+    input: ArchiveResearchFilters = {},
+  ): Promise<ArchiveResearchFacetsView> {
+    const filters = validateArchiveResearchFilters(input);
+    // Facets cover the entire filtered archive, never merely the current page.
+    // Cursor/limit are not applicable to a facet count.
+    if (filters.cursor !== undefined) {
+      throw new Error("invalid_research_facet_cursor");
+    }
+    const result = await this.pool.query<{
+      total_matches: string;
+      facet: ArchiveResearchFacetKey | null;
+      value: string | null;
+      match_count: string | null;
+      position: string | null;
+    }>(
+      `WITH scope AS MATERIALIZED (
+         SELECT
+           p.slug AS provider,
+           r.model_id::text AS model,
+           r.test_case_id::text AS test,
+           CASE
+             WHEN res.level IN ('E4', 'E5') THEN 'E4+'
+             WHEN res.level IS NULL THEN 'missing'
+             ELSE 'below_E4'
+           END AS evidence,
+           qualification.execution_region AS region,
+           qualification.account_tier AS account_tier,
+           COALESCE(
+             qualification.returned_service_tier,
+             qualification.service_tier
+           ) AS service_tier,
+           qualification.service_assurance AS service_assurance,
+           CASE
+             WHEN cost.estimated_native_cost IS NULL THEN 'unknown'
+             ELSE 'estimated'
+           END AS cost
+         FROM modelapse.runs r
+         JOIN modelapse.test_cases tc ON tc.id = r.test_case_id
+         LEFT JOIN modelapse.models m ON m.id = r.model_id
+         JOIN modelapse.providers p ON p.id = r.provider_id
+         LEFT JOIN modelapse.run_evidence_summary res ON res.run_id = r.id
+         LEFT JOIN modelapse.run_execution_qualification qualification
+           ON qualification.run_id = r.id
+         LEFT JOIN modelapse.run_cost_ledger cost ON cost.run_id = r.id
+         WHERE tc.visibility = 'public'
+           AND tc.case_type <> 'calibration'
+           AND r.status = 'completed'
+           AND r.sealed_at IS NOT NULL
+           AND r.completed_at IS NOT NULL
+           AND ($1::text IS NULL OR p.slug = $1)
+           AND ($2::uuid IS NULL OR r.model_id = $2)
+           AND ($3::uuid IS NULL OR r.test_case_id = $3)
+           AND (
+             $4::text = 'any' OR
+             ($4 = 'E4+' AND res.level IN ('E4', 'E5')) OR
+             ($4 = 'missing' AND res.level IS NULL)
+           )
+           AND ($5::text IS NULL OR qualification.execution_region = $5)
+           AND ($6::text IS NULL OR qualification.account_tier = $6)
+           AND (
+             $7::text IS NULL OR
+             COALESCE(
+               qualification.returned_service_tier,
+               qualification.service_tier
+             ) = $7
+           )
+           AND (
+             $8::text = 'any' OR
+             ($8 = 'estimated' AND cost.estimated_native_cost IS NOT NULL) OR
+             ($8 = 'unknown' AND cost.estimated_native_cost IS NULL)
+           )
+       ),
+       counts AS (
+         SELECT facet.key, facet.value, COUNT(*)::text AS match_count
+         FROM scope
+         CROSS JOIN LATERAL (
+           VALUES
+             ('provider', scope.provider),
+             ('model', scope.model),
+             ('test', scope.test),
+             ('evidence', scope.evidence),
+             ('region', scope.region),
+             ('accountTier', scope.account_tier),
+             ('serviceTier', scope.service_tier),
+             ('serviceAssurance', scope.service_assurance),
+             ('cost', scope.cost)
+         ) AS facet(key, value)
+         GROUP BY facet.key, facet.value
+       ),
+       ranked AS (
+         SELECT
+           key AS facet,
+           value,
+           match_count,
+           ROW_NUMBER() OVER (
+             PARTITION BY key
+             ORDER BY match_count::bigint DESC, value ASC NULLS LAST
+           )::text AS position
+         FROM counts
+       )
+       SELECT
+         (SELECT COUNT(*)::text FROM scope) AS total_matches,
+         ranked.facet, ranked.value, ranked.match_count, ranked.position
+       FROM (SELECT 1) AS singleton
+       LEFT JOIN ranked ON ranked.position::integer <= 26
+       ORDER BY ranked.facet ASC, ranked.position::integer ASC`,
+      [
+        filters.providerSlug ?? null,
+        filters.modelId ?? null,
+        filters.testCaseId ?? null,
+        filters.evidence,
+        filters.region ?? null,
+        filters.accountTier ?? null,
+        filters.serviceTier ?? null,
+        filters.cost,
+      ],
+    );
+    const keys: readonly ArchiveResearchFacetKey[] = [
+      "provider", "model", "test", "evidence", "region",
+      "accountTier", "serviceTier", "serviceAssurance", "cost",
+    ];
+    const facets = {} as ArchiveResearchFacetsView["facets"];
+    for (const key of keys) {
+      const matches = result.rows.filter((row) => row.facet === key);
+      facets[key] = {
+        values: matches.slice(0, 25).map((row) => ({
+          value: row.value,
+          count: Number(row.match_count ?? "0"),
+        })),
+        truncated: matches.length > 25,
+      };
+    }
+    return {
+      scope: "sealed_public_non_calibration",
+      counting: "matching_runs_all_pages",
+      totalMatches: Number(result.rows[0]?.total_matches ?? "0"),
+      perFacetLimit: 25,
+      facets,
+    };
   }
 
   async researchRuns(
@@ -2758,6 +2912,65 @@ export class PgArchiveRepository {
       repeatCount,
       requiredRepeatCount,
       calibration,
+    };
+  }
+
+  async assessResearchRuns(
+    runIds: readonly string[],
+    policyVersion?: string,
+  ): Promise<ArchiveResearchPolicyAssessmentView | null> {
+    if (runIds.length < 1 || runIds.length > 50 ||
+        new Set(runIds).size !== runIds.length) {
+      throw new Error("invalid_research_run_count");
+    }
+    if (policyVersion !== undefined &&
+        !/^[a-z0-9][a-z0-9._-]*$/.test(policyVersion)) {
+      throw new Error("invalid_policy_version");
+    }
+
+    const [policy, runs] = await Promise.all([
+      this.comparabilityPolicy(policyVersion),
+      this.getRunsByIds(runIds),
+    ]);
+    if (!policy) return null;
+    if (runs.length !== runIds.length) {
+      throw new Error("research_collection_snapshot_incomplete");
+    }
+
+    const tests = [...new Set(runs.map((run) => run.test.testCaseId))];
+    const metadata = await this.pool.query<{
+      id: string;
+      unstable: boolean;
+      explicit_min_repeats: string | null;
+    }>(
+      `SELECT id,
+              COALESCE((metadata->>'unstable')::boolean, false) AS unstable,
+              metadata->>'comparabilityMinRepeats' AS explicit_min_repeats
+         FROM modelapse.test_cases
+        WHERE id = ANY($1::uuid[])`,
+      [tests],
+    );
+    const byTest = new Map(metadata.rows.map((row) => [row.id, row]));
+
+    const rows = await Promise.all(runs.map(async (run) => {
+      const meta = byTest.get(run.test.testCaseId);
+      const raw = meta?.explicit_min_repeats;
+      const num = raw && /^\d+$/.test(raw) ? Number(raw) : null;
+      const explicitMinRepeats = num !== null && num >= 1 && num <= 20
+        ? num : null;
+      return {
+        runId: run.id,
+        comparability: await this.assessRunComparability(run, policy, {
+          unstable: meta?.unstable ?? false,
+          explicitMinRepeats,
+        }),
+      };
+    }));
+    return {
+      policy,
+      scope: "per_run_only_not_cross_provider_match",
+      collectionRunCount: runs.length,
+      rows,
     };
   }
 

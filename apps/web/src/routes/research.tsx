@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import {
   getArchiveCatalog,
+  getArchiveResearchFacets,
   searchArchiveResearch,
   captureResearchCollection,
   type ArchiveRun,
@@ -61,11 +62,13 @@ export const Route = createFileRoute("/research")({
       ...(deps.cursor ? { cursor: deps.cursor } : {}),
       limit: 20,
     };
-    const [catalog, research] = await Promise.all([
+    const { cursor: _cursor, limit: _limit, ...faceted } = request;
+    const [catalog, research, facets] = await Promise.all([
       getArchiveCatalog(),
       searchArchiveResearch({ data: request }),
+      getArchiveResearchFacets({ data: faceted }),
     ]);
-    return { catalog, research };
+    return { catalog, research, facets };
   },
   component: ArchiveResearchPage,
 });
@@ -90,7 +93,7 @@ function evaluation(run: ArchiveRun): string {
 }
 
 function ArchiveResearchPage() {
-  const { catalog, research } = Route.useLoaderData();
+  const { catalog, research, facets } = Route.useLoaderData();
   const filters = Route.useSearch();
   const [operatorToken, setOperatorToken] = useState("");
   const [collectionTitle, setCollectionTitle] = useState("");
@@ -142,6 +145,36 @@ function ArchiveResearchPage() {
   if (filters.accountTier) withoutCursor.set("accountTier", filters.accountTier);
   if (filters.serviceTier) withoutCursor.set("serviceTier", filters.serviceTier);
   if (filters.cost) withoutCursor.set("cost", filters.cost);
+
+  function facetHref(field: string, value: string): string {
+    const params = new URLSearchParams(withoutCursor);
+    params.set(field, value);
+    return "/research?" + params.toString();
+  }
+
+  const facetGroups = [
+    { key: "provider", label: "Provider", query: "provider" },
+    { key: "model", label: "Model", query: "modelId" },
+    { key: "test", label: "Exact Test", query: "testCaseId" },
+    { key: "evidence", label: "Evidence", query: "evidence" },
+    { key: "region", label: "Region", query: "region" },
+    { key: "accountTier", label: "Account tier", query: "accountTier" },
+    { key: "serviceTier", label: "Service tier", query: "serviceTier" },
+    { key: "cost", label: "Native cost", query: "cost" },
+    { key: "serviceAssurance", label: "Assurance (read-only)", query: null },
+  ] as const;
+
+  function facetLabel(key: string, value: string | null): string {
+    if (value === null) return "unknown / not recorded";
+    if (key === "model") {
+      return catalog.models.find((model) => model.id === value)?.marketingName ?? value;
+    }
+    if (key === "test") {
+      const test = catalog.tests.find((entry) => entry.testCaseId === value);
+      return test ? test.familySlug + " / " + test.caseSlug : value;
+    }
+    return value;
+  }
 
   const nextParams = new URLSearchParams(withoutCursor);
   if (research.nextCursor) nextParams.set("cursor", research.nextCursor);
@@ -314,6 +347,58 @@ function ArchiveResearchPage() {
             </div>
           ) : null}
         </details>
+      </section>
+
+      <section className="section">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">ARCHIVE v0.28 · OBSERVED FACETS</p>
+            <h2>Evidence-backed filter counts</h2>
+          </div>
+          <span className="badge">{facets.totalMatches} matching Runs · all pages</span>
+        </div>
+        <p className="section-note">
+          Each count represents sealed public non-calibration Runs satisfying
+          <strong> all current filters</strong>, not just this page. Facets count
+          archival observations, not unique models or a quality score.
+          Up to {facets.perFacetLimit} values are displayed per facet, with
+          overflow explicitly marked. Unknown context is never inferred.
+        </p>
+        <div className="integrity-list">
+          {facetGroups.map(({ key, label, query }) => {
+            const facet = facets.facets[key];
+            return (
+              <article className="integrity-row" key={key}>
+                <div className="integrity-title-line">
+                  <strong>{label}</strong>
+                  <span className="badge">
+                    {facet.values.length} visible value(s)
+                    {facet.truncated ? " · truncated" : ""}
+                  </span>
+                </div>
+                <div className="run-verdict">
+                  {facet.values.slice(0, 8).map((entry) => {
+                    const selectable = query !== null && entry.value !== null &&
+                      (key !== "evidence" || entry.value === "E4+" ||
+                        entry.value === "missing");
+                    return selectable ? (
+                      <a className="text-link" key={entry.value}
+                        href={facetHref(query, entry.value!)}>
+                        {facetLabel(key, entry.value)} ({entry.count})
+                      </a>
+                    ) : (
+                      <span key={entry.value ?? "null"} className="badge">
+                        {facetLabel(key, entry.value)} ({entry.count})
+                      </span>
+                    );
+                  })}
+                  {!facet.values.length ? <small>No matching observations</small> : null}
+                  {facet.values.length > 8 ? <small>Showing first 8 · more in API</small> : null}
+                </div>
+              </article>
+            );
+          })}
+        </div>
       </section>
 
       <section className="section entity-section">
