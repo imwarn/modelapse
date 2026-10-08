@@ -22,6 +22,7 @@ import {
   PgComparabilityRepository,
   PgCostLedger,
   PgRunRepository,
+  PgResearchCollections,
 } from "@modelapse/persistence";
 import { createApp } from "./app.js";
 
@@ -35,6 +36,7 @@ const jobs = PgRunJobQueue.connect(databaseUrl);
 const fleet = PgExecutionFleet.connect(databaseUrl);
 const planner = PgRunPlanner.connect(databaseUrl);
 const archive = PgArchiveRepository.connect(databaseUrl);
+const researchCollections = PgResearchCollections.connect(databaseUrl, archive);
 const costLedger = PgCostLedger.connect(databaseUrl);
 const calibration = PgCalibrationRepository.connect(databaseUrl);
 const comparability = PgComparabilityRepository.connect(databaseUrl);
@@ -56,6 +58,7 @@ const app = createApp({
   fleet,
   planner,
   archive,
+  researchCollections,
   costLedger,
   calibration,
   comparability,
@@ -91,6 +94,7 @@ function shutdown(signal: string): void {
       fleet.close(),
       planner.close(),
       archive.close(),
+      researchCollections.close(),
       costLedger.close(),
       calibration.close(),
       comparability.close(),

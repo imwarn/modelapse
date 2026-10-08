@@ -1219,6 +1219,26 @@ export class PgArchiveRepository {
     return result.rows.map(runView);
   }
 
+  async getRunsByIds(
+    runIds: readonly string[],
+  ): Promise<readonly ArchiveRunView[]> {
+    if (runIds.length > 50) throw new Error("invalid_research_run_count");
+    if (runIds.length === 0) return [];
+    const result = await this.pool.query<ArchiveRunRow>(
+      RUN_SELECT +
+        `
+       WHERE r.id = ANY($1::uuid[])
+         AND tc.visibility = 'public'
+         AND tc.case_type <> 'calibration'
+         AND r.status = 'completed'
+         AND r.sealed_at IS NOT NULL
+         AND r.completed_at IS NOT NULL
+       ORDER BY array_position($1::uuid[], r.id)`,
+      [runIds],
+    );
+    return result.rows.map(runView);
+  }
+
   async researchRuns(
     input: ArchiveResearchFilters = {},
   ): Promise<ArchiveResearchPageView> {

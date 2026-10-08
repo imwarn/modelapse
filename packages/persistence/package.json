@@ -10,7 +10,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run test/record-provider-run.test.ts test/archive-context-transitions.test.ts test/archive-research.test.ts",
+    "test": "vitest run test/record-provider-run.test.ts test/archive-context-transitions.test.ts test/archive-research.test.ts test/research-collections.test.ts",
     "test:integration": "vitest run test/integration.test.ts test/comparability.integration.test.ts"
   },
   "dependencies": {

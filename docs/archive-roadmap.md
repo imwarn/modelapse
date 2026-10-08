@@ -309,9 +309,17 @@ The new `/research` public surface supports server-side bounded browsing of seal
 
 Every research row shows qualification and cost caveats and links into immutable Run, Model, Test, History and same-Test Compare. Reproducible URL filters, deterministic keyset pagination and dedicated indexes support broader discovery without ranking Models or equating collection volume with quality.
 
-### Archive v0.27+ — Extended research workflows
+### Archive v0.27 — Immutable Research Collections & Sourced Exports
 
-Consider saved/shareable research collections, sourced CSV/JSON exports, typed facet discovery, and richer policy-aware comparisons while preserving the evidence-first, no-aggregate-ranking boundary. Continue to make registration, account, region and calibration restrictions explicit.
+**Implemented:** see `docs/research-collections-exports.md` and ADR 0023.
+
+Operators can publish bounded, immutable collections of up to 50 sealed public non-calibration Run IDs. Every public collection retains the normalized query filters, an ordered Run manifest and a SHA-256 selection digest; new Runs never silently alter its membership.
+
+Public collection pages support sharing, live filter replay and source-backed JSON/CSV exports with qualification, access, pricing, region/tier and evidence caveats. Empty, oversized and cursor-partial captures fail closed. The export is not a comparability or quality ranking.
+
+### Archive v0.28+ — Typed Research Facets & Policy-Aware Workflows
+
+Next, consider facet discovery with observed counts, policy-version anchored research annotations and reproducible multi-page collection protocols. Explicitly distinguish current Provider policy from historical Run state; never aggregate heterogeneous Test results into a leaderboard.
 
 ## Scheduling principle
 

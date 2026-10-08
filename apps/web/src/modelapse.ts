@@ -564,6 +564,21 @@ export interface ArchiveContextTransition {
   readonly caveats: readonly string[];
 }
 
+export interface ResearchCollectionSummary {
+  readonly id: string;
+  readonly title: string;
+  readonly description: string | null;
+  readonly filters: SearchArchiveResearchInput;
+  readonly runIds: readonly string[];
+  readonly contentSha256: string;
+  readonly createdBy: string;
+  readonly createdAt: string;
+  readonly selectionLimit: 50;
+}
+export interface ResearchCollectionDetail extends ResearchCollectionSummary {
+  readonly runs: readonly ArchiveRun[];
+}
+
 export interface ArchiveResearchPage {
   readonly runs: readonly ArchiveRun[];
   readonly nextCursor: string | null;
@@ -1538,6 +1553,21 @@ export interface SearchArchiveResearchInput {
   readonly limit?: number;
 }
 
+interface CaptureResearchCollectionInput {
+  readonly operatorToken: string;
+  readonly title: string;
+  readonly description?: string;
+  readonly filters: SearchArchiveResearchInput;
+}
+
+interface ResearchCollectionIdInput {
+  readonly collectionId: string;
+}
+
+interface ResearchCollectionExportInput extends ResearchCollectionIdInput {
+  readonly format: "json" | "csv";
+}
+
 interface ReadArchiveHistoryInput {
   readonly modelId: string;
   readonly testCaseId: string;
@@ -2225,6 +2255,49 @@ function parseArchiveResearchInput(value: unknown): SearchArchiveResearchInput {
   return input as SearchArchiveResearchInput;
 }
 
+function parseResearchCollectionId(value: unknown): ResearchCollectionIdInput {
+  if (!isRecord(value) ||
+      typeof value.collectionId !== "string" ||
+      !UUID_RE.test(value.collectionId)) {
+    throw new Error("Collection ID must be a UUID");
+  }
+  return { collectionId: value.collectionId };
+}
+
+function parseResearchCollectionExport(value: unknown): ResearchCollectionExportInput {
+  const { collectionId } = parseResearchCollectionId(value);
+  if (!isRecord(value) ||
+      (value.format !== "json" && value.format !== "csv")) {
+    throw new Error("Research export format must be json or csv");
+  }
+  return { collectionId, format: value.format };
+}
+
+function parseCaptureResearchCollection(value: unknown): CaptureResearchCollectionInput {
+  const operatorToken = parseOperatorToken(value);
+  if (!isRecord(value) ||
+      typeof value.title !== "string" ||
+      value.title.trim().length < 3 ||
+      value.title.trim().length > 120 ||
+      (value.description !== undefined &&
+        (typeof value.description !== "string" ||
+          value.description.length > 2000))) {
+    throw new Error("Research collection title or description is invalid");
+  }
+  const filters = parseArchiveResearchInput(value.filters);
+  if (filters.cursor) {
+    throw new Error("Saving a cursor page is not permitted");
+  }
+  return {
+    operatorToken,
+    title: value.title.trim(),
+    ...(typeof value.description === "string"
+      ? { description: value.description.trim() }
+      : {}),
+    filters,
+  };
+}
+
 function parseArchiveComparisonInput(value: unknown): CompareArchiveInput {
   if (!isRecord(value)) throw new Error("Archive comparison request must be an object");
 
@@ -2349,6 +2422,69 @@ export const searchArchiveResearch = createServerFn({ method: "POST" })
       `/v1/archive/research?${params.toString()}`,
     );
     return result.research;
+  });
+
+export const getResearchCollections = createServerFn({ method: "GET" }).handler(
+  async (): Promise<readonly ResearchCollectionSummary[]> => {
+    const result = await requestJson<{
+      collections: readonly ResearchCollectionSummary[];
+    }>("/v1/archive/research/collections?limit=30");
+    return result.collections;
+  },
+);
+
+export const getResearchCollection = createServerFn({ method: "POST" })
+  .validator(parseResearchCollectionId)
+  .handler(async ({ data }): Promise<ResearchCollectionDetail | null> => {
+    try {
+      const result = await requestJson<{ collection: ResearchCollectionDetail }>(
+        `/v1/archive/research/collections/${data.collectionId}`,
+      );
+      return result.collection;
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 404) return null;
+      throw error;
+    }
+  });
+
+export const captureResearchCollection = createServerFn({ method: "POST" })
+  .validator(parseCaptureResearchCollection)
+  .handler(async ({ data }): Promise<ResearchCollectionDetail> => {
+    requireOperator(data.operatorToken);
+    const result = await requestJson<{ collection: ResearchCollectionDetail }>(
+      "/v1/control/research/collections",
+      {
+        control: true,
+        method: "POST",
+        body: {
+          title: data.title,
+          ...(data.description ? { description: data.description } : {}),
+          filters: data.filters,
+          actor: "web-operator",
+        },
+      },
+    );
+    return result.collection;
+  });
+
+export const downloadResearchCollection = createServerFn({ method: "POST" })
+  .validator(parseResearchCollectionExport)
+  .handler(async ({ data }): Promise<{ body: string; filename: string; mediaType: string }> => {
+    const path = `/v1/archive/research/collections/${data.collectionId}/export?format=${data.format}`;
+    const response = await fetch(new URL(path, apiOrigin()), {
+      headers: { accept: data.format === "csv" ? "text/csv" : "application/json" },
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      throw new ApiRequestError(response.status, "Research export unavailable");
+    }
+    return {
+      body: await response.text(),
+      filename: `modelapse-research-${data.collectionId}.${data.format}`,
+      mediaType: data.format === "csv"
+        ? "text/csv; charset=utf-8"
+        : "application/json; charset=utf-8",
+    };
   });
 
 export const getArchiveComparabilityPolicies = createServerFn({ method: "GET" }).handler(

@@ -4,6 +4,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
   PgArchiveRepository,
   PgComparabilityRepository,
+  PgResearchCollections,
 } from "../src/index.js";
 
 const DATABASE_URL =
@@ -14,10 +15,12 @@ describe("Archive comparability policy", () => {
   const pool = new Pool({ connectionString: DATABASE_URL });
   const archive = PgArchiveRepository.connect(DATABASE_URL, { max: 2 });
   const policies = PgComparabilityRepository.connect(DATABASE_URL, { max: 2 });
+  const collections = PgResearchCollections.connect(DATABASE_URL, archive, { max: 2 });
 
   afterAll(async () => {
     await archive.close();
     await policies.close();
+    await collections.close();
     await pool.end();
   });
 
@@ -539,6 +542,57 @@ describe("Archive comparability policy", () => {
         (run) => run.test.testCaseId !== calibrationCase.rows[0]!.id,
       ),
     ).toBe(true);
+
+    const collection = await collections.create({
+      title: "Captured comparison " + suffix,
+      actor: "comparability-integration",
+      description: "Frozen Run identities for a single canonical Test",
+      filters: {
+        providerSlug: "comparability-provider-" + suffix + "-2",
+        testCaseId: benchmarkCase.rows[0]!.id,
+        evidence: "E4+",
+      },
+    });
+    expect(collection.runIds).toHaveLength(2);
+    expect(collection.runs.map((run) => run.id)).toEqual(collection.runIds);
+    expect(collection.contentSha256).toMatch(/^[a-f0-9]{64}$/);
+    const reopened = await collections.get(collection.id);
+    expect(reopened?.contentSha256).toBe(collection.contentSha256);
+    expect(reopened?.runs.map((run) => run.id)).toEqual(collection.runIds);
+    expect((await collections.list()).some((item) => item.id === collection.id)).toBe(true);
+
+    await expect(
+      collections.create({
+        title: "Invalid historical cursor",
+        actor: "comparability-integration",
+        filters: {
+          modelId: models[1]!,
+          cursor: research.nextCursor!,
+        },
+      }),
+    ).rejects.toThrow("research_collection_cursor_not_allowed");
+
+    await expect(
+      pool.query(
+        `UPDATE modelapse.research_collections
+            SET title = 'rewritten'
+          WHERE id = $1`,
+        [collection.id],
+      ),
+    ).rejects.toThrow(/append-only/i);
+
+    await expect(
+      pool.query(
+        `INSERT INTO modelapse.research_collections
+          (title, filters, run_ids, content_sha256, created_by)
+         VALUES ($1, '{}'::jsonb, $2::uuid[], $3, 'integration')`,
+        [
+          "Forged private Run set " + suffix,
+          [randomUUID()],
+          "a".repeat(64),
+        ],
+      ),
+    ).rejects.toThrow(/sealed public non-calibration Runs/i);
 
     const custom = await policies.recordPolicy({
       version: "comparability-integration-" + suffix,

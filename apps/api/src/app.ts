@@ -9,10 +9,11 @@ import {
   type PgRunPlanner,
   type RunJob,
 } from "@modelapse/control-plane";
-import { validateArchiveResearchFilters } from "@modelapse/persistence";
+import { exportResearchCollection, validateArchiveResearchFilters } from "@modelapse/persistence";
 import type {
   ArchiveResearchFilters,
   PgArchiveRepository,
+  PgResearchCollections,
   PgCalibrationRepository,
   PgComparabilityRepository,
   PgCostLedger,
@@ -108,6 +109,10 @@ type ComparabilityRepository = Pick<
   "ping" | "listPolicies" | "recordPolicy"
 >;
 
+type ResearchCollectionsRepository = Pick<
+  PgResearchCollections,
+  "ping" | "list" | "get" | "create"
+>;
 type ArchiveRepository = Pick<
   PgArchiveRepository,
   | "ping"
@@ -129,6 +134,7 @@ export interface AppDependencies {
   readonly fleet?: ControlFleet;
   readonly planner?: ControlPlanner;
   readonly archive?: ArchiveRepository;
+  readonly researchCollections?: ResearchCollectionsRepository;
   readonly catalogDiscovery?: CatalogDiscoveryRepository;
   readonly catalogDriftReview?: CatalogDriftReviewRepository;
   readonly catalogIdentityCase?: CatalogIdentityCaseRepository;
@@ -306,6 +312,105 @@ export function createApp(deps: AppDependencies) {
         error instanceof Error &&
         /^invalid_/.test(error.message)
       ) {
+        return c.json({ error: error.message }, 400);
+      }
+      throw error;
+    }
+  });
+
+  app.get("/v1/archive/research/collections", async (c) => {
+    if (!deps.researchCollections) {
+      return c.json({ error: "research_collections_unavailable" }, 503);
+    }
+    const rawLimit = c.req.query("limit");
+    const limit = rawLimit === undefined ? 30 : Number(rawLimit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
+      return c.json({ error: "invalid_limit" }, 400);
+    }
+    return c.json({ collections: await deps.researchCollections.list(limit) });
+  });
+
+  app.get("/v1/archive/research/collections/:collectionId", async (c) => {
+    if (!deps.researchCollections) {
+      return c.json({ error: "research_collections_unavailable" }, 503);
+    }
+    const id = c.req.param("collectionId");
+    if (!UUID_RE.test(id)) {
+      return c.json({ error: "invalid_research_collection_id" }, 400);
+    }
+    const collection = await deps.researchCollections.get(id);
+    return collection
+      ? c.json({ collection })
+      : c.json({ error: "research_collection_not_found" }, 404);
+  });
+
+  app.get("/v1/archive/research/collections/:collectionId/export", async (c) => {
+    if (!deps.researchCollections) {
+      return c.json({ error: "research_collections_unavailable" }, 503);
+    }
+    const id = c.req.param("collectionId");
+    if (!UUID_RE.test(id)) {
+      return c.json({ error: "invalid_research_collection_id" }, 400);
+    }
+    const format = c.req.query("format") ?? "json";
+    if (format !== "csv" && format !== "json") {
+      return c.json({ error: "invalid_research_export_format" }, 400);
+    }
+    const collection = await deps.researchCollections.get(id);
+    if (!collection) return c.json({ error: "research_collection_not_found" }, 404);
+    const exported = exportResearchCollection(collection, format);
+    c.header("Content-Type", exported.mediaType);
+    c.header("Content-Disposition", `attachment; filename="${exported.filename}"`);
+    c.header("Cache-Control", "public, max-age=300");
+    return c.body(exported.body);
+  });
+
+  app.post("/v1/control/research/collections", async (c) => {
+    if (!deps.researchCollections || !controlToken) {
+      return c.json({ error: "control_plane_disabled" }, 503);
+    }
+    const authIssue = controlAuthIssue(c.req.header("authorization"), controlToken);
+    if (authIssue) return c.json(controlAuthError(authIssue), 401);
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid_json" }, 400);
+    }
+    const body = apiRecord(raw);
+    const filters = apiRecord(body?.filters);
+    const title = body?.title;
+    const actor = body?.actor;
+    const description = body?.description;
+    if (
+      typeof title !== "string" ||
+      typeof actor !== "string" ||
+      (description !== undefined && typeof description !== "string") ||
+      !filters ||
+      Object.keys(filters).some((key) => ![
+        "providerSlug", "modelId", "testCaseId", "evidence", "region",
+        "accountTier", "serviceTier", "cost"
+      ].includes(key)) ||
+      Object.values(filters).some((value) => typeof value !== "string")
+    ) {
+      return c.json({ error: "invalid_research_collection_request" }, 400);
+    }
+    try {
+      const validatedFilters = validateArchiveResearchFilters(
+        filters as ArchiveResearchFilters,
+      );
+      const collection = await deps.researchCollections.create({
+        title,
+        actor,
+        ...(typeof description === "string" ? { description } : {}),
+        filters: validatedFilters,
+      });
+      return c.json({ collection }, 201);
+    } catch (error) {
+      if (error instanceof Error && (
+        error.message.startsWith("invalid_") ||
+        error.message.startsWith("research_collection_")
+      )) {
         return c.json({ error: error.message }, 400);
       }
       throw error;
