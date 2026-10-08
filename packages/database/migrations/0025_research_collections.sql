@@ -11,8 +11,7 @@ CREATE TABLE research_collections (
   content_sha256 text NOT NULL CHECK (content_sha256 ~ '^[a-f0-9]{64}$'),
   created_by text NOT NULL CHECK (char_length(btrim(created_by)) > 0),
   created_at timestamptz NOT NULL DEFAULT now(),
-  selection_limit integer NOT NULL DEFAULT 50 CHECK (selection_limit = 50),
-  UNIQUE (content_sha256, title)
+  selection_limit integer NOT NULL DEFAULT 50 CHECK (selection_limit = 50)
 );
 
 CREATE INDEX research_collections_created_idx
