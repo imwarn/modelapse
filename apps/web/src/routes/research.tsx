@@ -1,7 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
 import {
   getArchiveCatalog,
   searchArchiveResearch,
+  captureResearchCollection,
   type ArchiveRun,
   type SearchArchiveResearchInput,
 } from "../modelapse";
@@ -90,6 +92,44 @@ function evaluation(run: ArchiveRun): string {
 function ArchiveResearchPage() {
   const { catalog, research } = Route.useLoaderData();
   const filters = Route.useSearch();
+  const [operatorToken, setOperatorToken] = useState("");
+  const [collectionTitle, setCollectionTitle] = useState("");
+  const [collectionNote, setCollectionNote] = useState("");
+  const [capturing, setCapturing] = useState(false);
+  const [collectionId, setCollectionId] = useState<string | null>(null);
+  const [captureError, setCaptureError] = useState<string | null>(null);
+
+  async function captureCollection(): Promise<void> {
+    setCaptureError(null);
+    setCollectionId(null);
+    setCapturing(true);
+    try {
+      const collection = await captureResearchCollection({
+        data: {
+          operatorToken,
+          title: collectionTitle,
+          ...(collectionNote.trim() ? { description: collectionNote.trim() } : {}),
+          filters: {
+            ...(filters.provider ? { providerSlug: filters.provider } : {}),
+            ...(filters.modelId ? { modelId: filters.modelId } : {}),
+            ...(filters.testCaseId ? { testCaseId: filters.testCaseId } : {}),
+            ...(filters.evidence ? { evidence: filters.evidence } : {}),
+            ...(filters.region ? { region: filters.region } : {}),
+            ...(filters.accountTier ? { accountTier: filters.accountTier } : {}),
+            ...(filters.serviceTier ? { serviceTier: filters.serviceTier } : {}),
+            ...(filters.cost ? { cost: filters.cost } : {}),
+          },
+        },
+      });
+      setCollectionId(collection.id);
+    } catch (caught) {
+      setCaptureError(
+        caught instanceof Error ? caught.message : "Collection capture failed",
+      );
+    } finally {
+      setCapturing(false);
+    }
+  }
   const providerOptions = [...new Map(
     catalog.models.map((model) => [model.provider.slug, model.provider.name]),
   )].sort(([a], [b]) => a.localeCompare(b));
@@ -119,6 +159,7 @@ function ArchiveResearchPage() {
         <nav className="header-nav">
           <a className="header-link" href="/#archive">Archive</a>
           <a className="header-link" href="/compare">Compare</a>
+          <a className="header-link" href="/research/collections">Saved collections</a>
           <span className="header-link header-link-current">Research</span>
         </nav>
       </header>
@@ -219,6 +260,60 @@ function ArchiveResearchPage() {
           {" · "}Missing access, pricing or qualification evidence is not silently
           interpreted as free or normal. Research slices are not statistical samples.
         </p>
+      </section>
+
+      <section className="section control-section">
+        <div className="section-heading">
+          <div><p className="eyebrow">ARCHIVE v0.27 · CURATED RESEARCH</p><h2>Save an immutable collection</h2></div>
+          <a className="text-link" href="/research/collections">Browse saved collections →</a>
+        </div>
+        <p className="section-note">
+          Research filters above are live and can find new Runs. Saving creates a
+          public immutable snapshot of the current matching Run IDs (1–50 only).
+          Capture requires operator access. Empty or oversized slices are rejected
+          rather than silently truncated. Collections never include calibration Runs.
+        </p>
+        <details>
+          <summary>Operator · capture this filtered slice</summary>
+          <div className="control-grid">
+            <label>
+              <span>Operator token</span>
+              <input type="password" autoComplete="current-password"
+                value={operatorToken}
+                onChange={(event) => setOperatorToken(event.target.value)}
+                disabled={capturing} />
+            </label>
+            <label>
+              <span>Collection title</span>
+              <input value={collectionTitle} maxLength={120}
+                onChange={(event) => setCollectionTitle(event.target.value)}
+                placeholder="Research snapshot title" disabled={capturing} />
+            </label>
+            <label>
+              <span>Research note (optional)</span>
+              <input value={collectionNote} maxLength={2000}
+                onChange={(event) => setCollectionNote(event.target.value)}
+                placeholder="Selection rationale and limitations" disabled={capturing} />
+            </label>
+            <div className="run-action">
+              <button type="button"
+                disabled={capturing || !operatorToken || collectionTitle.trim().length < 3}
+                onClick={() => void captureCollection()}>
+                {capturing ? "Capturing…" : "Freeze and publish collection"}
+              </button>
+              <small>Saved manifests store no Provider credentials or account identifiers.</small>
+            </div>
+          </div>
+          {captureError ? <div className="notice notice-error">{captureError}</div> : null}
+          {collectionId ? (
+            <div className="notice">
+              Snapshot captured ·{" "}
+              <a className="text-link" href={`/research/collections/${collectionId}`}>
+                Open immutable collection →
+              </a>
+            </div>
+          ) : null}
+        </details>
       </section>
 
       <section className="section entity-section">
