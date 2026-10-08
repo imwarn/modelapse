@@ -131,13 +131,16 @@ function ArchiveRunHistoryPage() {
             <h2>Same model × same Test</h2>
           </div>
           <p className="section-note">
-            Runs are ordered by capture time. Changes are shown as records; no causal
-            explanation or quality trend is inferred.
+            Every transition compares frozen execution snapshots and evidence references.
+            A changed region, account tier, service tier, or Fleet identity is not proof
+            that the model itself changed. Missing evidence remains unknown.
           </p>
         </div>
 
         <div className="history-rail">
-          {history.runs.map((run, index) => (
+          {history.runs.map((run, index) => {
+            const transition = history.contextTransitions[index];
+            return (
             <article className="history-run" key={run.id}>
               <div className="history-index">{String(index + 1).padStart(2, "0")}</div>
               <div className="history-run-time">
@@ -148,20 +151,43 @@ function ArchiveRunHistoryPage() {
                 <span className={evaluationClass(run)}>{evaluationLabel(run)}</span>
                 <span className="badge">evidence {run.evidenceLevel ?? "—"}</span>
                 <span className="badge">
-                  {run.executionQualification?.contextKey
-                    ? "context captured"
-                    : "context unknown"}
+                  context {transition?.status ?? "unknown"}
                 </span>
               </div>
               <div className="history-run-model">
                 <strong>{run.returnedModel ?? run.requestedModel}</strong>
                 <small>{run.executionPath}</small>
+                <small>
+                  {run.executionQualification
+                    ? [
+                        run.executionQualification.executionRegion ?? "region unknown",
+                        run.executionQualification.accountTier ?? "account unknown",
+                        run.executionQualification.returnedServiceTier ??
+                          run.executionQualification.serviceTier ??
+                          "service unknown",
+                        run.executionQualification.serviceAssurance,
+                      ].join(" · ")
+                    : "execution qualification unavailable"}
+                </small>
+                {transition?.changes.map((change) => (
+                  <small key={change.field}>
+                    {change.kind} · {change.field.replaceAll("_", " ")}:{" "}
+                    {change.previous} → {change.current}
+                  </small>
+                ))}
+                {transition?.unknownFields.length ? (
+                  <small>Unresolved: {transition.unknownFields.join(", ")}</small>
+                ) : null}
+                {transition?.caveats.length ? (
+                  <small>Caveats: {transition.caveats.join(" · ")}</small>
+                ) : null}
               </div>
               <a className="text-link" href={`/runs/${run.id}`}>
                 Run {run.id.slice(0, 8)} →
               </a>
             </article>
-          ))}
+            );
+          })}
           {history.runs.length === 0 ? (
             <div className="empty-state">No sealed public Runs exist for this pair yet.</div>
           ) : null}

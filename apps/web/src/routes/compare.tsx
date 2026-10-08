@@ -4,13 +4,20 @@ import {
   compareArchive,
   compareArchiveHistory,
   getArchiveCatalog,
+  getArchiveComparabilityPolicies,
   type ArchiveComparison,
   type ArchiveRun,
   type ArchiveTemporalComparison,
 } from "../modelapse";
 
 export const Route = createFileRoute("/compare")({
-  loader: () => getArchiveCatalog(),
+  loader: async () => {
+    const [catalog, policies] = await Promise.all([
+      getArchiveCatalog(),
+      getArchiveComparabilityPolicies(),
+    ]);
+    return { catalog, policies };
+  },
   component: ArchiveComparePage,
 });
 
@@ -37,15 +44,44 @@ function contextRelation(
   run: ArchiveRun,
   reference: ArchiveRun | null,
 ): "matched" | "mismatched" | "unknown" {
-  const context = run.executionQualification?.contextKey;
-  const referenceContext = reference?.executionQualification?.contextKey;
-  if (!context || !referenceContext) return "unknown";
-  return context === referenceContext ? "matched" : "mismatched";
+  if (!reference) return "unknown";
+  const execution = (value: ArchiveRun): readonly (string | null)[] => [
+    value.executionPath,
+    value.executionQualification?.executionRegion ?? null,
+    value.executionQualification?.accountTier ?? null,
+    value.executionQualification?.returnedServiceTier ??
+      value.executionQualification?.serviceTier ?? null,
+    value.executionQualification?.serviceAssurance ?? null,
+  ];
+  const current = execution(run);
+  const baseline = execution(reference);
+  const assurance = run.executionQualification?.serviceAssurance;
+  const baselineAssurance = reference.executionQualification?.serviceAssurance;
+  if (
+    current.some((value) => value === null) ||
+    baseline.some((value) => value === null) ||
+    !["documented_default", "documented_variant"].includes(assurance ?? "") ||
+    !["documented_default", "documented_variant"].includes(
+      baselineAssurance ?? "",
+    )
+  ) {
+    return "unknown";
+  }
+  return current.every((value, index) => value === baseline[index])
+    ? "matched"
+    : "mismatched";
 }
 
 function ArchiveComparePage() {
-  const catalog = Route.useLoaderData();
-  const defaultModelIds = catalog.models.slice(0, 2).map((model) => model.id);
+  const { catalog, policies } = Route.useLoaderData();
+  const firstModel = catalog.models[0];
+  const secondModel =
+    catalog.models.find(
+      (model) => firstModel && model.provider.id !== firstModel.provider.id,
+    ) ?? catalog.models[1];
+  const defaultModelIds = [firstModel?.id, secondModel?.id].filter(
+    (id): id is string => Boolean(id),
+  );
   const comparableTests = catalog.tests.filter(
     (test) => test.category !== "calibration",
   );
@@ -53,6 +89,7 @@ function ArchiveComparePage() {
   const [testCaseId, setTestCaseId] = useState(
     comparableTests[0]?.testCaseId ?? "",
   );
+  const [policyVersion, setPolicyVersion] = useState(policies[0]?.version ?? "");
   const [comparison, setComparison] = useState<ArchiveComparison | null>(null);
   const [temporal, setTemporal] = useState<ArchiveTemporalComparison | null>(null);
   const [busy, setBusy] = useState(false);
@@ -90,6 +127,7 @@ function ArchiveComparePage() {
           data: {
             modelIds,
             testCaseId,
+            ...(policyVersion ? { policyVersion } : {}),
           },
         }),
         compareArchiveHistory({
@@ -169,6 +207,28 @@ function ArchiveComparePage() {
             </select>
             <small>
               Latest comparison and temporal lanes use this exact public Test Case.
+            </small>
+          </label>
+          <label>
+            <span>Comparability policy</span>
+            <select
+              value={policyVersion}
+              onChange={(event) => {
+                setPolicyVersion(event.target.value);
+                setComparison(null);
+                setTemporal(null);
+                setError(null);
+              }}
+            >
+              {policies.map((policy) => (
+                <option key={policy.id} value={policy.version}>
+                  {policy.version} · E{policy.minimumEvidenceLevel.slice(1)}+
+                </option>
+              ))}
+            </select>
+            <small>
+              Versioned eligibility rules, not a model score. Earlier policy versions
+              remain selectable for re-evaluating historical Runs.
             </small>
           </label>
 
@@ -253,7 +313,7 @@ function ArchiveComparePage() {
               <span>
                 {comparison.comparabilitySet.reasons.length > 0
                   ? comparison.comparabilitySet.reasons.join(" · ")
-                  : "All selected latest Runs satisfy the current set policy."}
+                  : "All selected latest Runs satisfy this policy. This is not a quality ranking."}
               </span>
             </div>
             <div className="comparison-grid">
@@ -309,6 +369,25 @@ function ArchiveComparePage() {
                           <dd>{run.executionPath}</dd>
                         </div>
                         <div>
+                          <dt>Region / account</dt>
+                          <dd>
+                            {run.executionQualification?.executionRegion ?? "unknown"}
+                            {" · "}
+                            {run.executionQualification?.accountTier ?? "unknown"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Service / assurance</dt>
+                          <dd>
+                            {run.executionQualification?.returnedServiceTier ??
+                              run.executionQualification?.serviceTier ??
+                              "unknown"}
+                            {" · "}
+                            {run.executionQualification?.serviceAssurance ??
+                              "unknown"}
+                          </dd>
+                        </div>
+                        <div>
                           <dt>Evaluator</dt>
                           <dd>
                             {run.evaluation
@@ -335,9 +414,21 @@ function ArchiveComparePage() {
                       </dl>
                       {row.comparability?.reasons.length ? (
                         <p className="section-note">
-                          {row.comparability.reasons.join(" · ")}
+                          Comparability: {row.comparability.reasons.join(" · ")}
                         </p>
                       ) : null}
+                      <p className="section-note">
+                        Execution caveats:{" "}
+                        {run.executionQualification
+                          ? run.executionQualification.caveats.join(" · ") || "none reported"
+                          : "qualification unavailable"}
+                      </p>
+                      <p className="section-note">
+                        Cost caveats:{" "}
+                        {run.cost
+                          ? run.cost.caveats.join(" · ") || "none reported"
+                          : "cost evidence unavailable"}
+                      </p>
                     </>
                   ) : (
                     <div className="comparison-empty">
@@ -408,10 +499,24 @@ function ArchiveComparePage() {
                       <small>
                         {run.evidenceLevel ?? "—"} · {run.returnedModel ?? run.requestedModel}
                         {" · "}
-                        {run.executionQualification?.contextKey
-                          ? "context captured"
-                          : "context unknown"}
+                        context {row.contextTransitions[index]?.status ?? "unknown"}
                       </small>
+                      {row.contextTransitions[index]?.changes.map((change) => (
+                        <small key={change.field}>
+                          {change.kind} · {change.field.replaceAll("_", " ")}:
+                          {" "}{change.previous} → {change.current}
+                        </small>
+                      ))}
+                      {row.contextTransitions[index]?.unknownFields.length ? (
+                        <small>
+                          Unknown: {row.contextTransitions[index]?.unknownFields.join(", ")}
+                        </small>
+                      ) : null}
+                      {row.contextTransitions[index]?.caveats.length ? (
+                        <small>
+                          Caveats: {row.contextTransitions[index]?.caveats.join(" · ")}
+                        </small>
+                      ) : null}
                     </a>
                   ))}
                   {row.runs.length === 0 ? (

@@ -470,6 +470,25 @@ describe("Archive comparability policy", () => {
     expect(regionMismatch?.comparabilitySet.status).toBe("mismatched");
     expect(regionMismatch?.comparabilitySet.reasons).toContain("region_mismatch");
 
+    const modelHistory = await archive.getRunHistory({
+      modelId: models[1]!,
+      testCaseId: benchmarkCase.rows[0]!.id,
+    });
+    expect(modelHistory?.runs).toHaveLength(2);
+    expect(modelHistory?.contextTransitions).toHaveLength(2);
+    expect(modelHistory?.contextTransitions[0]?.status).toBe("baseline");
+    expect(modelHistory?.contextTransitions[1]).toMatchObject({
+      status: "changed",
+      changes: expect.arrayContaining([
+        {
+          field: "region",
+          previous: "US",
+          current: "JP",
+          kind: "execution",
+        },
+      ]),
+    });
+
     const custom = await policies.recordPolicy({
       version: "comparability-integration-" + suffix,
       minimumEvidenceLevel: "E4",

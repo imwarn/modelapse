@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Pool } from "pg";
 import type { ComparabilityPolicyView } from "./comparability-repository.js";
+import { archiveContextTransitions, type ArchiveContextTransition } from "./archive-context-transitions.js";
 
 export interface ArchiveModelView {
   readonly id: string;
@@ -457,6 +458,7 @@ export interface ArchiveRunHistoryView {
   readonly model: ArchiveModelView;
   readonly test: ArchiveTestView;
   readonly runs: readonly ArchiveRunView[];
+  readonly contextTransitions: readonly ArchiveContextTransition[];
   readonly relations: readonly ArchiveRunRelationEdgeView[];
 }
 
@@ -1382,6 +1384,7 @@ export class PgArchiveRepository {
       model,
       test,
       runs,
+      contextTransitions: archiveContextTransitions(runs),
       relations,
     };
   }
