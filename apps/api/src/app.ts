@@ -120,6 +120,8 @@ type ArchiveRepository = Pick<
   | "listTests"
   | "listRuns"
   | "researchRuns"
+  | "researchFacets"
+  | "assessResearchRuns"
   | "listCatalogChanges"
   | "getRun"
   | "getModel"
@@ -415,6 +417,64 @@ export function createApp(deps: AppDependencies) {
       }
       throw error;
     }
+  });
+
+  app.get("/v1/archive/research/facets", async (c) => {
+    if (!deps.archive) return c.json({ error: "archive_unavailable" }, 503);
+    const query = c.req.query();
+    const filters: ArchiveResearchFilters = {
+      ...(query.provider !== undefined ? { providerSlug: query.provider } : {}),
+      ...(query.modelId !== undefined ? { modelId: query.modelId } : {}),
+      ...(query.testCaseId !== undefined ? { testCaseId: query.testCaseId } : {}),
+      ...(query.evidence !== undefined
+        ? { evidence: query.evidence as NonNullable<ArchiveResearchFilters["evidence"]> }
+        : {}),
+      ...(query.region !== undefined ? { region: query.region } : {}),
+      ...(query.accountTier !== undefined ? { accountTier: query.accountTier } : {}),
+      ...(query.serviceTier !== undefined ? { serviceTier: query.serviceTier } : {}),
+      ...(query.cost !== undefined
+        ? { cost: query.cost as NonNullable<ArchiveResearchFilters["cost"]> }
+        : {}),
+      ...(query.cursor !== undefined ? { cursor: query.cursor } : {}),
+    };
+    try {
+      const validated = validateArchiveResearchFilters(filters);
+      if (validated.cursor !== undefined) {
+        return c.json({ error: "invalid_research_facet_cursor" }, 400);
+      }
+      return c.json({ facets: await deps.archive.researchFacets(validated) });
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("invalid_")) {
+        return c.json({ error: error.message }, 400);
+      }
+      throw error;
+    }
+  });
+
+  app.get("/v1/archive/research/collections/:collectionId/assessment", async (c) => {
+    if (!deps.researchCollections || !deps.archive) {
+      return c.json({ error: "research_collections_unavailable" }, 503);
+    }
+    const id = c.req.param("collectionId");
+    if (!UUID_RE.test(id)) {
+      return c.json({ error: "invalid_research_collection_id" }, 400);
+    }
+    const policyVersion = c.req.query("policyVersion");
+    if (policyVersion !== undefined && !/^[a-z0-9][a-z0-9._-]*$/.test(policyVersion)) {
+      return c.json({ error: "invalid_policy_version" }, 400);
+    }
+    const collection = await deps.researchCollections.get(id);
+    if (!collection) return c.json({ error: "research_collection_not_found" }, 404);
+    const assessment = await deps.archive.assessResearchRuns(
+      collection.runIds,
+      policyVersion,
+    );
+    if (!assessment) return c.json({ error: "comparability_policy_not_found" }, 404);
+    return c.json({
+      collectionId: collection.id,
+      manifestSha256: collection.contentSha256,
+      assessment,
+    });
   });
 
   app.get("/v1/archive/changes", async (c) => {
