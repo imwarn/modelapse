@@ -15,7 +15,7 @@ const mockRun: ArchiveRunView = {
   model: { id: null, canonicalSlug: "test", marketingName: "Test" },
   test: {
     testCaseId: "00000000-0000-4000-8000-000000000403",
-    familySlug: "smoke", variantSlug: "text", version: "1.0.0",
+    familySlug: "smoke", familyName: "Smoke", variantSlug: "text", variantName: "Text", version: "1.0.0",
     caseSlug: "exact",
   },
   requestedModel: "test",
