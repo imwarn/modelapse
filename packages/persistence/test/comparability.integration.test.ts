@@ -594,6 +594,47 @@ describe("Archive comparability policy", () => {
       ),
     ).rejects.toThrow(/sealed public non-calibration Runs/i);
 
+    const facets = await archive.researchFacets({
+      providerSlug: "comparability-provider-" + suffix + "-2",
+      testCaseId: benchmarkCase.rows[0]!.id,
+    });
+    expect(facets).toMatchObject({
+      scope: "sealed_public_non_calibration",
+      counting: "matching_runs_all_pages",
+      totalMatches: 2,
+      perFacetLimit: 25,
+    });
+    expect(facets.facets.provider.values).toEqual([{
+      value: "comparability-provider-" + suffix + "-2",
+      count: 2,
+    }]);
+    expect(facets.facets.region.values).toEqual(
+      expect.arrayContaining([
+        { value: "US", count: 1 },
+        { value: "JP", count: 1 },
+      ]),
+    );
+    expect(facets.facets.evidence.values).toEqual([
+      { value: "E4+", count: 2 },
+    ]);
+    const regionalFacets = await archive.researchFacets({
+      testCaseId: benchmarkCase.rows[0]!.id,
+      region: "JP",
+      evidence: "E4+",
+    });
+    expect(regionalFacets.totalMatches).toBe(1);
+    expect(regionalFacets.facets.region.values).toEqual([
+      { value: "JP", count: 1 },
+    ]);
+    const emptyFacets = await archive.researchFacets({
+      providerSlug: "provider-not-present-" + suffix,
+    });
+    expect(emptyFacets.totalMatches).toBe(0);
+    expect(emptyFacets.facets.provider.values).toEqual([]);
+    await expect(
+      archive.researchFacets({ cursor: research.nextCursor! }),
+    ).rejects.toThrow("invalid_research_facet_cursor");
+
     const custom = await policies.recordPolicy({
       version: "comparability-integration-" + suffix,
       minimumEvidenceLevel: "E4",
@@ -611,6 +652,29 @@ describe("Archive comparability policy", () => {
       actor: "comparability-integration",
     });
     expect(custom.version).toBe("comparability-integration-" + suffix);
+
+    const annotated = await archive.assessResearchRuns(
+      [research.runs[0]!.id, older.runs[0]!.id],
+      custom.version,
+    );
+    expect(annotated).toMatchObject({
+      scope: "per_run_only_not_cross_provider_match",
+      collectionRunCount: 2,
+      policy: { version: custom.version },
+      rows: [
+        { runId: research.runs[0]!.id },
+        { runId: older.runs[0]!.id },
+      ],
+    });
+    expect(annotated!.rows.every((item) =>
+      ["eligible", "unknown", "ineligible"].includes(item.comparability.status),
+    )).toBe(true);
+    expect(annotated!.rows.every((item) =>
+      item.comparability.repeatCount >= 1,
+    )).toBe(true);
+    expect(await archive.assessResearchRuns(
+      [research.runs[0]!.id], "unknown-policy-" + suffix,
+    )).toBeNull();
 
     await expect(
       pool.query(
