@@ -19,22 +19,27 @@ type ResearchSearch = {
 };
 
 function researchSearch(query: Record<string, unknown>): ResearchSearch {
-  const text = (key: string) =>
+  const value = (key: string) =>
     typeof query[key] === "string" ? (query[key] as string) : undefined;
-  const evidence = text("evidence");
-  const cost = text("cost");
+  const provider = value("provider");
+  const modelId = value("modelId");
+  const testCaseId = value("testCaseId");
+  const evidence = value("evidence");
+  const region = value("region");
+  const accountTier = value("accountTier");
+  const serviceTier = value("serviceTier");
+  const cost = value("cost");
+  const cursor = value("cursor");
   return {
-    ...(text("provider") ? { provider: text("provider") } : {}),
-    ...(text("modelId") ? { modelId: text("modelId") } : {}),
-    ...(text("testCaseId") ? { testCaseId: text("testCaseId") } : {}),
-    ...(evidence === "E4+" || evidence === "missing"
-      ? { evidence }
-      : {}),
-    ...(text("region") ? { region: text("region") } : {}),
-    ...(text("accountTier") ? { accountTier: text("accountTier") } : {}),
-    ...(text("serviceTier") ? { serviceTier: text("serviceTier") } : {}),
+    ...(provider ? { provider } : {}),
+    ...(modelId ? { modelId } : {}),
+    ...(testCaseId ? { testCaseId } : {}),
+    ...(evidence === "E4+" || evidence === "missing" ? { evidence } : {}),
+    ...(region ? { region } : {}),
+    ...(accountTier ? { accountTier } : {}),
+    ...(serviceTier ? { serviceTier } : {}),
     ...(cost === "estimated" || cost === "unknown" ? { cost } : {}),
-    ...(text("cursor") ? { cursor: text("cursor") } : {}),
+    ...(cursor ? { cursor } : {}),
   };
 }
 
