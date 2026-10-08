@@ -546,6 +546,38 @@ describe("Archive read API", () => {
           hasMore: false,
           scope: "sealed_public_non_calibration",
         }),
+        researchFacets: async () => ({
+          scope: "sealed_public_non_calibration" as const,
+          counting: "matching_runs_all_pages" as const,
+          totalMatches: 1,
+          perFacetLimit: 25 as const,
+          facets: {
+            provider: { values: [{ value: "deepseek", count: 1 }], truncated: false },
+            model: { values: [{ value: MODEL_ID, count: 1 }], truncated: false },
+            test: { values: [{ value: TEST_CASE_ID, count: 1 }], truncated: false },
+            evidence: { values: [{ value: "E4+", count: 1 }], truncated: false },
+            region: { values: [{ value: "US", count: 1 }], truncated: false },
+            accountTier: { values: [], truncated: false },
+            serviceTier: { values: [], truncated: false },
+            serviceAssurance: { values: [], truncated: false },
+            cost: { values: [{ value: "unknown", count: 1 }], truncated: false },
+          },
+        }),
+        assessResearchRuns: async () => ({
+          policy: archiveComparison.policy,
+          scope: "per_run_only_not_cross_provider_match" as const,
+          collectionRunCount: 1,
+          rows: [{
+            runId: RUN_ID,
+            comparability: {
+              status: "unknown" as const,
+              reasons: ["recent_calibration_missing"],
+              repeatCount: 1,
+              requiredRepeatCount: 1,
+              calibration: null,
+            },
+          }],
+        }),
         listCatalogChanges: async () => [archiveCatalogChange],
         getRun: async (runId) => (runId === RUN_ID ? archiveRun : null),
         getModel: async (modelId) =>
@@ -572,6 +604,18 @@ describe("Archive read API", () => {
           evaluator: { slug: "exact-text" },
         },
       ],
+    });
+
+    const facets = await app.request(
+      `/v1/archive/research/facets?provider=deepseek&region=US`,
+    );
+    expect(facets.status).toBe(200);
+    await expect(facets.json()).resolves.toMatchObject({
+      facets: {
+        scope: "sealed_public_non_calibration",
+        totalMatches: 1,
+        facets: { provider: { values: [{ value: "deepseek", count: 1 }] } },
+      },
     });
 
     const changes = await app.request(
@@ -667,6 +711,18 @@ describe("Archive read API", () => {
           hasMore: false,
           scope: "sealed_public_non_calibration",
         }),
+        researchFacets: async () => ({
+          scope: "sealed_public_non_calibration" as const,
+          counting: "matching_runs_all_pages" as const,
+          totalMatches: 0,
+          perFacetLimit: 25 as const,
+          facets: Object.fromEntries(
+            ["provider","model","test","evidence","region","accountTier","serviceTier","serviceAssurance","cost"].map(key =>
+              [key, { values: [], truncated: false }],
+            ),
+          ) as never,
+        }),
+        assessResearchRuns: async () => null,
         listCatalogChanges: async () => [],
         getRun: async () => null,
         getModel: async () => null,
@@ -678,6 +734,12 @@ describe("Archive read API", () => {
 
     expect(
       (await app.request("/v1/archive/runs?modelId=nope")).status,
+    ).toBe(400);
+    expect(
+      (await app.request("/v1/archive/research/facets?cursor=not-a-cursor!")).status,
+    ).toBe(400);
+    expect(
+      (await app.request("/v1/archive/research/facets?evidence=E7")).status,
     ).toBe(400);
     for (const query of [
       "limit=51",
@@ -754,6 +816,44 @@ describe("Archive v0.27 immutable research collections API", () => {
     const app = createApp({
       runs: baseRuns(),
       controlToken: "control-secret",
+      archive: {
+        ping: async () => undefined,
+        listModels: async () => [],
+        listTests: async () => [],
+        listRuns: async () => [],
+        researchRuns: async () => ({
+          runs: [], nextCursor: null, hasMore: false,
+          scope: "sealed_public_non_calibration" as const,
+        }),
+        researchFacets: async () => ({
+          scope: "sealed_public_non_calibration" as const,
+          counting: "matching_runs_all_pages" as const,
+          totalMatches: 0,
+          perFacetLimit: 25 as const,
+          facets: {} as never,
+        }),
+        assessResearchRuns: async () => ({
+          policy: archiveComparison.policy,
+          scope: "per_run_only_not_cross_provider_match" as const,
+          collectionRunCount: 1,
+          rows: [{
+            runId: RUN_ID,
+            comparability: {
+              status: "unknown" as const,
+              reasons: ["recent_calibration_missing"],
+              repeatCount: 1,
+              requiredRepeatCount: 1,
+              calibration: null,
+            },
+          }],
+        }),
+        listCatalogChanges: async () => [],
+        getRun: async () => null,
+        getModel: async () => null,
+        getTest: async () => null,
+        compareLatest: async () => null,
+        getRunHistory: async () => null,
+      },
       researchCollections: {
         ping: async () => undefined,
         list: async () => [{ ...collection }],
@@ -778,6 +878,22 @@ describe("Archive v0.27 immutable research collections API", () => {
       collection: { id, runs: [{ id: RUN_ID }] },
     });
 
+    const annotated = await app.request(
+      "/v1/archive/research/collections/" + id +
+      "/assessment?policyVersion=" + archiveComparison.policy.version,
+    );
+    expect(annotated.status).toBe(200);
+    await expect(annotated.json()).resolves.toMatchObject({
+      collectionId: id,
+      manifestSha256: collection.contentSha256,
+      assessment: {
+        scope: "per_run_only_not_cross_provider_match",
+        rows: [{ runId: RUN_ID, comparability: { status: "unknown" } }],
+      },
+    });
+    expect((await app.request(
+      "/v1/archive/research/collections/" + id + "/assessment?policyVersion=BAD",
+    )).status).toBe(400);
     const json = await app.request(
       "/v1/archive/research/collections/" + id + "/export?format=json",
     );
