@@ -301,9 +301,17 @@ With the access/cost/qualification layers in place, the public cross-provider co
 
 Longitudinal views explicitly derive field-level changes from frozen Run qualification snapshots (Fleet, region, account/service tier and assurance), and separately label Provider policy/runner/capability evidence refreshes. Unknown context remains unknown; an environment change is not attributed to the Model.
 
-### Archive v0.26+ — Broader public research surfaces
+### Archive v0.26 — Public Research Explorer
 
-Grow benchmark-style exploration carefully from the existing per-Test comparability and evidence-first temporal views, without treating heterogeneous Test results as one ranking. Continue to make cost, availability, registration and calibration limitations explicit alongside the records.
+**Implemented:** see `docs/public-research-explorer.md` and ADR 0022.
+
+The new `/research` public surface supports server-side bounded browsing of sealed non-calibration Runs by Provider, Model, exact Test Case, evidence level, historical region/account/service tier, and native cost-estimate availability.
+
+Every research row shows qualification and cost caveats and links into immutable Run, Model, Test, History and same-Test Compare. Reproducible URL filters, deterministic keyset pagination and dedicated indexes support broader discovery without ranking Models or equating collection volume with quality.
+
+### Archive v0.27+ — Extended research workflows
+
+Consider saved/shareable research collections, sourced CSV/JSON exports, typed facet discovery, and richer policy-aware comparisons while preserving the evidence-first, no-aggregate-ranking boundary. Continue to make registration, account, region and calibration restrictions explicit.
 
 ## Scheduling principle
 
