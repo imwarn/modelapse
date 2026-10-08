@@ -531,7 +531,7 @@ describe("Archive comparability policy", () => {
     expect(regionSlice.runs[0]?.executionQualification?.executionRegion).toBe("JP");
 
     const calibrationExcluded = await archive.researchRuns({
-      modelId: models[0],
+      modelId: models[0]!,
       evidence: "any",
     });
     expect(
